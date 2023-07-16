@@ -5,4 +5,5 @@
 #![allow(clippy::iter_with_drain)]
 
 pub mod env;
+pub mod eval;
 
