@@ -12,12 +12,35 @@ pub enum Eval {
 
 impl Eval {
     #[must_use]
-    pub fn parent_view(&self) -> Self {
+    pub fn negate(&self) -> Self {
         match *self {
             Self::Value(value) => Self::Value(-value),
             Self::Win(ply) => Self::Loss(ply + 1),
-            draw @ Self::Draw(_) => Self::Value(draw.into()),
-            loss @ Self::Loss(_) => Self::Value(loss.into()),
+            Self::Draw(ply) => Self::Draw(ply + 1),
+            Self::Loss(ply) => Self::Win(ply + 1),
+        }
+    }
+
+    #[must_use]
+    pub const fn is_win(&self) -> bool {
+        matches!(self, Self::Win(_))
+    }
+
+    #[must_use]
+    pub const fn is_draw(&self) -> bool {
+        matches!(self, Self::Draw(_))
+    }
+
+    #[must_use]
+    pub const fn is_loss(&self) -> bool {
+        matches!(self, Self::Loss(_))
+    }
+
+    #[must_use]
+    pub const fn ply(&self) -> Option<u32> {
+        match self {
+            Self::Value(_) => None,
+            Self::Win(ply) | Self::Draw(ply) | Self::Loss(ply) => Some(*ply),
         }
     }
 }

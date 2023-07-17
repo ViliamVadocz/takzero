@@ -3,9 +3,9 @@ use float_ord::FloatOrd;
 use crate::{agent::Agent, env::Environment, eval::Eval};
 
 pub struct Node<E: Environment> {
-    pub visit_count: u32, // N(s, a)
-    pub evaluation: Eval, // Q(s, a)
-    pub policy: f32,      // P(s, a)
+    pub evaluation: Eval, // Q(s)
+    pub visit_count: u32, // N(s_prev, a)
+    pub policy: f32,      // P(s_prev, a)
     pub children: Box<[(E::Action, Self)]>,
 }
 
@@ -42,68 +42,52 @@ impl<E: Environment> Node<E> {
     }
 
     fn update_mean_value(&mut self, value: f32) {
-        #[allow(clippy::cast_precision_loss)]
-        if let Eval::Value(mean_value) = &mut self.evaluation {
-            *mean_value =
-                mean_value.mul_add((self.visit_count - 1) as f32, value) / self.visit_count as f32;
-        }
+        #![allow(clippy::cast_precision_loss)]
+        let Eval::Value(mean_value) = &mut self.evaluation else {
+            unreachable!("Updating the mean value doesn't make sense if the result is known");
+        };
+        *mean_value =
+            mean_value.mul_add((self.visit_count - 1) as f32, value) / self.visit_count as f32;
     }
 
     fn propagate_child_eval(&mut self, child_eval: Eval) -> Eval {
-        let parent_view = child_eval.parent_view();
-        self.update_mean_value(parent_view.into());
+        self.update_mean_value(child_eval.negate().into());
         let evaluations = self.children.iter().map(|(_, node)| node.evaluation);
 
-        // Terminal node solver.
         match child_eval {
-            // Opponent has a winning move, so this is position is a loss.
-            Eval::Win(_) => {
-                self.evaluation = parent_view;
-                return parent_view;
+            // This move made the opponent lose, so this position is a win.
+            Eval::Loss(_) => {
+                self.evaluation = child_eval.negate();
+                self.evaluation
             }
 
-            // If all moves are losing for the opponent, this is a winning position.
-            Eval::Loss(ply)
-                if evaluations
-                    .clone()
-                    .all(|eval| matches!(eval, Eval::Loss(_))) =>
-            {
-                let win = Eval::Win(
+            // If all moves lead to wins for the opponent, this node is a loss.
+            Eval::Win(_) if evaluations.clone().all(|e| e.is_win()) => {
+                self.evaluation = Eval::Loss(
                     1 + evaluations
-                        .map(|eval| match eval {
-                            Eval::Loss(ply) => ply,
-                            _ => unreachable!(),
-                        })
+                        .filter_map(|e| e.ply())
                         .max()
-                        .unwrap_or(ply),
+                        .expect("There should be child evaluations."),
                 );
-                self.evaluation = win;
-                return win;
+                self.evaluation
             }
 
-            // If all options are either a draw or a loss, this node is a draw.
-            Eval::Draw(ply) | Eval::Loss(ply)
-                if evaluations
-                    .clone()
-                    .all(|eval| matches!(eval, Eval::Draw(_) | Eval::Loss(_))) =>
+            // If all moves lead to wins or draws for the opponent, we choose to draw.
+            Eval::Draw(_) | Eval::Win(_)
+                if evaluations.clone().all(|e| e.is_win() || e.is_draw()) =>
             {
-                let draw = Eval::Draw(
+                self.evaluation = Eval::Draw(
                     1 + evaluations
-                        .filter_map(|eval| match eval {
-                            Eval::Draw(ply) => Some(ply),
-                            _ => None,
-                        })
-                        .min()
-                        .unwrap_or(ply),
+                        .filter_map(|e| e.is_draw().then(|| e.ply().unwrap()))
+                        .max()
+                        .expect("There should be at least one draw."),
                 );
-                self.evaluation = draw;
-                return draw;
+                self.evaluation
             }
 
-            _ => {}
-        };
-
-        parent_view
+            // Otherwise this position is not know and we just back-propagate the child result.
+            _ => Eval::Value(child_eval.negate().into()),
+        }
     }
 
     pub fn simulate<A: Agent<E>>(
@@ -118,7 +102,8 @@ impl<E: Environment> Node<E> {
             self.visit_count += 1;
             // Check if the position is terminal.
             if let Some(terminal) = env.terminal() {
-                return self.propagate_child_eval(terminal.into());
+                self.evaluation = terminal.into();
+                return self.evaluation;
             }
 
             let policy = agent.policy(&env);
@@ -128,7 +113,10 @@ impl<E: Environment> Node<E> {
                 .drain(..)
                 .map(|action| (action.clone(), Self::from_policy(policy[action])))
                 .collect();
-            return Eval::Value(agent.value(&env));
+
+            // Get static evaluation from agent.
+            self.evaluation = Eval::Value(agent.value(&env));
+            return self.evaluation;
         }
         self.visit_count += 1;
 
@@ -150,3 +138,67 @@ impl<E: Environment> Node<E> {
         self.propagate_child_eval(child_eval)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use fast_tak::Game;
+
+    use crate::{agent::dummy::Dummy, eval::Eval, mcts::Node};
+
+    #[test]
+    fn find_tinue_easy() {
+        const MAX_VISITS: usize = 3_000;
+
+        let game: Game<3, 0> = Game::from_ptn_moves(&["a3", "c1", "c2", "c3", "b3", "c3-"]);
+        let mut root = Node::default();
+        let mut actions = Vec::new();
+
+        #[allow(clippy::maybe_infinite_iter)]
+        (0..MAX_VISITS)
+            .find(|_| {
+                matches!(
+                    root.simulate(game.clone(), &mut actions, &Dummy),
+                    Eval::Win(_)
+                )
+            })
+            .expect("This position is solvable with MAX_VISITS.");
+
+        assert_eq!(
+            root.children
+                .iter()
+                .find(|(_, node)| node.evaluation.is_loss())
+                .unwrap()
+                .0,
+            "b1".parse().unwrap(),
+        );
+    }
+
+    #[test]
+    fn find_tinue_harder() {
+        const MAX_VISITS: usize = 300_000;
+
+        let game: Game<3, 0> = Game::from_ptn_moves(&["a3", "a1", "b1", "c1"]);
+        let mut root = Node::default();
+        let mut actions = Vec::new();
+
+        #[allow(clippy::maybe_infinite_iter)]
+        (0..MAX_VISITS)
+            .find(|_| {
+                matches!(
+                    root.simulate(game.clone(), &mut actions, &Dummy),
+                    Eval::Win(_)
+                )
+            })
+            .expect("This position is solvable with MAX_VISITS.");
+
+        assert_eq!(
+            root.children
+                .iter()
+                .find(|(_, node)| node.evaluation.is_loss())
+                .unwrap()
+                .0,
+            "c2".parse().unwrap(),
+        );
+    }
+}
+

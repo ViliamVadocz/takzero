@@ -36,7 +36,6 @@ where
     fn terminal(&self) -> Option<Terminal> {
         match self.result() {
             fast_tak::GameResult::Winner { color, .. } => {
-                // TODO: Why should this be switched around??
                 if color == self.to_move {
                     Some(Terminal::Win)
                 } else {
