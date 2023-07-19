@@ -1,0 +1,8 @@
+[package]
+name = "takzero"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fast-tak = "0.3.2"
+# tch = "0.13"
