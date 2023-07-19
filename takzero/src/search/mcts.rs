@@ -1,6 +1,6 @@
 use float_ord::FloatOrd;
 
-use crate::{agent::Agent, env::Environment, eval::Eval};
+use super::{agent::Agent, env::Environment, eval::Eval};
 
 pub struct Node<E: Environment> {
     pub evaluation: Eval, // Q(s)
@@ -143,7 +143,7 @@ impl<E: Environment> Node<E> {
 mod tests {
     use fast_tak::Game;
 
-    use crate::{agent::dummy::Dummy, eval::Eval, mcts::Node};
+    use super::super::{agent::dummy::Dummy, eval::Eval, mcts::Node};
 
     #[test]
     fn find_tinue_easy() {

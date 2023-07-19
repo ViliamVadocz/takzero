@@ -1,6 +1,6 @@
 use std::ops::Index;
 
-use crate::env::Environment;
+use super::env::Environment;
 
 pub trait Agent<E: Environment> {
     type Policy: Index<E::Action, Output = f32>;
@@ -12,8 +12,7 @@ pub trait Agent<E: Environment> {
 pub mod dummy {
     use std::ops::Index;
 
-    use super::Agent;
-    use crate::env::Environment;
+    use super::{super::env::Environment, Agent};
 
     pub struct Dummy;
 

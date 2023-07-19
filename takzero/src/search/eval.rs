@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::env::Terminal;
+use super::env::Terminal;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Eval {
