@@ -9,6 +9,31 @@ pub struct Node<E: Environment> {
     pub children: Box<[(E::Action, Self)]>,
 }
 
+impl<E: Environment> std::fmt::Debug for Node<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Node")
+            .field("visit_count", &self.visit_count)
+            .field("evaluation", &self.evaluation)
+            .field("policy", &self.policy)
+            .field("children", &self.children.len())
+            .finish()
+    }
+}
+
+// TODO: Improve this
+impl<E: Environment> std::fmt::Display for Node<E>
+where
+    E::Action: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{self:?}")?;
+        for (mov, node) in &*self.children {
+            writeln!(f, "{mov}\t{node:?}")?;
+        }
+        Ok(())
+    }
+}
+
 impl<E: Environment> Default for Node<E> {
     fn default() -> Self {
         Self {
@@ -30,11 +55,13 @@ impl<E: Environment> Node<E> {
     }
 
     #[inline]
-    const fn needs_initialization(&self) -> bool {
+    #[must_use]
+    pub const fn needs_initialization(&self) -> bool {
         self.visit_count == 0
     }
 
-    const fn is_known(&self) -> bool {
+    #[must_use]
+    pub const fn is_known(&self) -> bool {
         match self.evaluation {
             Eval::Value(_) => false,
             Eval::Win(_) | Eval::Draw(_) | Eval::Loss(_) => true,
@@ -201,4 +228,3 @@ mod tests {
         );
     }
 }
-

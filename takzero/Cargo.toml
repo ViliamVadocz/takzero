@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 float-ord = "0.3.2"
+# ordered-float = "3.7.0"
 fast-tak = "0.3.2"
 rand_distr = "0.4.3"
 rand = "0.8.5"
