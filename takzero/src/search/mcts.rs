@@ -57,7 +57,7 @@ impl<E: Environment> Node<E> {
     #[inline]
     #[must_use]
     pub const fn needs_initialization(&self) -> bool {
-        self.visit_count == 0
+        self.visit_count <= 1
     }
 
     #[must_use]
@@ -123,10 +123,13 @@ impl<E: Environment> Node<E> {
         actions: &mut Vec<E::Action>,
         agent: &A,
     ) -> Eval {
-        debug_assert!(!self.is_known(), "Simulating a known result is useless.");
+        self.visit_count += 1;
+        if self.is_known() {
+            debug_assert!(!self.evaluation.is_win(), "Simulating known wins is useless because the action leading to this state should never be taken.");
+            return self.evaluation;
+        }
 
         if self.needs_initialization() {
-            self.visit_count += 1;
             // Check if the position is terminal.
             if let Some(terminal) = env.terminal() {
                 self.evaluation = terminal.into();
@@ -145,13 +148,12 @@ impl<E: Environment> Node<E> {
             self.evaluation = Eval::Value(agent.value(&env));
             return self.evaluation;
         }
-        self.visit_count += 1;
 
         // Select action proportionally to policy.
         let Some((action, node)) = self
             .children
             .iter_mut()
-            .filter(|(_, node)| !node.is_known())
+            .filter(|(_, node)| !node.evaluation.is_win()) // Prune only losing moves to preserve optimality.
             .max_by_key(|(_, node)| {
                 #[allow(clippy::cast_precision_loss)]
                 FloatOrd(node.policy - node.visit_count as f32 / ((self.visit_count + 1) as f32))
