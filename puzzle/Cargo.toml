@@ -1,0 +1,10 @@
+[package]
+name = "puzzle"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fast-tak = "0.3.2"
+takzero = { path = "../takzero" }
+mimalloc = { version = "0.1.37", default-features = false }
+sqlite = "0.31.0"
