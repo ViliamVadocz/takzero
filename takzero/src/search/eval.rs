@@ -37,10 +37,23 @@ impl Eval {
     }
 
     #[must_use]
+    pub const fn is_known(&self) -> bool {
+        matches!(self, Self::Win(_) | Self::Draw(_) | Self::Loss(_))
+    }
+
+    #[must_use]
     pub const fn ply(&self) -> Option<u32> {
         match self {
             Self::Value(_) => None,
             Self::Win(ply) | Self::Draw(ply) | Self::Loss(ply) => Some(*ply),
+        }
+    }
+
+    #[must_use]
+    pub fn map<F: Fn(f32) -> f32>(self, f: F) -> Self {
+        match self {
+            Self::Value(x) => Self::Value(f(x)),
+            eval => eval,
         }
     }
 }

@@ -8,7 +8,7 @@ pub trait Agent<E: Environment> {
     fn policy(&self, env: &E) -> Self::Policy;
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 pub mod dummy {
     use std::ops::Index;
 
@@ -23,18 +23,20 @@ pub mod dummy {
             0.0
         }
 
-        fn policy(&self, _: &E) -> Self::Policy {
-            Policy
+        fn policy(&self, env: &E) -> Self::Policy {
+            let mut actions = Vec::new();
+            env.populate_actions(&mut actions);
+            Policy(1.0 / actions.len() as f32)
         }
     }
 
-    pub struct Policy;
+    pub struct Policy(f32);
 
     impl<T> Index<T> for Policy {
         type Output = f32;
 
         fn index(&self, _: T) -> &Self::Output {
-            &0.0
+            &self.0
         }
     }
 }

@@ -1,5 +1,3 @@
-use float_ord::FloatOrd;
-
 use super::{agent::Agent, env::Environment, eval::Eval};
 
 pub struct Node<E: Environment> {
@@ -60,16 +58,7 @@ impl<E: Environment> Node<E> {
         self.visit_count <= 1
     }
 
-    #[must_use]
-    pub const fn is_known(&self) -> bool {
-        match self.evaluation {
-            Eval::Value(_) => false,
-            Eval::Win(_) | Eval::Draw(_) | Eval::Loss(_) => true,
-        }
-    }
-
     fn update_mean_value(&mut self, value: f32) {
-        #![allow(clippy::cast_precision_loss)]
         let Eval::Value(mean_value) = &mut self.evaluation else {
             unreachable!("Updating the mean value doesn't make sense if the result is known");
         };
@@ -117,6 +106,25 @@ impl<E: Environment> Node<E> {
         }
     }
 
+    pub fn initialize<A: Agent<E>>(&mut self, env: &E, actions: &mut Vec<E::Action>, agent: &A) {
+        // Check if the position is terminal.
+        if let Some(terminal) = env.terminal() {
+            self.evaluation = terminal.into();
+            return;
+        }
+
+        let policy = agent.policy(env);
+        env.populate_actions(actions);
+
+        self.children = actions
+            .drain(..)
+            .map(|action| (action.clone(), Self::from_policy(policy[action])))
+            .collect();
+
+        // Get static evaluation from agent.
+        self.evaluation = Eval::Value(agent.value(env));
+    }
+
     pub fn simulate<A: Agent<E>>(
         &mut self,
         mut env: E,
@@ -124,44 +132,20 @@ impl<E: Environment> Node<E> {
         agent: &A,
     ) -> Eval {
         self.visit_count += 1;
-        if self.is_known() {
-            debug_assert!(!self.evaluation.is_win(), "Simulating known wins is useless because the action leading to this state should never be taken.");
+        if self.evaluation.is_known() {
+            debug_assert!(
+                !self.evaluation.is_win(),
+                "Simulating a known win is useless because the action leading to this state \
+                 should never be taken."
+            );
             return self.evaluation;
         }
-
         if self.needs_initialization() {
-            // Check if the position is terminal.
-            if let Some(terminal) = env.terminal() {
-                self.evaluation = terminal.into();
-                return self.evaluation;
-            }
-
-            let policy = agent.policy(&env);
-            env.populate_actions(actions);
-
-            self.children = actions
-                .drain(..)
-                .map(|action| (action.clone(), Self::from_policy(policy[action])))
-                .collect();
-
-            // Get static evaluation from agent.
-            self.evaluation = Eval::Value(agent.value(&env));
+            self.initialize(&env, actions, agent);
             return self.evaluation;
         }
 
-        // Select action proportionally to policy.
-        let Some((action, node)) = self
-            .children
-            .iter_mut()
-            .filter(|(_, node)| !node.evaluation.is_win()) // Prune only losing moves to preserve optimality.
-            .max_by_key(|(_, node)| {
-                #[allow(clippy::cast_precision_loss)]
-                FloatOrd(node.policy - node.visit_count as f32 / ((self.visit_count + 1) as f32))
-            })
-        else {
-            unreachable!("If this node is not known there should be some unknown nodes")
-        };
-
+        let (action, node) = self.select_with_improved_policy();
         env.step(action.clone());
         let child_eval = node.simulate(env, actions, agent);
         self.propagate_child_eval(child_eval)
@@ -176,13 +160,13 @@ mod tests {
 
     #[test]
     fn find_tinue_easy() {
-        const MAX_VISITS: usize = 3_000;
+        const MAX_VISITS: usize = 5_000;
 
+        // https://ptn.ninja/NoZQlgLgpgBARABwgOwHTLMgVgQzgXQFgAoUMAL1jgGYCTgB5BKDZAc3gGcB3HBO0gBEc0eACYADGOqoJAdlQBGAGwDgAFTABbKpIBcYgBx7qAVjUAlKJwCuAGwjwLAWgkCSi1DBzUYAY0USMS8-MX9qEhkYACNfP2pnIA&name=MwD2Q&ply=5!
         let game: Game<3, 0> = Game::from_ptn_moves(&["a3", "c1", "c2", "c3", "b3", "c3-"]);
         let mut root = Node::default();
         let mut actions = Vec::new();
 
-        #[allow(clippy::maybe_infinite_iter)]
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
@@ -192,6 +176,7 @@ mod tests {
             })
             .expect("This position is solvable with MAX_VISITS.");
 
+        println!("{root}");
         assert_eq!(
             root.children
                 .iter()
@@ -203,14 +188,14 @@ mod tests {
     }
 
     #[test]
-    fn find_tinue_harder() {
-        const MAX_VISITS: usize = 300_000;
+    fn find_tinue_deeper() {
+        const MAX_VISITS: usize = 50_000;
 
+        // https://ptn.ninja/NoZQlgLgpgBARABwgOwHTLMgVgQzgXQFgAoUMAL1jgGYCTgB5BKDZAc3gGcB3HBO0gBEc0eACYADGOqoJAdlQBGAGwDgAFTABbKpIBcYgBx7qAVjUAlKJwCuAGwjwLAWgkCSi1DBzVvikmJeAEaKMADGikA&name=MwD2Q&ply=3!
         let game: Game<3, 0> = Game::from_ptn_moves(&["a3", "a1", "b1", "c1"]);
         let mut root = Node::default();
         let mut actions = Vec::new();
 
-        #[allow(clippy::maybe_infinite_iter)]
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
@@ -220,13 +205,14 @@ mod tests {
             })
             .expect("This position is solvable with MAX_VISITS.");
 
+        println!("{root}");
         assert_eq!(
             root.children
                 .iter()
                 .find(|(_, node)| node.evaluation.is_loss())
                 .unwrap()
                 .0,
-            "c2".parse().unwrap(),
+            "b2".parse().unwrap(), // Maybe also c2?
         );
     }
 }
