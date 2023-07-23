@@ -9,5 +9,6 @@
 // We're going nightly boys
 #![feature(extract_if)]
 
+pub mod model;
 pub mod repr;
 pub mod search;
