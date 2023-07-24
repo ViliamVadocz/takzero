@@ -14,23 +14,24 @@ use takzero::search::{agent::dummy::Dummy, eval::Eval, mcts::Node};
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
-    const VISITS_PER_PUZZLE: usize = 100_000;
+    const VISITS_PER_PUZZLE: usize = 10_000;
 
     let mut connection = sqlite::open("puzzle/games.db").unwrap();
-    run_benchmark::<4, 0>(&mut connection, 3, VISITS_PER_PUZZLE);
-    run_benchmark::<4, 0>(&mut connection, 5, VISITS_PER_PUZZLE);
-    run_benchmark::<5, 0>(&mut connection, 3, VISITS_PER_PUZZLE);
-    run_benchmark::<5, 0>(&mut connection, 5, VISITS_PER_PUZZLE);
-    run_benchmark::<6, 0>(&mut connection, 3, VISITS_PER_PUZZLE);
-    run_benchmark::<6, 0>(&mut connection, 5, VISITS_PER_PUZZLE);
-    run_benchmark::<7, 0>(&mut connection, 3, VISITS_PER_PUZZLE);
-    run_benchmark::<7, 0>(&mut connection, 5, VISITS_PER_PUZZLE);
+    run_benchmark::<4, 0>(&mut connection, 3, VISITS_PER_PUZZLE, None);
+    run_benchmark::<4, 0>(&mut connection, 5, VISITS_PER_PUZZLE, None);
+    run_benchmark::<5, 0>(&mut connection, 3, VISITS_PER_PUZZLE, Some(10_000));
+    run_benchmark::<5, 0>(&mut connection, 5, VISITS_PER_PUZZLE, Some(10_000));
+    run_benchmark::<6, 0>(&mut connection, 3, VISITS_PER_PUZZLE, Some(5_000));
+    run_benchmark::<6, 0>(&mut connection, 5, VISITS_PER_PUZZLE, Some(5_000));
+    run_benchmark::<7, 0>(&mut connection, 3, VISITS_PER_PUZZLE, None);
+    run_benchmark::<7, 0>(&mut connection, 5, VISITS_PER_PUZZLE, None);
 }
 
 fn run_benchmark<const N: usize, const HALF_KOMI: i8>(
     connection: &mut Connection,
     depth: i64,
     visits: usize,
+    limit: Option<i64>,
 ) where
     Reserves<N>: Default,
 {
@@ -40,13 +41,15 @@ fn run_benchmark<const N: usize, const HALF_KOMI: i8>(
         AND g.komi = :komi
         AND t.tinue_depth = :depth
         AND g.id NOT IN (149657, 149584, 395154)
-    ORDER BY t.id";
+    ORDER BY t.id
+    LIMIT :limit";
     let mut statement = connection.prepare(query).unwrap();
     statement
         .bind::<&[(_, Value)]>(&[
             (":size", i64::try_from(N).unwrap().into()),
             (":komi", i64::from(HALF_KOMI / 2).into()),
             (":depth", depth.into()),
+            (":limit", limit.unwrap_or(i64::MAX).into()),
         ])
         .unwrap();
 
