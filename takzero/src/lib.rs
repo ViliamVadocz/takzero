@@ -9,6 +9,7 @@
 // We're going nightly boys
 #![feature(extract_if)]
 
+#[cfg(tch)]
 pub mod model;
 pub mod repr;
 pub mod search;

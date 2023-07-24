@@ -9,4 +9,4 @@ float-ord = "0.3.2"
 fast-tak = "0.3.2"
 rand_distr = "0.4.3"
 rand = "0.8.5"
-tch = "0.13.0"
+tch = { version = "0.13.0", optional = true }
