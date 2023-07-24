@@ -3,67 +3,109 @@ use std::cmp::Ordering;
 use fast_tak::{
     takparse::{Direction, Move, MoveKind, Piece, Square},
     Game,
+    Reserves,
 };
 use mimalloc::MiMalloc;
-use sqlite::Value;
+use rayon::prelude::*;
+use sqlite::{Connection, Value};
 use takzero::search::{agent::dummy::Dummy, eval::Eval, mcts::Node};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
-    const SIZE: usize = 4;
-    const LIMIT: i64 = 1000;
-    const HALF_KOMI: i8 = 0;
+    const VISITS_PER_PUZZLE: usize = 100_000;
 
-    const VISITS_PER_PUZZLE: usize = 10_000;
+    let mut connection = sqlite::open("puzzle/games.db").unwrap();
+    run_benchmark::<4, 0>(&mut connection, 3, VISITS_PER_PUZZLE);
+    run_benchmark::<4, 0>(&mut connection, 5, VISITS_PER_PUZZLE);
+    run_benchmark::<5, 0>(&mut connection, 3, VISITS_PER_PUZZLE);
+    run_benchmark::<5, 0>(&mut connection, 5, VISITS_PER_PUZZLE);
+    run_benchmark::<6, 0>(&mut connection, 3, VISITS_PER_PUZZLE);
+    run_benchmark::<6, 0>(&mut connection, 5, VISITS_PER_PUZZLE);
+    run_benchmark::<7, 0>(&mut connection, 3, VISITS_PER_PUZZLE);
+    run_benchmark::<7, 0>(&mut connection, 5, VISITS_PER_PUZZLE);
+}
 
-    let connection = sqlite::open("puzzle/games.db").unwrap();
+fn run_benchmark<const N: usize, const HALF_KOMI: i8>(
+    connection: &mut Connection,
+    depth: i64,
+    visits: usize,
+) where
+    Reserves<N>: Default,
+{
     let query = "SELECT * FROM tinues t
-                        JOIN games g ON t.gameid = g.id
-                        WHERE t.size = :size AND g.komi = :komi
-                        ORDER BY t.id
-                        LIMIT :limit";
+    JOIN games g ON t.gameid = g.id
+    WHERE t.size = :size
+        AND g.komi = :komi
+        AND t.tinue_depth = :depth
+        AND g.id NOT IN (149657, 149584, 395154)
+    ORDER BY t.id";
     let mut statement = connection.prepare(query).unwrap();
     statement
         .bind::<&[(_, Value)]>(&[
-            (":size", (SIZE as i64).into()),
-            (":komi", (HALF_KOMI as i64 / 2).into()),
-            (":limit", LIMIT.into()),
+            (":size", i64::try_from(N).unwrap().into()),
+            (":komi", i64::from(HALF_KOMI / 2).into()),
+            (":depth", depth.into()),
         ])
         .unwrap();
 
-    let mut actions = Vec::new();
-    let mut wins = 0;
-    let mut fails = 0;
-    let mut rows = statement.into_iter();
-    while let Some(Ok(row)) = rows.next() {
-        let notation: &str = row.read("notation");
-        let plies_to_remove: i64 = row.read("plies_to_undo");
-        let tinue: &str = row.read("tinue");
+    let rows = statement
+        .into_iter()
+        .map(|row| {
+            row.map(|row| {
+                let id = row.read("id");
+                let notation: &str = row.read("notation");
+                let plies_to_undo = row.read("plies_to_undo");
+                let tinue: &str = row.read("tinue");
+                (id, notation.to_owned(), plies_to_undo, tinue.to_owned())
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let row_num = rows.len();
 
-        let mut moves: Vec<_> = notation.split(',').map(parse_playtak_move).collect();
-        for _ in 0..plies_to_remove {
-            moves.pop();
-        }
-        let game: Game<SIZE, HALF_KOMI> = Game::from_moves(&moves).unwrap();
+    let wins = rows
+        .into_par_iter()
+        .filter(|(game_id, notation, plies_to_undo, tinue)| {
+            solve_puzzle::<N, HALF_KOMI>(*game_id, notation, *plies_to_undo, tinue, visits)
+        })
+        .count();
 
-        let mut root = Node::default();
-        if (0..VISITS_PER_PUZZLE).any(|_| {
-            matches!(
-                root.simulate(game.clone(), &mut actions, &Dummy),
-                Eval::Win(_)
-            )
-        }) {
-            wins += 1;
-        } else {
-            fails += 1;
-        }
+    println!("{N}x{N}, depth: {depth}");
+    println!("{wins: >5} / {row_num: >5}");
+}
 
-        println!("{wins}W : {fails}L");
-        println!("tinue: {tinue}");
-        println!("root: {root}");
+fn solve_puzzle<const N: usize, const HALF_KOMI: i8>(
+    game_id: i64,
+    notation: &str,
+    plies_to_remove: i64,
+    _tinue: &str,
+    visits: usize,
+) -> bool
+where
+    Reserves<N>: Default,
+{
+    let mut moves: Vec<_> = notation.split(',').map(parse_playtak_move).collect();
+    for _ in 0..plies_to_remove {
+        moves.pop();
     }
+    let game: Game<N, HALF_KOMI> = match Game::from_moves(&moves) {
+        Ok(game) => game,
+        Err(e) => {
+            eprintln!("error: {e}, id: {game_id}");
+            return false;
+        }
+    };
+
+    let mut root = Node::default();
+    let mut actions = Vec::new();
+    (0..visits).any(|_| {
+        matches!(
+            root.simulate(game.clone(), &mut actions, &Dummy),
+            Eval::Win(_)
+        )
+    })
 }
 
 fn parse_playtak_move(s: &str) -> Move {
