@@ -6,10 +6,10 @@
 // Just let me cast in peace
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_possible_wrap)]
 // We're going nightly boys
 #![feature(extract_if)]
 
-#[cfg(tch)]
 pub mod model;
 pub mod repr;
 pub mod search;

@@ -22,7 +22,7 @@ const fn possible_moves<const N: usize>() -> usize {
     }
 }
 
-fn net(vs: &nn::Path) -> impl nn::Module {
+pub fn net(vs: &nn::Path) -> impl nn::Module {
     #![allow(clippy::cast_possible_wrap)]
 
     const HIDDEN_LAYER_DIMS: i64 = 128;
@@ -50,32 +50,18 @@ mod tests {
     use tch::{
         nn::{self, Module},
         Device,
-        Kind,
-        Tensor,
     };
 
     use super::net;
-    use crate::repr::{game_to_tensor, input_size};
+    use crate::repr::game_to_tensor;
 
-    // #[test]
-    // fn make_net() {
-    //     let vs = nn::VarStore::new(Device::cuda_if_available());
-    //     let net = net(&vs.root());
-    //     println!("{net:?}");
+    #[test]
+    fn make_net() {
+        let vs = nn::VarStore::new(Device::cuda_if_available());
+        let net = net(&vs.root());
 
-    //     let game: Game<3, 0> = Game::default();
-    //     let tensor = Tensor::empty(
-    //         [input_size::<3>() as i64],
-    //         (Kind::Float, Device::cuda_if_available()),
-    //     );
-    //     game_to_tensor(
-    //         unsafe {
-    //             std::slice::from_raw_parts_mut(tensor.data_ptr().cast::<f32>(), input_size::<3>())
-    //         },
-    //         &game,
-    //     );
-    //     println!("{tensor:?}");
-    //     let out = net.forward(&tensor);
-    //     println!("{out:?}");
-    // }
+        let game: Game<3, 0> = Game::default();
+        let tensor = game_to_tensor(&game, Device::cuda_if_available());
+        let _out = net.forward(&tensor);
+    }
 }

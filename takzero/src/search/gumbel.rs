@@ -55,7 +55,8 @@ impl<E: Environment> Node<E> {
                     node.policy
                         + sigma(
                             node.evaluation.negate().into(),
-                            2.0f32.powi((number_of_halving_steps - step) as i32), // Pretend there are no previous visits (tree re-use)
+                            // Pretend there are no previous visits (tree re-use)
+                            2.0f32.powi((number_of_halving_steps - step) as i32),
                         ),
                 ))
             });

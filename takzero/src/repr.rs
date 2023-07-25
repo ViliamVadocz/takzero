@@ -3,6 +3,7 @@ use fast_tak::{
     Game,
     Reserves,
 };
+use tch::{Device, Kind, Tensor};
 
 #[inline]
 #[must_use]
@@ -39,13 +40,12 @@ where
     2 * (board_size::<N>() + reserves_size::<N>()) + to_move
 }
 
-pub fn game_to_tensor<const N: usize, const HALF_KOMI: i8>(
-    buffer: &mut [f32],
-    game: &Game<N, HALF_KOMI>,
-) where
+fn game_repr<const N: usize, const HALF_KOMI: i8>(buffer: &mut [f32], game: &Game<N, HALF_KOMI>)
+where
     Reserves<N>: Default,
 {
     debug_assert_eq!(buffer.len(), input_size::<N>());
+    debug_assert!(buffer.iter().all(|x| x.abs() <= f32::EPSILON));
 
     let offset = |color| {
         if color == game.to_move {
@@ -101,11 +101,33 @@ pub fn game_to_tensor<const N: usize, const HALF_KOMI: i8>(
     }
 }
 
+pub fn game_to_tensor<const N: usize, const HALF_KOMI: i8>(
+    game: &Game<N, HALF_KOMI>,
+    device: Device,
+) -> Tensor
+where
+    Reserves<N>: Default,
+{
+    let mut buffer = vec![0.0; input_size::<N>()];
+    let size = [buffer.len() as i64];
+    game_repr(&mut buffer, game);
+    let tensor = unsafe {
+        Tensor::from_blob(
+            buffer.as_ptr().cast(),
+            &size,
+            &size,
+            Kind::Float,
+            Device::Cpu,
+        )
+    };
+    tensor.to(device)
+}
+
 #[cfg(test)]
 mod tests {
     use fast_tak::{takparse::Tps, Game};
 
-    use super::{game_to_tensor, input_size};
+    use super::{game_repr, input_size};
 
     #[test]
     fn starting_position() {
@@ -141,7 +163,7 @@ mod tests {
         ];
         assert_eq!(handmade.len(), input_size::<3>());
         let mut buffer = vec![0.0; input_size::<3>()];
-        game_to_tensor(&mut buffer, &Game::<3, 0>::default());
+        game_repr(&mut buffer, &Game::<3, 0>::default());
         assert_eq!(buffer, handmade);
     }
 
@@ -232,7 +254,7 @@ mod tests {
             "c1", "b1<", "d1<", "a1>", "d1", "b1>",
         ]);
         let mut buffer = vec![0.0; input_size::<5>()];
-        game_to_tensor(&mut buffer, &game);
+        game_repr(&mut buffer, &game);
         assert_eq!(buffer, handmade);
     }
 
@@ -272,7 +294,7 @@ mod tests {
         let tps: Tps = "x3/x,21212112212S,x/x3 1 12".parse().unwrap();
         let game: Game<3, 0> = tps.into();
         let mut buffer = vec![0.0; input_size::<3>()];
-        game_to_tensor(&mut buffer, &game);
+        game_repr(&mut buffer, &game);
         assert_eq!(buffer, handmade);
     }
 }
