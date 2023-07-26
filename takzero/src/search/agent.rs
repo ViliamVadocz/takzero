@@ -4,11 +4,9 @@ use super::env::Environment;
 
 pub trait Agent<E: Environment> {
     type Policy: Index<E::Action, Output = f32>;
-    fn value(&self, env: &E) -> f32;
-    fn policy(&self, env: &E) -> Self::Policy;
+    fn policy_value(&self, env: &E) -> (Self::Policy, f32);
 }
 
-// #[cfg(test)]
 pub mod dummy {
     use std::ops::Index;
 
@@ -19,14 +17,10 @@ pub mod dummy {
     impl<E: Environment> Agent<E> for Dummy {
         type Policy = Policy;
 
-        fn value(&self, _: &E) -> f32 {
-            0.0
-        }
-
-        fn policy(&self, env: &E) -> Self::Policy {
+        fn policy_value(&self, env: &E) -> (Self::Policy, f32) {
             let mut actions = Vec::new();
             env.populate_actions(&mut actions);
-            Policy(1.0 / actions.len() as f32)
+            (Policy(1.0 / actions.len() as f32), 0.0)
         }
     }
 

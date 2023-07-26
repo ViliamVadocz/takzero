@@ -3,6 +3,7 @@ use fast_tak::{
     Game,
     Reserves,
 };
+use ordered_float::NotNan;
 use tch::{Device, Kind, Tensor};
 
 #[inline]
@@ -17,17 +18,15 @@ pub const fn stack_size<const N: usize>() -> usize {
 #[inline]
 #[must_use]
 pub const fn board_size<const N: usize>() -> usize {
-    N * N * stack_size::<N>()
+    stack_size::<N>() * N * N
 }
 
 #[inline]
 #[must_use]
-pub fn reserves_size<const N: usize>() -> usize
-where
-    Reserves<N>: Default,
-{
-    let Reserves { stones, caps } = Reserves::<N>::default();
-    stones as usize + caps as usize
+pub fn input_channels<const N: usize>() -> usize {
+    let reserves = 2; // stones + caps
+    let to_move = 1;
+    2 * (stack_size::<N>() + reserves) + to_move
 }
 
 #[inline]
@@ -36,8 +35,22 @@ pub fn input_size<const N: usize>() -> usize
 where
     Reserves<N>: Default,
 {
-    let to_move = 1;
-    2 * (board_size::<N>() + reserves_size::<N>()) + to_move
+    input_channels::<N>() * N * N
+}
+
+#[must_use]
+pub fn reserves_ratio<const N: usize>(reserves: Reserves<N>) -> (NotNan<f32>, NotNan<f32>)
+where
+    Reserves<N>: Default,
+{
+    let Reserves {
+        stones: default_stones,
+        caps: default_caps,
+    } = Reserves::default();
+    (
+        NotNan::new(f32::from(reserves.stones) / f32::from(default_stones)).unwrap_or_default(),
+        NotNan::new(f32::from(reserves.caps) / f32::from(default_caps)).unwrap_or_default(),
+    )
 }
 
 fn game_repr<const N: usize, const HALF_KOMI: i8>(buffer: &mut [f32], game: &Game<N, HALF_KOMI>)
@@ -47,32 +60,28 @@ where
     debug_assert_eq!(buffer.len(), input_size::<N>());
     debug_assert!(buffer.iter().all(|x| x.abs() <= f32::EPSILON));
 
-    let offset = |color| {
-        if color == game.to_move {
-            0
-        } else {
-            board_size::<N>()
-        }
-    };
-    for (i, stack) in game.board.iter().flatten().enumerate() {
-        let pos = i * stack_size::<N>();
-        let index = pos
-            + match stack.top() {
+    let index = |row, column, channel| N * N * channel + N * row + column;
+    let offset = |color| usize::from(color != game.to_move) * stack_size::<N>();
+
+    for (y, row) in game.board.iter().enumerate() {
+        for (x, stack) in row.enumerate() {
+            let channel = match stack.top() {
                 Some((Piece::Flat, color)) => offset(color),
                 Some((Piece::Wall, color)) => 1 + offset(color),
                 Some((Piece::Cap, color)) => 2 + offset(color),
                 None => continue,
             };
-        buffer[index] = 1.0;
-        for (ii, color) in stack // FIXME: Colors maybe in reverse order?
-            .colors()
-            .reverse()
-            .into_iter()
-            .skip(1)
-            .take(stack_size::<N>() - 3)
-            .enumerate()
-        {
-            buffer[pos + ii + 3 + offset(color)] = 1.0;
+            buffer[index(y, x, channel)] = 1.0;
+            for (i, color) in stack
+                .colors()
+                .reverse()
+                .into_iter()
+                .skip(1)
+                .take(stack_size::<N>() - 3)
+                .enumerate()
+            {
+                buffer[index(y, x, 3 + offset(color) + i)] = 1.0;
+            }
         }
     }
 
@@ -80,24 +89,22 @@ where
         Color::White => (game.white_reserves, game.black_reserves),
         Color::Black => (game.black_reserves, game.white_reserves),
     };
-    let Reserves { stones, caps } = mine;
-    let max_stones = Reserves::<N>::default().stones as usize;
-    for i in 0..(stones as usize) {
-        buffer[2 * board_size::<N>() + i] = 1.0;
+    let (stones, caps) = reserves_ratio(mine);
+    for i in 0..N * N {
+        buffer[2 * board_size::<N>() + i] = stones.into();
+        buffer[2 * board_size::<N>() + N * N + i] = caps.into();
     }
-    for i in 0..(caps as usize) {
-        buffer[2 * board_size::<N>() + max_stones + i] = 1.0;
-    }
-    let Reserves { stones, caps } = other;
-    for i in 0..(stones as usize) {
-        buffer[2 * board_size::<N>() + reserves_size::<N>() + i] = 1.0;
-    }
-    for i in 0..(caps as usize) {
-        buffer[2 * board_size::<N>() + reserves_size::<N>() + max_stones + i] = 1.0;
+
+    let (stones, caps) = reserves_ratio(other);
+    for i in 0..N * N {
+        buffer[2 * board_size::<N>() + 2 * N * N + i] = stones.into();
+        buffer[2 * board_size::<N>() + 3 * N * N + i] = caps.into();
     }
 
     if game.to_move == Color::Black {
-        buffer[input_size() - 1] = 1.0;
+        for i in 0..N * N {
+            buffer[2 * board_size::<N>() + 4 * N * N + i] = 1.0;
+        }
     }
 }
 
@@ -136,30 +143,33 @@ mod tests {
         #[rustfmt::skip]
         let handmade = vec![
             // my pieces
-            // top      carry    below carry
-            o, o, o,    o, o,    o, o, o, o, // a1
-            o, o, o,    o, o,    o, o, o, o, // b1
-            o, o, o,    o, o,    o, o, o, o, // c1
-            o, o, o,    o, o,    o, o, o, o, // a2
-            o, o, o,    o, o,    o, o, o, o, // b2
-            o, o, o,    o, o,    o, o, o, o, // c2
-            o, o, o,    o, o,    o, o, o, o, // a3
-            o, o, o,    o, o,    o, o, o, o, // b3
-            o, o, o,    o, o,    o, o, o, o, // c3
+            o, o, o, o, o, o, o, o, o, 
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o, 
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o, 
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
             // opponent pieces
-            o, o, o,    o, o,    o, o, o, o, // a1
-            o, o, o,    o, o,    o, o, o, o, // b1
-            o, o, o,    o, o,    o, o, o, o, // c1
-            o, o, o,    o, o,    o, o, o, o, // a2
-            o, o, o,    o, o,    o, o, o, o, // b2
-            o, o, o,    o, o,    o, o, o, o, // c2
-            o, o, o,    o, o,    o, o, o, o, // a3
-            o, o, o,    o, o,    o, o, o, o, // b3
-            o, o, o,    o, o,    o, o, o, o, // c3
-            // reserves
-            x, x, x, x, x, x, x, x, x, x, // mine
-            x, x, x, x, x, x, x, x, x, x, // opponent
-            o // white to move
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            // my reserves
+            x, x, x, x, x, x, x, x, x, // stones
+            o, o, o, o, o, o, o, o, o, // caps
+            // opponent reserves
+            x, x, x, x, x, x, x, x, x, // stones
+            o, o, o, o, o, o, o, o, o, // caps
+            // white to move
+            o, o, o, o, o, o, o, o, o,
         ];
         assert_eq!(handmade.len(), input_size::<3>());
         let mut buffer = vec![0.0; input_size::<3>()];
@@ -171,88 +181,52 @@ mod tests {
     fn complicated_position() {
         let x = 1.0;
         let o = 0.0;
+        let p = 5.0 / 21.0;
+        let q = 10.0 / 21.0;
         #[rustfmt::skip]
         let handmade = vec![
             // my pieces
-            // top      carry          below carry
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // a1
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // b1
-            o, o, o,    x, x, o, o,    o, o, o, o, o, o, // c1
-            x, o, o,    o, o, o, o,    o, o, o, o, o, o, // d1
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // e1
-
-            o, o, o,    o, x, x, o,    o, o, o, o, o, o, // a2
-            x, o, o,    o, o, o, o,    o, o, o, o, o, o, // b2
-            o, o, o,    x, o, o, o,    o, o, o, o, o, o, // c2
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // d2
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // e2
-            
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // a3
-            x, o, o,    o, x, o, o,    o, o, o, o, o, o, // b3
-            o, o, o,    x, o, o, o,    o, o, o, o, o, o, // c3
-            o, x, o,    o, o, o, o,    o, o, o, o, o, o, // d3
-            x, o, o,    o, o, o, o,    o, o, o, o, o, o, // e3
-
-            x, o, o,    o, o, o, o,    o, o, o, o, o, o, // a4
-            o, o, x,    o, o, o, o,    o, o, o, o, o, o, // b4
-            x, o, o,    o, o, o, o,    o, o, o, o, o, o, // c4
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // d4
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // e4
-
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // a5
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // b5
-            o, o, o,    x, x, o, o,    o, o, o, o, o, o, // c5
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // d5
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // e5
-
+            o, o, o, x, o,  o, x, o, o, o,  o, x, o, o, x,  x, o, x, o, o,  o, o, o, o, o, // flat
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, x, o,  o, o, o, o, o,  o, o, o, o, o, // wall
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, x, o, o, o,  o, o, o, o, o, // cap
+            o, o, x, o, o,  o, o, x, o, o,  o, o, x, o, o,  o, o, o, o, o,  o, o, x, o, o, // carry
+            o, o, x, o, o,  x, o, o, o, o,  o, x, o, o, o,  o, o, o, o, o,  o, o, x, o, o, // carry
+            o, o, o, o, o,  x, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o, // carry
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o, // carry
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
             // opponent pieces
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // a1
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // b1
-            o, x, o,    o, o, o, o,    o, o, o, o, o, o, // c1
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // d1
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // e1
-
-            o, x, o,    x, o, o, o,    o, o, o, o, o, o, // a2
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // b2
-            x, o, o,    o, o, o, o,    o, o, o, o, o, o, // c2
-            x, o, o,    o, o, o, o,    o, o, o, o, o, o, // d2
-            x, o, o,    o, o, o, o,    o, o, o, o, o, o, // e2
-
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // a3
-            o, o, o,    x, o, o, o,    o, o, o, o, o, o, // b3
-            o, o, x,    o, o, o, o,    o, o, o, o, o, o, // c3
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // d3
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // e3
-
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // a4
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // b4
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // c4
-            x, o, o,    o, o, o, o,    o, o, o, o, o, o, // d4
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // e4
-
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // a5
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // b5
-            x, o, o,    o, o, x, o,    o, o, o, o, o, o, // c5
-            o, o, o,    o, o, o, o,    o, o, o, o, o, o, // d5
-            o, x, o,    o, o, o, o,    o, o, o, o, o, o, // e5
-
+            o, o, o, o, o,  o, o, x, x, x,  o, o, o, o, o,  o, o, o, x, o,  o, o, x, o, o, // flat
+            o, o, x, o, o,  x, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, x, // wall
+            o, o, o, o, o,  o, o, o, o, o,  o, o, x, o, o,  o, o, o, o, o,  o, o, o, o, o, // cap
+            o, o, o, o, o,  x, o, o, o, o,  o, x, o, o, o,  o, o, o, o, o,  o, o, o, o, o, // carry
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o, // carry
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, x, o, o, // carry
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o, // carry
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
+            o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,  o, o, o, o, o,
             // reserves
-            x, x, x, x, x, o, o, o, o, o, // my stones
-            o, o, o, o, o, o, o, o, o, o, o,
-            o, // my cap
-            x, x, x, x, x, x, x, x, x, x, // opponent stones 
-            o, o, o, o, o, o, o, o, o, o, o,
-            o, // opponent cap
-
-            x // black to move
+            p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, // stones
+            o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, // caps
+            // opponent reserves
+            q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, q, // stones
+            o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, // caps
+            // black to move
+            x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x,
         ];
         assert_eq!(handmade.len(), input_size::<5>());
-        let game = Game::<5, 0>::from_ptn_moves(&[
-            "e3", "e2", "d2", "Sd3", "d4", "c4", "Cb3", "Cb4", "c3", "c2", "c3-", "c3", "b3>",
-            "b3", "a3", "b2", "a3>", "a3", "a1", "a3>", "Sb1", "a2", "Se5", "a3", "b1<", "a3-",
-            "2a1+", "a4", "c5", "b5", "d5", "b5>", "Sb1", "b5", "b1>", "b5>", "d5<", "d1", "c1<",
-            "c1", "b1<", "d1<", "a1>", "d1", "b1>",
-        ]);
+        let tps: Tps = "x2,1221,x,1S/2,2C,2,1,x/x,212,21C,2S,2/2211S,2,21,1,1/x2,221S,2,x 2 23"
+            .parse()
+            .unwrap();
+        let game: Game<5, 0> = tps.into();
         let mut buffer = vec![0.0; input_size::<5>()];
         game_repr(&mut buffer, &game);
         assert_eq!(buffer, handmade);
@@ -262,33 +236,38 @@ mod tests {
     fn tall_stack() {
         let x = 1.0;
         let o = 0.0;
+        let p = 5.0 / 10.0;
+        let q = 4.0 / 10.0;
         #[rustfmt::skip]
         let handmade = vec![
             // my pieces
-            // top      carry    below carry
-            o, o, o,    o, o,    o, o, o, o, // a1
-            o, o, o,    o, o,    o, o, o, o, // b1
-            o, o, o,    o, o,    o, o, o, o, // c1
-            o, o, o,    o, o,    o, o, o, o, // a2
-            o, o, o,    x, o,    o, x, x, o, // b2
-            o, o, o,    o, o,    o, o, o, o, // c2
-            o, o, o,    o, o,    o, o, o, o, // a3
-            o, o, o,    o, o,    o, o, o, o, // b3
-            o, o, o,    o, o,    o, o, o, o, // c3
-            // opponent
-            o, o, o,    o, o,    o, o, o, o, // a1
-            o, o, o,    o, o,    o, o, o, o, // b1
-            o, o, o,    o, o,    o, o, o, o, // c1
-            o, o, o,    o, o,    o, o, o, o, // a2
-            o, x, o,    o, x,    x, o, o, x, // b2
-            o, o, o,    o, o,    o, o, o, o, // c2
-            o, o, o,    o, o,    o, o, o, o, // a3
-            o, o, o,    o, o,    o, o, o, o, // b3
-            o, o, o,    o, o,    o, o, o, o, // c3
-            // reserves
-            x, x, x, x, x, o, o, o, o, o, // mine
-            x, x, x, x, o, o, o, o, o, o, // opponent
-            o // white to move
+            o, o, o, o, o, o, o, o, o, // flat
+            o, o, o, o, o, o, o, o, o, // wall
+            o, o, o, o, o, o, o, o, o, // cap
+            o, o, o, o, x, o, o, o, o, // carry
+            o, o, o, o, o, o, o, o, o, // carry
+            o, o, o, o, o, o, o, o, o, 
+            o, o, o, o, x, o, o, o, o,
+            o, o, o, o, x, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            // opponent pieces
+            o, o, o, o, o, o, o, o, o, // flat
+            o, o, o, o, x, o, o, o, o, // wall
+            o, o, o, o, o, o, o, o, o, // cap
+            o, o, o, o, o, o, o, o, o, // carry
+            o, o, o, o, x, o, o, o, o, // carry
+            o, o, o, o, x, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, o, o, o, o, o,
+            o, o, o, o, x, o, o, o, o,
+            // my reserves
+            p, p, p, p, p, p, p, p, p, // stones
+            o, o, o, o, o, o, o, o, o, // caps
+            // opponent reserves
+            q, q, q, q, q, q, q, q, q, // stones
+            o, o, o, o, o, o, o, o, o, // caps
+            // white to move
+            o, o, o, o, o, o, o, o, o,
         ];
         assert_eq!(handmade.len(), input_size::<3>());
         let tps: Tps = "x3/x,21212112212S,x/x3 1 12".parse().unwrap();

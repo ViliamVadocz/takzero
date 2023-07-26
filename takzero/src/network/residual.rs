@@ -1,0 +1,56 @@
+use std::ops::Add;
+
+use tch::{nn, Tensor};
+
+// https://medium.com/@bentou.pub/alphazero-from-scratch-in-pytorch-for-the-game-of-chain-reaction-part-3-c3fbf0d6f986
+
+#[derive(Debug)]
+pub struct SmallBlock {
+    model: nn::SequentialT,
+}
+
+impl SmallBlock {
+    fn new(vs: &nn::Path, in_channels: i64, out_channels: i64) -> Self {
+        let model = nn::seq_t()
+            .add(nn::conv2d(
+                vs,
+                in_channels,
+                out_channels,
+                3,
+                nn::ConvConfig {
+                    stride: 1,
+                    padding: 1,
+                    ..Default::default()
+                },
+            ))
+            .add(nn::batch_norm2d(vs, out_channels, Default::default()));
+        Self { model }
+    }
+}
+
+impl nn::ModuleT for SmallBlock {
+    fn forward_t(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor {
+        self.model.forward_t(xs, train)
+    }
+}
+
+#[derive(Debug)]
+pub struct ResidualBlock {
+    model: nn::SequentialT,
+}
+
+impl ResidualBlock {
+    pub fn new(vs: &nn::Path, in_channels: i64, mid_channels: i64) -> Self {
+        let model = nn::seq_t()
+            .add(SmallBlock::new(vs, in_channels, mid_channels))
+            .add_fn(Tensor::relu)
+            .add(SmallBlock::new(vs, mid_channels, in_channels));
+        Self { model }
+    }
+}
+
+impl nn::ModuleT for ResidualBlock {
+    fn forward_t(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor {
+        self.model.forward_t(xs, train).add(xs).relu()
+    }
+}

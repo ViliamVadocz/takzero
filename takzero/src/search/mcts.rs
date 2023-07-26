@@ -113,7 +113,7 @@ impl<E: Environment> Node<E> {
             return;
         }
 
-        let policy = agent.policy(env);
+        let (policy, value) = agent.policy_value(env);
         env.populate_actions(actions);
 
         self.children = actions
@@ -122,7 +122,7 @@ impl<E: Environment> Node<E> {
             .collect();
 
         // Get static evaluation from agent.
-        self.evaluation = Eval::Value(agent.value(env));
+        self.evaluation = Eval::Value(value);
     }
 
     pub fn simulate<A: Agent<E>>(

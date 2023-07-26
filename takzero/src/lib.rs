@@ -10,6 +10,6 @@
 // We're going nightly boys
 #![feature(extract_if)]
 
-pub mod model;
+pub mod network;
 pub mod repr;
 pub mod search;
