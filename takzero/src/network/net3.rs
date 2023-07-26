@@ -7,12 +7,12 @@ use tch::{
     Tensor,
 };
 
-use super::{move_index, Network};
-use crate::{
-    network::{output_channels, residual::ResidualBlock},
-    repr::{game_to_tensor, input_channels},
-    search::agent::Agent,
+use super::{
+    repr::{game_to_tensor, input_channels, move_index, output_channels, output_size},
+    residual::ResidualBlock,
+    Network,
 };
+use crate::search::agent::Agent;
 
 struct Net3 {
     vs: nn::VarStore,
@@ -23,17 +23,30 @@ struct Net3 {
 
 impl Default for Net3 {
     fn default() -> Self {
-        const FILTERS: i64 = 64;
+        const FILTERS: i64 = 32;
         const CORE_RES_BLOCKS: u32 = 4;
         const N: usize = 3;
 
         let vs = nn::VarStore::new(Device::cuda_if_available());
         let root = vs.root();
-        let mut core = nn::seq_t().add(ResidualBlock::new(
-            &root,
-            input_channels::<N>() as i64,
-            FILTERS,
-        ));
+        let mut core = nn::seq_t()
+            .add(nn::conv2d(
+                &root,
+                input_channels::<N>() as i64,
+                FILTERS,
+                3,
+                nn::ConvConfig {
+                    stride: 1,
+                    padding: 1,
+                    ..Default::default()
+                },
+            ))
+            .add(nn::batch_norm2d(
+                &root,
+                FILTERS,
+                nn::BatchNormConfig::default(),
+            ))
+            .add_fn(Tensor::relu);
         for _ in 0..CORE_RES_BLOCKS {
             core = core.add(ResidualBlock::new(&root, FILTERS, FILTERS));
         }
@@ -59,6 +72,8 @@ impl Default for Net3 {
                 stride: 1,
                 ..Default::default()
             }))
+            .add_fn(Tensor::relu)
+            .add_fn(|x| x.view([-1, (N * N) as i64]))
             .add(nn::linear(
                 &root,
                 (N * N) as i64,
@@ -86,11 +101,17 @@ impl Agent<Game<3, 0>> for Net3 {
     type Policy = Policy;
 
     fn policy_value(&self, env: &Game<3, 0>) -> (Self::Policy, f32) {
+        const N: usize = 3;
         let tensor = game_to_tensor(env, Device::cuda_if_available());
         let s = self
             .core
-            .forward_t(&tensor.view([1, 3, 3, input_channels::<3>() as i64]), false);
-        let policy = self.policy_head.forward_t(&s, false).try_into().unwrap();
+            .forward_t(&tensor.view([1, input_channels::<N>() as i64, 3, 3]), false);
+        let policy = self
+            .policy_head
+            .forward_t(&s, false)
+            .view([output_size::<N>() as i64])
+            .try_into()
+            .unwrap();
         let value = self.value_head.forward_t(&s, false).try_into().unwrap();
         (Policy(policy), value)
     }

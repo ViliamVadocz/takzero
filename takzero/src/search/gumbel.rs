@@ -4,8 +4,7 @@ use float_ord::FloatOrd;
 use rand::Rng;
 use rand_distr::{Distribution, Gumbel};
 
-use super::{agent::Agent, env::Environment, mcts::Node};
-use crate::search::policy::sigma;
+use super::{agent::Agent, env::Environment, mcts::Node, policy::sigma};
 
 impl<E: Environment> Node<E> {
     // FIXME: Evaluation will no longer be accurate after this.

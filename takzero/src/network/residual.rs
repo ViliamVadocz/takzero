@@ -23,7 +23,7 @@ impl SmallBlock {
                     ..Default::default()
                 },
             ))
-            .add(nn::batch_norm2d(vs, out_channels, Default::default()));
+            .add(nn::batch_norm2d(vs, out_channels, nn::BatchNormConfig::default()));
         Self { model }
     }
 }

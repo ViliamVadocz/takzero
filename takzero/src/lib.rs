@@ -7,9 +7,10 @@
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_possible_wrap)]
+// This one is just annoying
+#![allow(clippy::module_name_repetitions)]
 // We're going nightly boys
 #![feature(extract_if)]
 
 pub mod network;
-pub mod repr;
 pub mod search;
