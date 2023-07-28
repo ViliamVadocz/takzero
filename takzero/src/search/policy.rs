@@ -12,8 +12,8 @@ impl<E: Environment> Node<E> {
             .unwrap_or_default() as f32
     }
 
-    #[allow(clippy::missing_panics_doc)]
-    pub fn select_with_improved_policy(&mut self) -> &mut (E::Action, Self) {
+    #[must_use]
+    pub fn improved_policy(&self) -> Vec<f32> {
         let most_visited_count = self.most_visited_count();
         let p = self.children.iter().map(|(_, node)| {
             let completed_value = if node.needs_initialization() {
@@ -29,10 +29,12 @@ impl<E: Environment> Node<E> {
         let max = p.clone().max_by_key(|&x| FloatOrd(x)).unwrap_or_default();
         let exp = p.map(|x| (x - max).exp());
         let sum: f32 = exp.clone().sum();
-        #[allow(clippy::needless_collect)] // FIXME: false positive
-        let improved_policy: Vec<_> = exp.map(|x| x / sum).collect();
+        exp.map(|x| x / sum).collect()
+    }
 
-        improved_policy
+    #[allow(clippy::missing_panics_doc)]
+    pub fn select_with_improved_policy(&mut self) -> &mut (E::Action, Self) {
+        self.improved_policy()
             .into_iter()
             .zip(self.children.iter_mut())
             // Prune only losing moves to preserve optimality.
