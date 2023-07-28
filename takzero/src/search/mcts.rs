@@ -58,6 +58,19 @@ impl<E: Environment> Node<E> {
         self.visit_count <= 1
     }
 
+    /// Get the sub-tree for a given action.
+    /// This allows for tree reuse.
+    /// 
+    /// # Panics
+    /// 
+    /// Panics if the action has not been visited from the parent.
+    #[must_use]
+    pub fn play(mut self, action: &E::Action) -> Self {
+        let (_, child) = self.children.iter_mut().find(|(a, _)| action == a).unwrap();
+        std::mem::take(child)
+        // TODO: Maybe deallocate children on another thread.
+    }
+
     fn update_mean_value(&mut self, value: f32) {
         let Eval::Value(mean_value) = &mut self.evaluation else {
             unreachable!("Updating the mean value doesn't make sense if the result is known");
