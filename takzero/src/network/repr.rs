@@ -203,13 +203,19 @@ where
     Reserves<N>: Default,
 {
     let mut buffer = vec![0.0; input_size::<N>()];
-    let size = [buffer.len() as i64];
+    let size = [1, input_channels::<N>() as i64, N as i64, N as i64];
+    let strides = [
+        (N * N * input_channels::<N>()) as i64,
+        (N * N) as i64,
+        N as i64,
+        1,
+    ];
     game_repr(&mut buffer, game);
     let tensor = unsafe {
         Tensor::from_blob(
             buffer.as_ptr().cast(),
             &size,
-            &size,
+            &strides,
             Kind::Float,
             Device::Cpu,
         )

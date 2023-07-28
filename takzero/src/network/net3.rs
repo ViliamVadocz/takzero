@@ -14,7 +14,7 @@ use super::{
 };
 use crate::search::agent::Agent;
 
-struct Net3 {
+pub struct Net3 {
     vs: nn::VarStore,
     core: nn::SequentialT,
     policy_head: nn::SequentialT,
@@ -92,7 +92,11 @@ impl Default for Net3 {
 }
 
 impl Network for Net3 {
-    fn vs(&mut self) -> &mut nn::VarStore {
+    fn vs(&self) -> &nn::VarStore {
+        &self.vs
+    }
+
+    fn vs_mut(&mut self) -> &mut nn::VarStore {
         &mut self.vs
     }
 }
@@ -103,9 +107,7 @@ impl Agent<Game<3, 0>> for Net3 {
     fn policy_value(&self, env: &Game<3, 0>) -> (Self::Policy, f32) {
         const N: usize = 3;
         let tensor = game_to_tensor(env, Device::cuda_if_available());
-        let s = self
-            .core
-            .forward_t(&tensor.view([1, input_channels::<N>() as i64, 3, 3]), false);
+        let s = self.core.forward_t(&tensor, false);
         let policy = self
             .policy_head
             .forward_t(&s, false)
@@ -117,7 +119,7 @@ impl Agent<Game<3, 0>> for Net3 {
     }
 }
 
-struct Policy(Vec<f32>);
+pub struct Policy(Vec<f32>);
 impl Index<Move> for Policy {
     type Output = f32;
 
