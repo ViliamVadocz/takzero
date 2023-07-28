@@ -91,26 +91,9 @@ impl<E: Environment> Node<E> {
             }
 
             // If all moves lead to wins for the opponent, this node is a loss.
-            Eval::Win(_) if evaluations.clone().all(|e| e.is_win()) => {
-                self.evaluation = Eval::Loss(
-                    1 + evaluations
-                        .filter_map(|e| e.ply())
-                        .max()
-                        .expect("There should be child evaluations."),
-                );
-                self.evaluation
-            }
-
             // If all moves lead to wins or draws for the opponent, we choose to draw.
-            Eval::Draw(_) | Eval::Win(_)
-                if evaluations.clone().all(|e| e.is_win() || e.is_draw()) =>
-            {
-                self.evaluation = Eval::Draw(
-                    1 + evaluations
-                        .filter_map(|e| e.is_draw().then(|| e.ply().unwrap()))
-                        .max()
-                        .expect("There should be at least one draw."),
-                );
+            Eval::Draw(_) | Eval::Win(_) if evaluations.clone().all(|e| e.is_known()) => {
+                self.evaluation = evaluations.min().unwrap().negate();
                 self.evaluation
             }
 
