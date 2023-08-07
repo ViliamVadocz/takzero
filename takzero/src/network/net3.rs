@@ -4,6 +4,7 @@ use fast_tak::{takparse::Move, Game};
 use tch::{
     nn::{self, ModuleT},
     Device,
+    Kind,
     Tensor,
 };
 
@@ -12,8 +13,9 @@ use super::{
     residual::ResidualBlock,
     Network,
 };
-use crate::search::agent::Agent;
+use crate::{network::repr::move_mask, search::agent::Agent};
 
+#[derive(Debug)]
 pub struct Net3 {
     vs: nn::VarStore,
     core: nn::SequentialT,
@@ -21,13 +23,17 @@ pub struct Net3 {
     value_head: nn::SequentialT,
 }
 
-impl Default for Net3 {
-    fn default() -> Self {
-        const FILTERS: i64 = 32;
-        const CORE_RES_BLOCKS: u32 = 4;
+impl Network for Net3 {
+    fn new(device: Device, seed: Option<i64>) -> Self {
+        const FILTERS: i64 = 8;
+        const CORE_RES_BLOCKS: u32 = 2;
         const N: usize = 3;
 
-        let vs = nn::VarStore::new(Device::cuda_if_available());
+        if let Some(seed) = seed {
+            tch::manual_seed(seed);
+        }
+
+        let vs = nn::VarStore::new(device);
         let root = vs.root();
         let mut core = nn::seq_t()
             .add(nn::conv2d(
@@ -63,8 +69,7 @@ impl Default for Net3 {
                     padding: 1,
                     ..Default::default()
                 },
-            ))
-            .add_fn(|x| x.softmax(1, None));
+            ));
 
         let value_head = nn::seq_t()
             .add(ResidualBlock::new(&root, FILTERS, FILTERS))
@@ -89,9 +94,7 @@ impl Default for Net3 {
             value_head,
         }
     }
-}
 
-impl Network for Net3 {
     fn vs(&self) -> &nn::VarStore {
         &self.vs
     }
@@ -99,23 +102,31 @@ impl Network for Net3 {
     fn vs_mut(&mut self) -> &mut nn::VarStore {
         &mut self.vs
     }
+
+    fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor) {
+        let s = self.core.forward_t(xs, train);
+        (
+            self.policy_head.forward_t(&s, train),
+            self.value_head.forward_t(&s, train),
+        )
+    }
 }
 
 impl Agent<Game<3, 0>> for Net3 {
     type Policy = Policy;
 
-    fn policy_value(&self, env: &Game<3, 0>) -> (Self::Policy, f32) {
-        const N: usize = 3;
-        let tensor = game_to_tensor(env, Device::cuda_if_available());
-        let s = self.core.forward_t(&tensor, false);
-        let policy = self
-            .policy_head
-            .forward_t(&s, false)
-            .view([output_size::<N>() as i64])
+    fn policy_value(&self, env: &Game<3, 0>, moves: &[Move]) -> (Self::Policy, f32) {
+        let device = Device::cuda_if_available();
+
+        let tensor = game_to_tensor(env, device);
+        let (policy, value) = self.forward_t(&tensor, false);
+        let masked_policy = policy
+            .masked_fill(&move_mask::<3>(moves).to(device), 0.0)
+            .softmax(1, Kind::Float)
+            .view([output_size::<3>() as i64])
             .try_into()
             .unwrap();
-        let value = self.value_head.forward_t(&s, false).try_into().unwrap();
-        (Policy(policy), value)
+        (Policy(masked_policy), value.try_into().unwrap())
     }
 }
 
@@ -131,14 +142,17 @@ impl Index<Move> for Policy {
 #[cfg(test)]
 mod tests {
     use fast_tak::Game;
+    use tch::Device;
 
     use super::Net3;
-    use crate::search::agent::Agent;
+    use crate::{network::Network, search::agent::Agent};
 
     #[test]
     fn evaluate() {
-        let net = Net3::default();
+        let net = Net3::new(Device::cuda_if_available(), Some(123));
         let game: Game<3, 0> = Game::default();
-        let (_policy, _value) = net.policy_value(&game);
+        let mut moves = Vec::new();
+        game.possible_moves(&mut moves);
+        let (_policy, _value) = net.policy_value(&game, &moves);
     }
 }

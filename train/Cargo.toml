@@ -9,3 +9,4 @@ takzero = { path = "../takzero" }
 mimalloc = { version = "0.1.37", default-features = false }
 tch = "0.13.0"
 rand = "0.8.5"
+rayon = "1.7.0"

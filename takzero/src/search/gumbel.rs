@@ -45,17 +45,17 @@ impl<E: Environment> Node<E> {
         let mut pretend_most_visits = 0;
 
         for step in 0..=number_of_halving_steps {
-            // If too many actions were thrown away, resample from discard set.
-            if search_set.len() < target_number {
-                search_set.append(&mut discard_set);
-            }
             // If the worst opponent evaluation is a forced win or loss we break the search.
             // In the case of a draw we still want to do a bit more search just in case.
-            if let Some(eval) = search_set.iter().map(|(_, node)| node.evaluation).min() {
+            if let Some(eval) = discard_set.iter().chain(search_set.iter()).map(|(_, node)| node.evaluation).min() {
                 if eval.is_win() || eval.is_loss() {
                     self.evaluation = eval.negate();
                     break;
                 }
+            }
+            // If too many actions were thrown away, resample from discard set.
+            if search_set.len() < target_number {
+                search_set.extend(discard_set.extract_if(|(_, node)| !node.evaluation.is_known()));
             }
             // Keep only the `target_number` most promising actions.
             search_set.sort_unstable_by_key(|(_, node)| {
@@ -65,8 +65,12 @@ impl<E: Environment> Node<E> {
                         .map(|q| node.policy + sigma(q, pretend_most_visits as f32)),
                 )
             });
-            discard_set.extend(search_set.drain(target_number..));
-            if target_number == 1 {
+            if search_set.len() > target_number {
+                discard_set.extend(search_set.drain(target_number..));
+            }
+            // If no more search is needed, exit.
+            // FIXME: If all are known then this one is also known!
+            if search_set.is_empty() || target_number == 1 {
                 break;
             }
 
@@ -76,7 +80,7 @@ impl<E: Environment> Node<E> {
                 / target_number as u32;
             // If a result is known we discard it early.
             discard_set.extend(search_set.extract_if(|(action, node)| {
-                if let Some(simulations_before_known) = (0..simulations_per_action).find(|_| {
+                if let Some(simulations_before_known) = (1..=simulations_per_action).find(|_| {
                     let mut clone = env.clone();
                     clone.step(action.clone());
                     node.simulate(clone, actions, agent).is_known()
@@ -137,12 +141,13 @@ impl<E: Environment> Node<E> {
         } else {
             // Update evaluation.
             // FIXME: Using a janky formula made-up because it doesn't really matter.
-            self.evaluation = Eval::Value(
+            self.evaluation = Eval::new_value(
                 self.children
                     .iter()
+                    .filter(|(_, node)| node.visit_count > 0)
                     .map(|(_, node)| {
                         let eval: f32 = node.evaluation.negate().into();
-                        let ratio = node.visit_count as f32 / (self.visit_count - 1) as f32;
+                        let ratio = node.visit_count as f32 / self.visit_count as f32; // FIXME: visit counts for known nodes are bad, maybe use improved policy?
                         eval * ratio
                     })
                     .sum(),

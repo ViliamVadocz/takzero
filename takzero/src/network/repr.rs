@@ -70,6 +70,52 @@ pub fn move_index<const N: usize>(m: &Move) -> usize {
     channel * N * N + row * N + column
 }
 
+pub fn move_mask<const N: usize>(moves: &[Move]) -> Tensor {
+    let mut mask = vec![true; output_size::<N>()];
+    for mov in moves {
+        mask[move_index::<N>(mov)] = false;
+    }
+    let size = [1, output_channels::<N>() as i64, N as i64, N as i64];
+    let strides = [
+        (N * N * output_channels::<N>()) as i64,
+        (N * N) as i64,
+        N as i64,
+        1,
+    ];
+    unsafe {
+        Tensor::from_blob(
+            mask.as_ptr().cast(),
+            &size,
+            &strides,
+            Kind::Bool,
+            Device::Cpu,
+        )
+    }
+}
+
+pub fn policy_tensor<const N: usize>(policy: &[(Move, f32)]) -> Tensor {
+    let mut data = vec![0.0; output_size::<N>()];
+    for (mov, p) in policy {
+        data[move_index::<N>(mov)] = *p;
+    }
+    let size = [1, output_channels::<N>() as i64, N as i64, N as i64];
+    let strides = [
+        (N * N * output_channels::<N>()) as i64,
+        (N * N) as i64,
+        N as i64,
+        1,
+    ];
+    unsafe {
+        Tensor::from_blob(
+            data.as_ptr().cast(),
+            &size,
+            &strides,
+            Kind::Float,
+            Device::Cpu,
+        )
+    }
+}
+
 /// Get the number of channels needed to encode each move type.
 /// This is used by the newer networks.
 #[inline]

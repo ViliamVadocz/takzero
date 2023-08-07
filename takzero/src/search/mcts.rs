@@ -1,3 +1,7 @@
+
+
+use ordered_float::NotNan;
+
 use super::{agent::Agent, env::Environment, eval::Eval};
 
 pub struct Node<E: Environment> {
@@ -60,13 +64,15 @@ impl<E: Environment> Node<E> {
 
     /// Get the sub-tree for a given action.
     /// This allows for tree reuse.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if the action has not been visited from the parent.
     #[must_use]
     pub fn play(mut self, action: &E::Action) -> Self {
-        let (_, child) = self.children.iter_mut().find(|(a, _)| action == a).unwrap();
+        let Some((_, child)) = self.children.iter_mut().find(|(a, _)| action == a) else {
+            return Self::default();
+        };
         std::mem::take(child)
         // TODO: Maybe deallocate children on another thread.
     }
@@ -75,8 +81,9 @@ impl<E: Environment> Node<E> {
         let Eval::Value(mean_value) = &mut self.evaluation else {
             unreachable!("Updating the mean value doesn't make sense if the result is known");
         };
-        *mean_value =
-            mean_value.mul_add((self.visit_count - 1) as f32, value) / self.visit_count as f32;
+        *mean_value = NotNan::new(
+            mean_value.into_inner().mul_add((self.visit_count - 1) as f32, value) / self.visit_count as f32
+        ).expect("value should not be nan");
     }
 
     fn propagate_child_eval(&mut self, child_eval: Eval) -> Eval {
@@ -98,7 +105,7 @@ impl<E: Environment> Node<E> {
             }
 
             // Otherwise this position is not know and we just back-propagate the child result.
-            _ => Eval::Value(child_eval.negate().into()),
+            _ => Eval::new_value(child_eval.negate().into()),
         }
     }
 
@@ -109,8 +116,8 @@ impl<E: Environment> Node<E> {
             return;
         }
 
-        let (policy, value) = agent.policy_value(env);
         env.populate_actions(actions);
+        let (policy, value) = agent.policy_value(env, actions);
 
         self.children = actions
             .drain(..)
@@ -118,7 +125,7 @@ impl<E: Environment> Node<E> {
             .collect();
 
         // Get static evaluation from agent.
-        self.evaluation = Eval::Value(value);
+        self.evaluation = Eval::new_value(value);
     }
 
     pub fn simulate<A: Agent<E>>(

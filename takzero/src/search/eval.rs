@@ -1,16 +1,38 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, fmt};
+
+use ordered_float::NotNan;
 
 use super::env::Terminal;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Eval {
-    Value(f32),
+    Value(NotNan<f32>),
     Win(u32),
     Loss(u32),
     Draw(u32),
 }
 
+impl fmt::Display for Eval {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Value(not_nan) => not_nan.into_inner().fmt(f),
+            Self::Win(ply) => write!(f, "Win({ply})"),
+            Self::Loss(ply) => write!(f, "Loss({ply})"),
+            Self::Draw(ply) => write!(f, "Draw({ply})"),
+        }
+    }
+}
+
 impl Eval {
+    /// # Panics
+    ///
+    /// Panics if the value is a NaN.
+    #[must_use]
+    pub fn new_value(value: f32) -> Self {
+        debug_assert!((-1.0..=1.0).contains(&value), "value was {value}");
+        Self::Value(NotNan::new(value).expect("value should not be NaN"))
+    }
+
     #[must_use]
     pub fn negate(&self) -> Self {
         match *self {
@@ -49,10 +71,15 @@ impl Eval {
         }
     }
 
+    /// # Panics
+    ///
+    /// Panics if the return value of the function is NaN.
     #[must_use]
     pub fn map<F: Fn(f32) -> f32>(self, f: F) -> Self {
         match self {
-            Self::Value(x) => Self::Value(f(x)),
+            Self::Value(x) => {
+                Self::Value(NotNan::new(f(x.into())).expect("value should not be NaN"))
+            }
             eval => eval,
         }
     }
@@ -60,14 +87,14 @@ impl Eval {
 
 impl Default for Eval {
     fn default() -> Self {
-        Self::Value(Default::default())
+        Self::Value(NotNan::default())
     }
 }
 
 impl From<Eval> for f32 {
     fn from(value: Eval) -> Self {
         match value {
-            Eval::Value(x) => x,
+            Eval::Value(x) => x.into(),
             Eval::Win(_) => 1.0,
             Eval::Loss(_) => -1.0,
             Eval::Draw(_) => 0.0,
@@ -93,7 +120,7 @@ impl PartialOrd for Eval {
             Self::Value(left) => match other {
                 Self::Value(right) => left.partial_cmp(right),
                 Self::Win(_) => Some(Ordering::Less),
-                Self::Draw(_) => left.partial_cmp(&CONTEMPT),
+                Self::Draw(_) => left.into_inner().partial_cmp(&CONTEMPT),
                 Self::Loss(_) => Some(Ordering::Greater),
             },
             Self::Win(left) => match other {
@@ -129,9 +156,9 @@ mod tests {
     #[test]
     fn eval_order() {
         let mut evals = [
-            Eval::Value(1.0),
-            Eval::Value(CONTEMPT + 0.1),
-            Eval::Value(-1.0),
+            Eval::new_value(1.0),
+            Eval::new_value(CONTEMPT + 0.1),
+            Eval::new_value(-1.0),
             Eval::Win(5),
             Eval::Win(10),
             Eval::Draw(5),
@@ -143,11 +170,11 @@ mod tests {
         assert_eq!(evals, [
             Eval::Loss(5),
             Eval::Loss(10),
-            Eval::Value(-1.0),
+            Eval::new_value(-1.0),
             Eval::Draw(5),
             Eval::Draw(10),
-            Eval::Value(CONTEMPT + 0.1),
-            Eval::Value(1.0),
+            Eval::new_value(CONTEMPT + 0.1),
+            Eval::new_value(1.0),
             Eval::Win(10),
             Eval::Win(5),
         ]);
