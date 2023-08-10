@@ -10,3 +10,5 @@ mimalloc = { version = "0.1.37", default-features = false }
 tch = "0.13.0"
 rand = "0.8.5"
 rayon = "1.7.0"
+crossbeam = "0.8.2"
+clap = { version = "4.3.19", features = ["derive"] }

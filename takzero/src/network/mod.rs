@@ -20,4 +20,13 @@ pub trait Network: Sized {
         nn.vs_mut().load(path)?;
         Ok(nn)
     }
+
+    #[must_use]
+    fn clone(&self, device: tch::Device) -> Self {
+        let mut nn = Self::new(device, None);
+        nn.vs_mut()
+            .copy(self.vs())
+            .expect("variables in both VarStores should have identical names");
+        nn
+    }
 }

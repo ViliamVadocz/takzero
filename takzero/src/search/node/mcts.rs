@@ -2,81 +2,10 @@
 
 use ordered_float::NotNan;
 
-use super::{agent::Agent, env::Environment, eval::Eval};
+use super::{super::{agent::Agent, env::Environment, eval::Eval}, Node};
 
-pub struct Node<E: Environment> {
-    pub evaluation: Eval, // Q(s)
-    pub visit_count: u32, // N(s_prev, a)
-    pub policy: f32,      // P(s_prev, a)
-    pub children: Box<[(E::Action, Self)]>,
-}
-
-impl<E: Environment> std::fmt::Debug for Node<E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Node")
-            .field("visit_count", &self.visit_count)
-            .field("evaluation", &self.evaluation)
-            .field("policy", &self.policy)
-            .field("children", &self.children.len())
-            .finish()
-    }
-}
-
-// TODO: Improve this
-impl<E: Environment> std::fmt::Display for Node<E>
-where
-    E::Action: std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{self:?}")?;
-        for (mov, node) in &*self.children {
-            writeln!(f, "{mov}\t{node:?}")?;
-        }
-        Ok(())
-    }
-}
-
-impl<E: Environment> Default for Node<E> {
-    fn default() -> Self {
-        Self {
-            visit_count: Default::default(),
-            evaluation: Eval::default(),
-            policy: Default::default(),
-            children: Box::default(),
-        }
-    }
-}
 
 impl<E: Environment> Node<E> {
-    #[must_use]
-    pub fn from_policy(policy: f32) -> Self {
-        Self {
-            policy,
-            ..Default::default()
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn needs_initialization(&self) -> bool {
-        self.visit_count <= 1
-    }
-
-    /// Get the sub-tree for a given action.
-    /// This allows for tree reuse.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the action has not been visited from the parent.
-    #[must_use]
-    pub fn play(mut self, action: &E::Action) -> Self {
-        let Some((_, child)) = self.children.iter_mut().find(|(a, _)| action == a) else {
-            return Self::default();
-        };
-        std::mem::take(child)
-        // TODO: Maybe deallocate children on another thread.
-    }
-
     fn update_mean_value(&mut self, value: f32) {
         let Eval::Value(mean_value) = &mut self.evaluation else {
             unreachable!("Updating the mean value doesn't make sense if the result is known");
@@ -159,7 +88,8 @@ impl<E: Environment> Node<E> {
 mod tests {
     use fast_tak::Game;
 
-    use super::super::{agent::dummy::Dummy, eval::Eval, mcts::Node};
+    use super::super::Node;
+    use super::super::super::{agent::dummy::Dummy, eval::Eval};
 
     #[test]
     fn find_tinue_easy() {

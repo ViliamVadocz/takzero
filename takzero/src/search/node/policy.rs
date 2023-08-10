@@ -1,6 +1,6 @@
 use float_ord::FloatOrd;
 
-use super::{env::Environment, mcts::Node};
+use super::{super::env::Environment, Node};
 
 impl<E: Environment> Node<E> {
     #[must_use]

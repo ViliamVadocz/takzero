@@ -3,7 +3,8 @@ use std::cmp::Reverse;
 use rand::Rng;
 use rand_distr::{Distribution, Gumbel};
 
-use super::{agent::Agent, env::Environment, eval::Eval, mcts::Node, policy::sigma};
+use super::{Node, policy::sigma};
+use super::super::{agent::Agent, env::Environment, eval::Eval};
 
 impl<E: Environment> Node<E> {
     fn add_gumbel_to_policy(&mut self, gumbel_distr: Gumbel<f32>, rng: &mut impl Rng) -> Vec<f32> {
@@ -163,7 +164,7 @@ mod tests {
     use fast_tak::Game;
     use rand::SeedableRng;
 
-    use crate::search::{agent::dummy::Dummy, eval::Eval, mcts::Node};
+    use crate::search::{agent::dummy::Dummy, eval::Eval, node::Node};
 
     #[test]
     fn find_win_with_gumbel() {
