@@ -159,7 +159,7 @@ impl Symmetry<3> for Target {
                     value: self.value,
                     policy: policy.into_boxed_slice(),
                 });
-        [(); 8].map(|()| iter.next().unwrap())
+        array::from_fn(|_| iter.next().unwrap())
     }
 }
 

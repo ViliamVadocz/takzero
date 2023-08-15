@@ -6,7 +6,7 @@ pub mod policy;
 use super::{env::Environment, eval::Eval};
 
 pub struct Node<E: Environment> {
-    pub evaluation: Eval, // Q(s)
+    pub evaluation: Eval, // V(s_t) or Q(s_prev, a)
     pub visit_count: u32, // N(s_prev, a)
     pub policy: f32,      // P(s_prev, a)
     pub children: Box<[(E::Action, Self)]>,

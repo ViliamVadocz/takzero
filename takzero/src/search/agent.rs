@@ -3,8 +3,14 @@ use std::ops::Index;
 use super::env::Environment;
 
 pub trait Agent<E: Environment> {
-    type Policy: Index<E::Action, Output = f32>;
-    fn policy_value(&self, env: &E, actions: &[E::Action]) -> (Self::Policy, f32);
+    type Policy: Index<E::Action, Output = f32> + Send + Sync;
+
+    // Always batched.
+    fn policy_value(
+        &self,
+        env_batch: &[E],
+        actions_batch: &[Vec<E::Action>],
+    ) -> Vec<(Self::Policy, f32)>;
 }
 
 pub mod dummy {
@@ -17,8 +23,15 @@ pub mod dummy {
     impl<E: Environment> Agent<E> for Dummy {
         type Policy = Policy;
 
-        fn policy_value(&self, _: &E, actions: &[E::Action]) -> (Self::Policy, f32) {
-            (Policy(1.0 / actions.len() as f32), 0.0)
+        fn policy_value(
+            &self,
+            _: &[E],
+            actions_batch: &[Vec<E::Action>],
+        ) -> Vec<(Self::Policy, f32)> {
+            actions_batch
+                .iter()
+                .map(|actions| (Policy(1.0 / actions.len() as f32), 0.0))
+                .collect()
         }
     }
 

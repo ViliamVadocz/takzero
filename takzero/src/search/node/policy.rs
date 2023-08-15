@@ -32,19 +32,21 @@ impl<E: Environment> Node<E> {
         exp.map(|x| x / sum).collect()
     }
 
+    /// Get index of child which maximizes the improved policy.
     #[allow(clippy::missing_panics_doc)]
-    pub fn select_with_improved_policy(&mut self) -> &mut (E::Action, Self) {
+    pub fn select_with_improved_policy(&mut self) -> usize {
         self.improved_policy()
             .into_iter()
-            .zip(self.children.iter_mut())
+            .zip(self.children.iter())
+            .enumerate()
             // Prune only losing moves to preserve optimality.
-            .filter(|(_, (_, node))| !node.evaluation.is_win())
+            .filter(|(_, (_, (_, node)))| !node.evaluation.is_win())
             // Minimize mean-squared-error between visits and improved policy
-            .max_by_key(|(pi, (_, node))| {
+            .max_by_key(|(_, (pi, (_, node)))| {
                 FloatOrd(pi - node.visit_count as f32 / ((self.visit_count + 1) as f32))
             })
-            .map(|(_, child)| child)
-            .expect("There should always be a child to simulate.")
+            .map(|(i, _)| i)
+            .expect("there should always be a child to simulate")
     }
 }
 

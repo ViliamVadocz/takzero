@@ -1,7 +1,7 @@
 use fast_tak::{takparse::Move, Game};
 
-pub trait Environment: Clone {
-    type Action: Clone + PartialEq;
+pub trait Environment: Clone + Send + Sync {
+    type Action: Clone + PartialEq + Send + Sync;
 
     fn new() -> Self;
     fn populate_actions(&self, actions: &mut Vec<Self::Action>);

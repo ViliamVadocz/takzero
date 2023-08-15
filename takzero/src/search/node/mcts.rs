@@ -1,24 +1,38 @@
-
-
 use ordered_float::NotNan;
 
-use super::{super::{agent::Agent, env::Environment, eval::Eval}, Node};
+#[cfg(test)]
+use super::super::agent::Agent;
 
+use super::{
+    super::{env::Environment, eval::Eval},
+    Node,
+};
+
+/// Return value from [`Node::forward`] indicating if the evaluation is known
+/// or if it needs to be propagated.
+#[must_use]
+pub enum Forward<E: Environment> {
+    Known(Eval),
+    NeedsNetwork(E),
+}
 
 impl<E: Environment> Node<E> {
     fn update_mean_value(&mut self, value: f32) {
-        let Eval::Value(mean_value) = &mut self.evaluation else {
-            unreachable!("Updating the mean value doesn't make sense if the result is known");
+        if let Eval::Value(mean_value) = &mut self.evaluation {
+            *mean_value = NotNan::new(
+                mean_value
+                    .into_inner()
+                    .mul_add((self.visit_count - 1) as f32, value)
+                    / self.visit_count as f32,
+            )
+            .expect("value should not be nan");
+        } else {
+            unreachable!("updating the mean value doesn't make sense if the result is known");
         };
-        *mean_value = NotNan::new(
-            mean_value.into_inner().mul_add((self.visit_count - 1) as f32, value) / self.visit_count as f32
-        ).expect("value should not be nan");
     }
 
     fn propagate_child_eval(&mut self, child_eval: Eval) -> Eval {
-        self.update_mean_value(child_eval.negate().into());
         let evaluations = self.children.iter().map(|(_, node)| node.evaluation);
-
         match child_eval {
             // This move made the opponent lose, so this position is a win.
             Eval::Loss(_) => {
@@ -34,53 +48,98 @@ impl<E: Environment> Node<E> {
             }
 
             // Otherwise this position is not know and we just back-propagate the child result.
-            _ => Eval::new_value(child_eval.negate().into()),
+            _ => {
+                let negated = child_eval.negate().into();
+                self.update_mean_value(negated);
+                Eval::new_value(negated)
+            }
         }
     }
 
-    pub fn initialize<A: Agent<E>>(&mut self, env: &E, actions: &mut Vec<E::Action>, agent: &A) {
-        // Check if the position is terminal.
-        if let Some(terminal) = env.terminal() {
-            self.evaluation = terminal.into();
-            return;
+    /// Run the forward part of MCTS.
+    /// One of `backward_known_eval` and `backward_network_eval` must be called afterwards.
+    pub fn forward(&mut self, trajectory: &mut Vec<usize>, mut env: E) -> Forward<E> {
+        debug_assert!(trajectory.is_empty());
+        let mut node = self;
+
+        loop {
+            node.visit_count += 1; // TODO: virtual visit?
+            if node.evaluation.is_known() {
+                break Forward::Known(node.evaluation);
+            }
+            if node.needs_initialization() {
+                if let Some(terminal) = env.terminal() {
+                    node.evaluation = terminal.into();
+                    break Forward::Known(node.evaluation);
+                }
+                break Forward::NeedsNetwork(env);
+            }
+
+            let index = node.select_with_improved_policy();
+            trajectory.push(index);
+            let (action, child) = &mut node.children[index];
+            env.step(action.clone());
+            node = child;
         }
-
-        env.populate_actions(actions);
-        let (policy, value) = agent.policy_value(env, actions);
-
-        self.children = actions
-            .drain(..)
-            .map(|action| (action.clone(), Self::from_policy(policy[action])))
-            .collect();
-
-        // Get static evaluation from agent.
-        self.evaluation = Eval::new_value(value);
     }
 
-    pub fn simulate<A: Agent<E>>(
+    /// Propagate a known eval through the tree.
+    pub fn backward_known_eval(
         &mut self,
-        mut env: E,
-        actions: &mut Vec<E::Action>,
-        agent: &A,
+        mut trajectory: impl Iterator<Item = usize>,
+        eval: Eval,
     ) -> Eval {
-        self.visit_count += 1;
-        if self.evaluation.is_known() {
-            debug_assert!(
-                !self.evaluation.is_win(),
-                "Simulating a known win is useless because the action leading to this state \
-                 should never be taken."
-            );
-            return self.evaluation;
+        if let Some(index) = trajectory.next() {
+            let child_eval = self.children[index].1.backward_known_eval(trajectory, eval);
+            self.propagate_child_eval(child_eval)
+        } else {
+            // Leaf reached, time to propagate upwards.
+            eval
         }
-        if self.needs_initialization() {
-            self.initialize(&env, actions, agent);
-            return self.evaluation;
-        }
+    }
 
-        let (action, node) = self.select_with_improved_policy();
-        env.step(action.clone());
-        let child_eval = node.simulate(env, actions, agent);
-        self.propagate_child_eval(child_eval)
+    /// Initialize a leaf node and propagate a network evaluation through the tree.
+    pub fn backward_network_eval(
+        &mut self,
+        mut trajectory: impl Iterator<Item = usize>,
+        policy: impl Iterator<Item = (E::Action, f32)>,
+        value: f32,
+    ) -> Eval {
+        if let Some(index) = trajectory.next() {
+            let child_eval = self.children[index]
+                .1
+                .backward_network_eval(trajectory, policy, value);
+            self.propagate_child_eval(child_eval)
+        } else {
+            // Finish leaf initialization.
+            self.children = policy.map(|(a, p)| (a, Self::from_policy(p))).collect();
+            self.evaluation = Eval::new_value(value);
+            self.evaluation
+        }
+    }
+
+    #[cfg(test)]
+    fn simulate_simple<A: Agent<E>>(
+        &mut self,
+        agent: &A,
+        env: E,
+    ) -> Eval {
+        let mut trajectory = Vec::new();
+        match self.forward(&mut trajectory, env) {
+            Forward::Known(eval) => {
+                self.backward_known_eval(trajectory.into_iter(), eval)
+            },
+            Forward::NeedsNetwork(env) => {
+                let mut actions = [Vec::new()];
+                env.populate_actions(&mut actions[0]);
+                let (policy, value) = agent.policy_value(&[env], &actions).pop().unwrap();
+                self.backward_network_eval(
+                    trajectory.into_iter(),
+                    actions.into_iter().next().unwrap().into_iter().map(|a| (a.clone(), policy[a])),
+                    value,
+                )
+            }
+        }
     }
 }
 
@@ -88,8 +147,10 @@ impl<E: Environment> Node<E> {
 mod tests {
     use fast_tak::Game;
 
-    use super::super::Node;
-    use super::super::super::{agent::dummy::Dummy, eval::Eval};
+    use super::super::{
+        super::{agent::dummy::Dummy, eval::Eval},
+        Node,
+    };
 
     #[test]
     fn find_tinue_easy() {
@@ -98,12 +159,11 @@ mod tests {
         // https://ptn.ninja/NoZQlgLgpgBARABwgOwHTLMgVgQzgXQFgAoUMAL1jgGYCTgB5BKDZAc3gGcB3HBO0gBEc0eACYADGOqoJAdlQBGAGwDgAFTABbKpIBcYgBx7qAVjUAlKJwCuAGwjwLAWgkCSi1DBzUYAY0USMS8-MX9qEhkYACNfP2pnIA&name=MwD2Q&ply=5!
         let game: Game<3, 0> = Game::from_ptn_moves(&["a3", "c1", "c2", "c3", "b3", "c3-"]);
         let mut root = Node::default();
-        let mut actions = Vec::new();
 
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate(game.clone(), &mut actions, &Dummy),
+                    root.simulate_simple(&Dummy, game.clone()),
                     Eval::Win(_)
                 )
             })
@@ -127,12 +187,11 @@ mod tests {
         // https://ptn.ninja/NoZQlgLgpgBARABwgOwHTLMgVgQzgXQFgAoUMAL1jgGYCTgB5BKDZAc3gGcB3HBO0gBEc0eACYADGOqoJAdlQBGAGwDgAFTABbKpIBcYgBx7qAVjUAlKJwCuAGwjwLAWgkCSi1DBzVvikmJeAEaKMADGikA&name=MwD2Q&ply=3!
         let game: Game<3, 0> = Game::from_ptn_moves(&["a3", "a1", "b1", "c1"]);
         let mut root = Node::default();
-        let mut actions = Vec::new();
 
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate(game.clone(), &mut actions, &Dummy),
+                    root.simulate_simple(&Dummy, game.clone()),
                     Eval::Win(_)
                 )
             })
