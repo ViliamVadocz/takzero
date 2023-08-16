@@ -70,7 +70,7 @@ pub fn move_index<const N: usize>(m: &Move) -> usize {
     channel * N * N + row * N + column
 }
 
-pub fn move_mask<const N: usize>(moves: &[Move]) -> Tensor {
+pub fn move_mask<const N: usize>(moves: &[Move], device: Device) -> Tensor {
     let mut mask = vec![true; output_size::<N>()];
     for mov in moves {
         mask[move_index::<N>(mov)] = false;
@@ -91,9 +91,10 @@ pub fn move_mask<const N: usize>(moves: &[Move]) -> Tensor {
             Device::Cpu,
         )
     }
+    .to(device)
 }
 
-pub fn policy_tensor<const N: usize>(policy: &[(Move, f32)]) -> Tensor {
+pub fn policy_tensor<const N: usize>(policy: &[(Move, f32)], device: Device) -> Tensor {
     let mut data = vec![0.0; output_size::<N>()];
     for (mov, p) in policy {
         data[move_index::<N>(mov)] = *p;
@@ -114,6 +115,7 @@ pub fn policy_tensor<const N: usize>(policy: &[(Move, f32)]) -> Tensor {
             Device::Cpu,
         )
     }
+    .to(device)
 }
 
 /// Get the number of channels needed to encode each move type.

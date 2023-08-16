@@ -22,20 +22,20 @@ const STEPS_BEFORE_CHECKING_NETWORK: usize = 100_000; // TODO: Think more about 
 
 /// Populate the replay buffer with new state-action pairs from self-play.
 pub fn run<E: Environment, NET: Network + Agent<E>>(
+    device: Device,
     seed: u64,
     beta_net: &BetaNet,
     mut tx: Sender<Replay<E>>,
 ) -> ! {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
-    let mut replays: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-
-    let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-
-    let mut net = NET::new(Device::Cuda(0), None);
+    let mut net = NET::new(device, None);
     let mut net_index = beta_net.0.load(Ordering::Relaxed);
     net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
+
+    let mut replays: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
 
     loop {
         // TODO: self-play

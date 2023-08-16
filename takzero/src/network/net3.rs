@@ -139,7 +139,7 @@ impl Agent<Env> for Net3 {
         let mask = Tensor::cat(
             &actions_batch
                 .iter()
-                .map(|m| move_mask::<N>(m).to(device))
+                .map(|m| move_mask::<N>(m, device))
                 .collect::<Vec<_>>(),
             0,
         );

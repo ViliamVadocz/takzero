@@ -9,7 +9,7 @@ pub struct Replay<E: Environment> {
 }
 
 pub struct Target<E: Environment> {
-    pub state: E,                        // s_t
+    pub env: E,                          // s_t
     pub policy: Box<[(E::Action, f32)]>, // \pi'(s_t)
     pub value: f32,                      // discounted N-step value
 }

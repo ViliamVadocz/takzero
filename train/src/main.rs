@@ -54,21 +54,21 @@ fn run<NET: Network + Agent<Env>>() {
     let args = Args::parse();
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-    let seeds: [u64; 4] = rng.gen();
+    let seeds: [u64; 3] = rng.gen();
 
-    let mut net = NET::new(Device::Cuda(0), Some(rng.gen()));
+    let mut net = NET::new(Device::Cpu, Some(rng.gen()));
     net.save(args.model_path.join(file_name(0))).unwrap();
     let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
     std::thread::scope(|s| {
         let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Env>>();
-        let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Box<[Target<Env>]>>();
+        let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
 
         #[rustfmt::skip]
-        s.spawn(|| tch::no_grad(|| reanalyze::run::<_, Net>(seeds[0], &beta_net, replay_rx, batch_tx)));
-        s.spawn(|| tch::no_grad(|| self_play::run::<_, Net>(seeds[1], &beta_net, replay_tx)));
-        s.spawn(|| tch::no_grad(|| evaluation::run(seeds[2], &beta_net)));
-        s.spawn(|| training::run::<Env, Net>(seeds[3], &beta_net, batch_rx));
+        s.spawn(|| tch::no_grad(|| reanalyze::run::<_, Net>(Device::Cuda(0), seeds[0], &beta_net, replay_rx, batch_tx)));
+        s.spawn(|| tch::no_grad(|| self_play::run::<_, Net>(Device::Cuda(0), seeds[1], &beta_net, replay_tx)));
+        s.spawn(|| tch::no_grad(|| evaluation::run::<_, Net>(Device::Cuda(0), seeds[2], &beta_net)));
+        s.spawn(|| training::run::<N, HALF_KOMI, Net>(Device::Cuda(0), &beta_net, batch_rx));
     });
 }
 
