@@ -1,6 +1,6 @@
 use fast_tak::{takparse::Move, Game};
 
-pub trait Environment: Clone + Send + Sync {
+pub trait Environment: Clone + Send + Sync + Default {
     type Action: Clone + PartialEq + Send + Sync;
 
     fn new() -> Self;

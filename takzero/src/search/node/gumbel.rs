@@ -12,7 +12,6 @@ use super::{
 };
 use crate::search::eval::Eval;
 
-// TODO: parallelize CPU bits with rayon?
 // TODO: avoid allocating new tensor or moving between cpu/gpu?
 fn batched_simulate<E: Environment, A: Agent<E>>(
     nodes: &mut [Node<E>],
@@ -98,6 +97,11 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>>(
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
 ) -> Vec<E::Action> {
+    debug_assert_eq!(nodes.len(), envs.len());
+    debug_assert_eq!(nodes.len(), actions.len());
+    debug_assert_eq!(nodes.len(), trajectories.len());
+    debug_assert!(envs.iter().all(|env| env.terminal().is_none()));
+
     // Run one simulation on all nodes.
     batched_simulate(nodes, envs, agent, actions, trajectories);
 

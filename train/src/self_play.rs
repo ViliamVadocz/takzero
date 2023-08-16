@@ -1,55 +1,139 @@
-use crossbeam::channel::Sender;
-use fast_tak::{takparse::Move, Game, Reserves};
-use rayon::prelude::IntoParallelRefMutIterator;
-use takzero::network::Network;
+use std::{array, sync::atomic::Ordering};
 
-use crate::target::{Replay, Target};
+use crossbeam::channel::Sender;
+use rand::{Rng, SeedableRng};
+use rayon::prelude::*;
+use takzero::{
+    network::Network,
+    search::{
+        agent::Agent,
+        env::Environment,
+        node::{gumbel::gumbel_sequential_halving, Node},
+    },
+};
+use tch::Device;
+
+use crate::{target::Replay, BetaNet, STEP};
 
 const BATCH_SIZE: usize = 64;
+const SAMPLED: usize = 32;
+const SIMULATIONS: u32 = 1024;
+const STEPS_BEFORE_CHECKING_NETWORK: usize = 100_000; // TODO: Think more about this number
 
 /// Populate the replay buffer with new state-action pairs from self-play.
-pub fn run<const N: usize, const HALF_KOMI: i8>(tx: Sender<Replay<N, HALF_KOMI>>) {
-    let mut actions = [(); BATCH_SIZE].map(|()| Vec::new());
-    let mut targets = [(); BATCH_SIZE].map(|()| Vec::new());
+pub fn run<E: Environment, NET: Network + Agent<E>>(
+    seed: u64,
+    beta_net: &BetaNet,
+    mut tx: Sender<Replay<E>>,
+) -> ! {
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+
+    let mut replays: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+
+    let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+
+    let mut net = NET::new(Device::Cuda(0), None);
+    let mut net_index = beta_net.0.load(Ordering::Relaxed);
+    net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
+
     loop {
-        let net = todo!(); // TODO: Get a recent network
+        // TODO: self-play
+        self_play(
+            &mut rng,
+            &net,
+            &mut actions,
+            &mut replays,
+            &mut trajectories,
+            &mut tx,
+        );
 
-        self_play(&net, &mut actions, &mut targets);
-
-        // TODO: Send targets
-        tx.send(todo!());
+        //  Get the latest network
+        let maybe_new_net_index = beta_net.0.load(Ordering::Relaxed);
+        if maybe_new_net_index >= net_index {
+            net_index = maybe_new_net_index;
+            net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
+        }
     }
 }
 
-/// Play a batch of self-play games.
-fn self_play<const N: usize, const HALF_KOMI: i8, NET: Network>(
-    net: &NET,
-    actions: &mut [Vec<Move>],
-    targets: &mut [Vec<Target<N, HALF_KOMI>>],
-) where
-    Reserves<N>: Default,
-{
-    let mut games: [Game<N, HALF_KOMI>; BATCH_SIZE] = [(); BATCH_SIZE].map(|()| Game::default());
-    let mut nodes: [Node<Game<N, HALF_KOMI>>; BATCH_SIZE] =
-        [(); BATCH_SIZE].map(|()| Node::default());
+fn self_play<E: Environment, A: Agent<E>>(
+    rng: &mut impl Rng,
+    agent: &A,
 
-    let batch = nodes
-        .par_iter_mut()
-        .map(|node| node.gumbel_sequential_halving())
-        .collect();
-    let (policy, value) = net.forward_t(batch, false);
-    nodes.par_iter_mut().for_each(|node| node.complete());
+    replays_batch: &mut [Vec<Replay<E>>],
+    actions: &mut [Vec<E::Action>],
+    trajectories: &mut [Vec<usize>],
 
-    // TODO:
-    // - Create games
-    // - Until all are done, (replenish or not?)
+    tx: &mut Sender<Replay<E>>,
+) {
+    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| E::default());
+    let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
 
-    // This should be elsewhere:
-    // - Do rollout until evaluation is needed
-    // - Then network eval the whole batch
-    // - Propagate result through tree
+    for _ in 0..STEPS_BEFORE_CHECKING_NETWORK {
+        let top_actions = gumbel_sequential_halving(
+            &mut nodes,
+            &envs,
+            agent,
+            rng,
+            SAMPLED,
+            SIMULATIONS,
+            actions,
+            trajectories,
+        );
 
-    // - Choose best actions
-    // - Play actions
-    // - Save target/replay
+        // Update replays.
+        replays_batch
+            .par_iter_mut()
+            .zip(&envs)
+            .zip(&top_actions)
+            .for_each(|((replays, env), action)| {
+                // Push start of fresh replay.
+                replays.push(Replay {
+                    env: env.clone(),
+                    actions: Default::default(),
+                });
+                // Update existing replays.
+                let from = replays.len().saturating_sub(STEP);
+                for replay in &mut replays[from..] {
+                    replay.actions.push(action.clone());
+                }
+            });
+
+        // Take a step in environments and nodes.
+        nodes
+            .par_iter_mut()
+            .zip(&mut envs)
+            .zip(top_actions)
+            .for_each(|((node, env), action)| {
+                *node = std::mem::take(node).play(&action);
+                env.step(action);
+            });
+
+        // Refresh finished environments and nodes.
+        replays_batch
+            .iter_mut()
+            .zip(&mut nodes)
+            .zip(&mut envs)
+            .filter_map(|((replays, node), env)| {
+                env.terminal().map(|_| {
+                    *env = E::default();
+                    *node = Node::default();
+                    replays.drain(..)
+                })
+            })
+            .flatten()
+            .try_for_each(|replay| tx.send(replay))
+            .unwrap();
+    }
+
+    // Salvage replays from unfinished games.
+    for replays in replays_batch {
+        let len = replays.len().saturating_sub(STEP);
+        replays
+            .drain(..)
+            .take(len)
+            .try_for_each(|replay| tx.send(replay))
+            .unwrap();
+    }
 }
