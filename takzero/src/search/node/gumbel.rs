@@ -24,7 +24,7 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
     debug_assert!(actions.iter().all(Vec::is_empty));
     debug_assert!(trajectories.iter().all(Vec::is_empty));
 
-    let (indices, batch): (Vec<usize>, Vec<E>) = nodes
+    let (indices, batch): (Vec<usize>, Vec<_>) = nodes
         .par_iter_mut()
         .zip(envs)
         .zip(actions.par_iter_mut())
@@ -39,30 +39,35 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
                 }
                 Forward::NeedsNetwork(env) => {
                     env.populate_actions(actions);
-                    Some((index, env))
+                    Some((index, (env, std::mem::take(actions))))
+                    // We are taking the actions because we need owned.
                 }
             }
         })
         .unzip();
-    let output = agent.policy_value(&batch, actions);
+    let (batch_envs, batch_actions): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
+    let output = agent.policy_value(&batch_envs, &batch_actions);
 
     let borrows: Vec<_> = filter_by_unique_ascending_indices(
-        nodes
-            .iter_mut()
-            .zip(actions.iter_mut())
-            .zip(trajectories.iter_mut()),
+        nodes.iter_mut().zip(actions).zip(trajectories.iter_mut()),
         indices,
     )
     .collect();
-    borrows.into_par_iter().zip(output).for_each(
-        |(((node, actions), trajectory), (policy, value))| {
-            node.backward_network_eval(
-                trajectory.drain(..),
-                actions.drain(..).map(|a| (a.clone(), policy[a])),
-                value,
-            );
-        },
-    );
+    borrows
+        .into_par_iter()
+        .zip(output)
+        .zip(batch_actions)
+        .for_each(
+            |((((node, old_actions), trajectory), (policy, value)), mut actions)| {
+                node.backward_network_eval(
+                    trajectory.drain(..),
+                    actions.drain(..).map(|a| (a.clone(), policy[a])),
+                    value,
+                );
+                // Restore old actions.
+                let _ = std::mem::replace(old_actions, actions);
+            },
+        );
 }
 
 /// Filter an iterator by a collection of unique ascending indices.
@@ -115,7 +120,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>>(
 
     // Sequential halving.
     let mut search_sets: Vec<_> = nodes
-        .iter_mut()
+        .par_iter_mut()
         // Sort and sample.
         .map(|node| {
             node.children.sort_unstable_by_key(|(_, child)| {

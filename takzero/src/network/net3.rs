@@ -127,6 +127,7 @@ impl Agent<Env> for Net3 {
         env_batch: &[Env],
         actions_batch: &[Vec<Move>],
     ) -> Vec<(Self::Policy, f32)> {
+        debug_assert_eq!(env_batch.len(), actions_batch.len());
         let device = Device::cuda_if_available();
 
         let xs = Tensor::cat(

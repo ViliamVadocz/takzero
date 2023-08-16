@@ -26,7 +26,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     seed: u64,
     beta_net: &BetaNet,
     mut tx: Sender<Replay<E>>,
-) -> ! {
+) {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = NET::new(device, None);
@@ -53,6 +53,10 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         if maybe_new_net_index >= net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
+        }
+
+        if cfg!(test) {
+            break;
         }
     }
 }
@@ -135,5 +139,44 @@ fn self_play<E: Environment, A: Agent<E>>(
             .take(len)
             .try_for_each(|replay| tx.send(replay))
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{atomic::AtomicUsize, RwLock};
+
+    use fast_tak::{takparse::Tps, Game};
+    use rand::{Rng, SeedableRng};
+    use takzero::network::{net3::Net3, Network};
+    use tch::Device;
+
+    use crate::{self_play::run, target::Replay, BetaNet};
+
+    // NOTE TO SELF:
+    // Decrease constants above to actually see results before you die.
+    #[test]
+    fn self_play_works() {
+        const SEED: u64 = 1234;
+
+        let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
+
+        let mut net = Net3::new(Device::Cpu, Some(rng.gen()));
+        let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
+
+        let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Game<3, 0>>>();
+
+        run::<_, Net3>(Device::cuda_if_available(), rng.gen(), &beta_net, replay_tx);
+        while let Ok(replay) = replay_rx.recv() {
+            let tps: Tps = replay.env.into();
+            println!(
+                "{tps} {:?}",
+                replay
+                    .actions
+                    .into_iter()
+                    .map(|a| a.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }
