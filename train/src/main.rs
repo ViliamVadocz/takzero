@@ -5,6 +5,7 @@ use std::{
 
 use clap::Parser;
 use fast_tak::Game;
+use mimalloc::MiMalloc;
 use rand::{Rng, SeedableRng};
 use takzero::{
     network::{net3::Net3, Network},
@@ -12,6 +13,11 @@ use takzero::{
 };
 use target::{Replay, Target};
 use tch::{nn::VarStore, Device};
+
+// Windows allocator sucks, so use MiMalloc instead.
+#[cfg(windows)]
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 mod evaluation;
 mod reanalyze;
