@@ -5,8 +5,7 @@ use std::{
 
 use clap::Parser;
 use fast_tak::Game;
-use mimalloc::MiMalloc;
-use rand::{Rng, SeedableRng};
+use rand::prelude::*;
 use takzero::{
     network::{net3::Net3, Network},
     search::agent::Agent,
@@ -17,7 +16,7 @@ use tch::{nn::VarStore, Device};
 // Windows allocator sucks, so use MiMalloc instead.
 #[cfg(windows)]
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod evaluation;
 mod reanalyze;
@@ -59,6 +58,8 @@ fn main() {
 /// Essentially a generic main function.
 fn run<NET: Network + Agent<Env>>() {
     let args = Args::parse();
+    assert!(args.model_path.is_dir(), "`model_path` should point to a directory");
+    assert!(args.replay_path.is_dir(), "`replay_path` should point to a directory");
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(args.seed);
     let seeds: [u64; 3] = rng.gen();
@@ -72,8 +73,8 @@ fn run<NET: Network + Agent<Env>>() {
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
 
         #[rustfmt::skip]
-        s.spawn(|_| tch::no_grad(|| reanalyze::run::<_, Net>(Device::Cuda(0), seeds[0], &beta_net, replay_rx, batch_tx)));
-        s.spawn(|_| tch::no_grad(|| self_play::run::<_, Net>(Device::Cuda(0), seeds[1], &beta_net, replay_tx, args.replay_path)));
+        s.spawn(|_| tch::no_grad(|| reanalyze::run::<_, Net>(Device::Cuda(0), seeds[0], &beta_net, replay_rx, batch_tx, args.replay_path)));
+        s.spawn(|_| tch::no_grad(|| self_play::run::<_, Net>(Device::Cuda(0), seeds[1], &beta_net, replay_tx)));
         s.spawn(|_| tch::no_grad(|| evaluation::run::<_, Net>(Device::Cuda(0), seeds[2], &beta_net)));
         s.spawn(|_| training::run::<N, HALF_KOMI, Net>(Device::Cuda(0), &beta_net, batch_rx, args.model_path));
     });

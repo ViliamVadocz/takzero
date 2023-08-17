@@ -1,6 +1,7 @@
 use std::{cmp::Reverse, ops::Div};
 
-use rand::Rng;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Gumbel};
 use rayon::prelude::*;
 
@@ -90,7 +91,11 @@ pub fn filter_by_unique_ascending_indices<T>(
 
 // TODO: For Reanalyze remove Gumbel from policy so that completedQ and improved
 // policy is correct.
-#[allow(clippy::missing_panics_doc, clippy::too_many_arguments)]
+#[allow(
+    clippy::missing_panics_doc,
+    clippy::too_many_arguments,
+    clippy::too_many_lines
+)]
 pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>>(
     nodes: &mut [Node<E>],
     envs: &[E],
@@ -98,25 +103,44 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>>(
     rng: &mut impl Rng,
     sampled: usize,
     simulations: u32,
+    gumbel_scale: f32,
 
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
+    gumbel_noise: &mut [Vec<f32>],
 ) -> Vec<E::Action> {
     debug_assert_eq!(nodes.len(), envs.len());
     debug_assert_eq!(nodes.len(), actions.len());
     debug_assert_eq!(nodes.len(), trajectories.len());
+    debug_assert_eq!(nodes.len(), gumbel_noise.len());
+    debug_assert!(actions.iter().all(Vec::is_empty));
+    debug_assert!(trajectories.iter().all(Vec::is_empty));
+    debug_assert!(gumbel_noise.iter().all(Vec::is_empty));
     debug_assert!(envs.iter().all(|env| env.terminal().is_none()));
 
     // Run one simulation on all nodes.
     batched_simulate(nodes, envs, agent, actions, trajectories);
 
     // Add gumbel noise to policy.
-    let gumbel_distr = Gumbel::new(0.0, 1.0).unwrap();
-    for node in &mut *nodes {
-        node.children
-            .iter_mut()
-            .for_each(|(_, child)| child.policy += gumbel_distr.sample(rng));
-    }
+    let gumbel_distr = Gumbel::new(0.0, gumbel_scale).unwrap();
+    let seed = rng.gen();
+    gumbel_noise
+        .par_iter_mut()
+        .zip(nodes.par_iter_mut())
+        .enumerate()
+        .for_each(|(i, (noise, node))| {
+            let mut rng = ChaCha8Rng::from_seed(seed);
+            rng.set_stream(i as u64);
+            noise.extend(
+                node.children
+                    .iter_mut()
+                    .zip(gumbel_distr.sample_iter(&mut rng))
+                    .map(|((_, child), g)| {
+                        child.policy += g;
+                        g
+                    }),
+            );
+        });
 
     // Sequential halving.
     let mut search_sets: Vec<_> = nodes
@@ -191,19 +215,28 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>>(
         .collect();
 
     // Recompute root node statistics.
-    nodes.par_iter_mut().for_each(|node| {
-        node.visit_count = node
-            .children
-            .iter()
-            .map(|(_, child)| child.visit_count)
-            .sum::<u32>()
-            + 1;
-        let child_evaluations = node.children.iter().map(|(_, child)| child.evaluation);
-        node.evaluation = child_evaluations.clone().find(Eval::is_loss).map_or_else(
-            || child_evaluations.min().unwrap().negate(), // wrong but whatever
-            |loss| loss.negate(),
-        );
-    });
+    nodes
+        .par_iter_mut()
+        .zip(gumbel_noise)
+        .for_each(|(node, noise)| {
+            // Remove Gumbel noise from policies.
+            node.children
+                .iter_mut()
+                .zip(noise.drain(..))
+                .for_each(|((_, child), g)| child.policy -= g);
+
+            node.visit_count = node
+                .children
+                .iter()
+                .map(|(_, child)| child.visit_count)
+                .sum::<u32>()
+                + 1;
+            let child_evaluations = node.children.iter().map(|(_, child)| child.evaluation);
+            node.evaluation = child_evaluations.clone().find(Eval::is_loss).map_or_else(
+                || child_evaluations.min().unwrap().negate(), // wrong but whatever
+                |loss| loss.negate(),
+            );
+        });
 
     top_actions
 }
@@ -240,6 +273,8 @@ mod tests {
             &mut rng,
             SAMPLED,
             SIMULATIONS,
+            1.0,
+            &mut [vec![]],
             &mut [vec![]],
             &mut [vec![]],
         );
@@ -268,6 +303,8 @@ mod tests {
             &mut rng,
             SAMPLED,
             SIMULATIONS,
+            1.0,
+            &mut [vec![]],
             &mut [vec![]],
             &mut [vec![]],
         );
@@ -290,6 +327,7 @@ mod tests {
         let mut nodes: [Node<_>; BATCH_SIZE] = array::from_fn(|_| Node::default());
         let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| vec![]);
         let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| vec![]);
+        let mut gumbel_noise: [_; BATCH_SIZE] = array::from_fn(|_| vec![]);
 
         for _ in 0..4 {
             let top_actions = gumbel_sequential_halving(
@@ -299,8 +337,10 @@ mod tests {
                 &mut rng,
                 SAMPLED,
                 SIMULATIONS,
+                1.0,
                 &mut actions,
                 &mut trajectories,
+                &mut gumbel_noise,
             );
 
             println!("=== === ===");

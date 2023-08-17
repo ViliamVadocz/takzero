@@ -1,4 +1,4 @@
-use std::{array, path::PathBuf, sync::atomic::Ordering};
+use std::{array, sync::atomic::Ordering};
 
 use crossbeam::channel::Sender;
 use rand::{Rng, SeedableRng};
@@ -31,7 +31,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     seed: u64,
     beta_net: &BetaNet,
     mut tx: Sender<Replay<E>>,
-    replay_path: PathBuf,
 ) {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
@@ -39,18 +38,20 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     let mut net_index = beta_net.0.load(Ordering::Relaxed);
     net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
 
-    let mut replays: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut replays_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut gumbel_noise: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
 
     loop {
         // TODO: self-play
         self_play(
             &mut rng,
             &net,
+            &mut replays_batch,
             &mut actions,
-            &mut replays,
             &mut trajectories,
+            &mut gumbel_noise,
             &mut tx,
         );
 
@@ -74,6 +75,7 @@ fn self_play<E: Environment, A: Agent<E>>(
     replays_batch: &mut [Vec<Replay<E>>],
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
+    gumbel_noise: &mut [Vec<f32>],
 
     tx: &mut Sender<Replay<E>>,
 ) {
@@ -88,8 +90,10 @@ fn self_play<E: Environment, A: Agent<E>>(
             rng,
             SAMPLED,
             SIMULATIONS,
+            1.0,
             actions,
             trajectories,
+            gumbel_noise,
         );
 
         // Update replays.
@@ -172,13 +176,7 @@ mod tests {
 
         let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Game<3, 0>>>();
 
-        run::<_, Net3>(
-            Device::cuda_if_available(),
-            rng.gen(),
-            &beta_net,
-            replay_tx,
-            Default::default(),
-        );
+        run::<_, Net3>(Device::cuda_if_available(), rng.gen(), &beta_net, replay_tx);
         while let Ok(replay) = replay_rx.recv() {
             let tps: Tps = replay.env.into();
             println!(

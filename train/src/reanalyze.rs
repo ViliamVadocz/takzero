@@ -1,4 +1,12 @@
-use std::{array, collections::VecDeque, sync::atomic::Ordering};
+use std::{
+    array,
+    collections::VecDeque,
+    fmt,
+    fs::OpenOptions,
+    io::Write,
+    path::PathBuf,
+    sync::atomic::Ordering,
+};
 
 use crossbeam::channel::{Receiver, Sender};
 use rand::{seq::IteratorRandom, Rng, SeedableRng};
@@ -17,7 +25,7 @@ use takzero::{
 use tch::Device;
 
 use crate::{
-    target::{Replay, Target},
+    target::{Augment, Replay, Target},
     BetaNet,
     STEP,
 };
@@ -33,6 +41,8 @@ const DISCOUNT_FACTOR: f32 = 0.99;
 // TODO: Less n-step for older replays
 // TODO: Save replays
 
+// TODO: Clean up a little bit
+
 /// Collect new state-action replays from self-play
 /// and generate batches for training.
 pub fn run<E: Environment, NET: Network + Agent<E>>(
@@ -41,7 +51,10 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     beta_net: &BetaNet,
     rx: Receiver<Replay<E>>,
     tx: Sender<Vec<Target<E>>>,
-) {
+    replay_path: PathBuf,
+) where
+    Replay<E>: Augment + fmt::Display,
+{
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = NET::new(device, None);
@@ -50,9 +63,10 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 
     let mut replay_queue = VecDeque::with_capacity(MAXIMUM_REPLAY_BUFFER_SIZE);
 
-    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| E::default());
+    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Default::default());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut gumbel_noise: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
 
     loop {
         // Receive until the replay channel is empty.
@@ -70,6 +84,10 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 
         // TODO: Prioritized sampling
         let replays = replay_queue.iter().choose_multiple(&mut rng, BATCH_SIZE);
+        let replays = replays
+            .into_iter()
+            .map(|replay| replay.augment(&mut rng))
+            .collect();
         let targets = reanalyze(
             &net,
             replays,
@@ -77,6 +95,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             &mut envs,
             &mut actions,
             &mut trajectories,
+            &mut gumbel_noise,
         );
 
         tx.send(targets).unwrap();
@@ -86,6 +105,19 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         if maybe_new_net_index >= net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
+
+            // Save replays
+            let s: String = replay_queue.iter().map(ToString::to_string).collect();
+            let path = replay_path.join("replays.txt"); // same filename each time?
+            rayon::spawn(move || {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(path)
+                    .expect("replay file path should be valid and writable");
+                file.write_all(s.as_bytes()).unwrap();
+            });
         }
 
         if cfg!(test) {
@@ -96,11 +128,13 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 
 fn reanalyze<E: Environment, NET: Network + Agent<E>>(
     net: &NET,
-    replays: Vec<&Replay<E>>,
+    replays: Vec<Replay<E>>,
     rng: &mut impl Rng,
     envs: &mut [E],
+
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
+    gumbel_noise: &mut [Vec<f32>],
 ) -> Vec<Target<E>> {
     debug_assert_eq!(replays.len(), BATCH_SIZE);
 
@@ -117,8 +151,10 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
         rng,
         SAMPLED,
         SIMULATIONS,
+        1.0,
         actions,
         trajectories,
+        gumbel_noise,
     );
     // Begin constructing targets from the environment and improved policy.
     let mut targets: Vec<_> = nodes
@@ -255,6 +291,7 @@ mod tests {
             &beta_net,
             replay_rx,
             batch_tx,
+            Default::default(),
         );
 
         let batch = batch_rx.recv().unwrap();
