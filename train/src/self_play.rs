@@ -1,4 +1,4 @@
-use std::{array, sync::atomic::Ordering};
+use std::{array, path::PathBuf, sync::atomic::Ordering};
 
 use crossbeam::channel::Sender;
 use rand::{Rng, SeedableRng};
@@ -20,12 +20,18 @@ const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 1024;
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 100_000; // TODO: Think more about this number
 
+// TODO: Save replays
+// - figure out what format to use
+// - figure out where and when
+// - all in one file? multiple files?
+
 /// Populate the replay buffer with new state-action pairs from self-play.
 pub fn run<E: Environment, NET: Network + Agent<E>>(
     device: Device,
     seed: u64,
     beta_net: &BetaNet,
     mut tx: Sender<Replay<E>>,
+    replay_path: PathBuf,
 ) {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
@@ -110,7 +116,7 @@ fn self_play<E: Environment, A: Agent<E>>(
             .zip(&mut envs)
             .zip(top_actions)
             .for_each(|((node, env), action)| {
-                *node = std::mem::take(node).play(&action);
+                node.descend(&action);
                 env.step(action);
             });
 
@@ -166,7 +172,13 @@ mod tests {
 
         let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Game<3, 0>>>();
 
-        run::<_, Net3>(Device::cuda_if_available(), rng.gen(), &beta_net, replay_tx);
+        run::<_, Net3>(
+            Device::cuda_if_available(),
+            rng.gen(),
+            &beta_net,
+            replay_tx,
+            Default::default(),
+        );
         while let Ok(replay) = replay_rx.recv() {
             let tps: Tps = replay.env.into();
             println!(

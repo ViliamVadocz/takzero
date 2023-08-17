@@ -313,7 +313,7 @@ mod tests {
                 .zip(&mut games)
                 .zip(top_actions)
                 .for_each(|((node, env), action)| {
-                    *node = std::mem::take(node).play(&action);
+                    node.descend(&action);
                     env.play(action).unwrap();
                 });
         }

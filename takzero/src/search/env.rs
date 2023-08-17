@@ -47,3 +47,13 @@ where
         }
     }
 }
+
+impl From<Terminal> for f32 {
+    fn from(value: Terminal) -> Self {
+        match value {
+            Terminal::Win => 1.0,
+            Terminal::Loss => -1.0,
+            Terminal::Draw => 0.0,
+        }
+    }
+}

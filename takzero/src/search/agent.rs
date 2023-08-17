@@ -25,9 +25,10 @@ pub mod dummy {
 
         fn policy_value(
             &self,
-            _: &[E],
+            env_batch: &[E],
             actions_batch: &[Vec<E::Action>],
         ) -> Vec<(Self::Policy, f32)> {
+            debug_assert_eq!(env_batch.len(), actions_batch.len());
             actions_batch
                 .iter()
                 .map(|actions| (Policy(1.0 / actions.len() as f32), 0.0))

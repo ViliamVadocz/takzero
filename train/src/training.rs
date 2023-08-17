@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::{sync::atomic::Ordering, path::PathBuf};
 
 use crossbeam::channel::Receiver;
 use fast_tak::{Game, Reserves};
@@ -17,11 +17,12 @@ use tch::{
     Tensor,
 };
 
-use crate::{target::Target, BetaNet};
+use crate::{target::Target, BetaNet, file_name};
 
 const WEIGHT_DECAY: f64 = 1e-4;
 const LEARNING_RATE: f64 = 1e-4; // TODO: Consider learning rate scheduler: https://pytorch.org/docs/stable/optim.html
 const STEPS_BETWEEN_PUBLISH: u32 = 100;
+const PUBLISHES_BETWEEN_SAVE: u32 = 10;
 
 /// Improve the network by training on batches from the re-analyze thread.
 /// Save checkpoints and distribute the newest model.
@@ -29,6 +30,7 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
     device: Device,
     beta_net: &BetaNet,
     rx: Receiver<Vec<Target<Game<N, HALF_KOMI>>>>,
+    model_path: PathBuf,
 ) where
     Reserves<N>: Default,
 {
@@ -85,7 +87,11 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
         training_steps += 1;
         if training_steps % STEPS_BETWEEN_PUBLISH == 0 {
             beta_net.1.write().unwrap().copy(alpha_net.vs()).unwrap();
-            beta_net.0.fetch_add(1, Ordering::Relaxed);
+            let index_minus_one = beta_net.0.fetch_add(1, Ordering::Relaxed);
+            // Save checkpoint.
+            if (training_steps / STEPS_BETWEEN_PUBLISH) % PUBLISHES_BETWEEN_SAVE == 0 {
+                alpha_net.save(model_path.join(file_name(index_minus_one as u64 + 1))).unwrap();
+            }
         }
     }
 }
@@ -121,6 +127,6 @@ mod tests {
         ]).unwrap();
         drop(batch_tx);
 
-        run::<3, 0, Net3>(Device::cuda_if_available(), &beta_net, batch_rx);
+        run::<3, 0, Net3>(Device::cuda_if_available(), &beta_net, batch_rx, Default::default());
     }
 }

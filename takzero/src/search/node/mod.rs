@@ -38,18 +38,15 @@ impl<E: Environment> Node<E> {
         self.visit_count <= 1
     }
 
-    /// Get the sub-tree for a given action.
+    /// Descend in the tree, replacing the root the sub-tree for a given action.
     /// This allows for tree reuse.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the action has not been visited from the parent.
-    #[must_use]
-    pub fn play(mut self, action: &E::Action) -> Self {
-        let Some((_, child)) = self.children.iter_mut().find(|(a, _)| action == a) else {
-            return Self::default();
+    /// If the action was not visited, the node will `Node::default()`.
+    pub fn descend(&mut self, action: &E::Action) {
+        let mut me = std::mem::take(self);
+        let Some((_, child)) = me.children.iter_mut().find(|(a, _)| action == a) else {
+            return;
         };
-        std::mem::take(child)
+        std::mem::swap(self, child);
         // TODO: Maybe deallocate children on another thread.
     }
 }
