@@ -32,6 +32,9 @@ struct Args {
     /// Path to store replays
     #[arg(short, long)]
     replay_path: PathBuf,
+    /// Path to store evaluation statistics
+    #[arg(short, long)]
+    statistics_path: PathBuf,
     /// Seed for the RNG
     #[arg(short, long, default_value_t = 42)]
     seed: u64,
@@ -75,7 +78,7 @@ fn run<NET: Network + Agent<Env>>() {
         #[rustfmt::skip]
         s.spawn(|_| tch::no_grad(|| reanalyze::run::<_, Net>(Device::Cuda(0), seeds[0], &beta_net, replay_rx, batch_tx, args.replay_path)));
         s.spawn(|_| tch::no_grad(|| self_play::run::<_, Net>(Device::Cuda(0), seeds[1], &beta_net, replay_tx)));
-        s.spawn(|_| tch::no_grad(|| evaluation::run::<_, Net>(Device::Cuda(0), seeds[2], &beta_net)));
+        s.spawn(|_| tch::no_grad(|| evaluation::run::<_, Net>(Device::Cuda(0), seeds[2], &beta_net, args.statistics_path)));
         s.spawn(|_| training::run::<N, HALF_KOMI, Net>(Device::Cuda(0), &beta_net, batch_rx, args.model_path));
     });
 }

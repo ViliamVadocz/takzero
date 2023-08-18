@@ -20,11 +20,6 @@ const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 1024;
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 100_000; // TODO: Think more about this number
 
-// TODO: Save replays
-// - figure out what format to use
-// - figure out where and when
-// - all in one file? multiple files?
-
 /// Populate the replay buffer with new state-action pairs from self-play.
 pub fn run<E: Environment, NET: Network + Agent<E>>(
     device: Device,
@@ -38,6 +33,8 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     let mut net_index = beta_net.0.load(Ordering::Relaxed);
     net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
 
+    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| E::default());
+    let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
     let mut replays_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
@@ -48,6 +45,8 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         self_play(
             &mut rng,
             &net,
+            &mut envs,
+            &mut nodes,
             &mut replays_batch,
             &mut actions,
             &mut trajectories,
@@ -68,10 +67,15 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     }
 }
 
+// TODO: ignore first two positions (because of swap)?
+
+#[allow(clippy::too_many_arguments)]
 fn self_play<E: Environment, A: Agent<E>>(
     rng: &mut impl Rng,
     agent: &A,
 
+    envs: &mut [E],
+    nodes: &mut [Node<E>],
     replays_batch: &mut [Vec<Replay<E>>],
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
@@ -79,27 +83,25 @@ fn self_play<E: Environment, A: Agent<E>>(
 
     tx: &mut Sender<Replay<E>>,
 ) {
-    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| E::default());
-    let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
+    envs.iter_mut().for_each(|env| *env = E::default());
+    nodes.iter_mut().for_each(|node| *node = Node::default());
 
     for _ in 0..STEPS_BEFORE_CHECKING_NETWORK {
         let top_actions = gumbel_sequential_halving(
-            &mut nodes,
-            &envs,
+            nodes,
+            envs,
             agent,
-            rng,
             SAMPLED,
             SIMULATIONS,
-            1.0,
             actions,
             trajectories,
-            gumbel_noise,
+            Some((rng, gumbel_noise)),
         );
 
         // Update replays.
         replays_batch
             .par_iter_mut()
-            .zip(&envs)
+            .zip(envs.par_iter())
             .zip(&top_actions)
             .for_each(|((replays, env), action)| {
                 // Push start of fresh replay.
@@ -117,7 +119,7 @@ fn self_play<E: Environment, A: Agent<E>>(
         // Take a step in environments and nodes.
         nodes
             .par_iter_mut()
-            .zip(&mut envs)
+            .zip(envs.par_iter_mut())
             .zip(top_actions)
             .for_each(|((node, env), action)| {
                 node.descend(&action);
@@ -127,8 +129,8 @@ fn self_play<E: Environment, A: Agent<E>>(
         // Refresh finished environments and nodes.
         replays_batch
             .iter_mut()
-            .zip(&mut nodes)
-            .zip(&mut envs)
+            .zip(nodes.iter_mut())
+            .zip(envs.iter_mut())
             .filter_map(|((replays, node), env)| {
                 env.terminal().map(|_| {
                     *env = E::default();

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fast-tak = "0.3.4"
+fast-tak = "0.3.5"
 float-ord = "0.3.2"
 ordered-float = "3.7.0"
 rayon = "1.7.0"

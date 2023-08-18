@@ -64,6 +64,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     let mut replay_queue = VecDeque::with_capacity(MAXIMUM_REPLAY_BUFFER_SIZE);
 
     let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Default::default());
+    let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut gumbel_noise: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
@@ -79,6 +80,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             replay_queue.push_back(replay);
         }
         if replay_queue.len() < BATCH_SIZE {
+            std::thread::yield_now();
             continue;
         }
 
@@ -93,6 +95,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             replays,
             &mut rng,
             &mut envs,
+            &mut nodes,
             &mut actions,
             &mut trajectories,
             &mut gumbel_noise,
@@ -126,12 +129,14 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn reanalyze<E: Environment, NET: Network + Agent<E>>(
     net: &NET,
     replays: Vec<Replay<E>>,
     rng: &mut impl Rng,
-    envs: &mut [E],
 
+    envs: &mut [E],
+    nodes: &mut [Node<E>],
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
     gumbel_noise: &mut [Vec<f32>],
@@ -141,20 +146,20 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
     envs.par_iter_mut()
         .zip(&replays)
         .for_each(|(env, replay)| *env = replay.env.clone());
-    let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
+    nodes
+        .par_iter_mut()
+        .for_each(|node| *node = Node::default());
 
     // Perform search at the root to get an improved policy.
     let _top_actions: Vec<<E as Environment>::Action> = gumbel_sequential_halving(
-        &mut nodes,
+        nodes,
         envs,
         net,
-        rng,
         SAMPLED,
         SIMULATIONS,
-        1.0,
         actions,
         trajectories,
-        gumbel_noise,
+        Some((rng, gumbel_noise)),
     );
     // Begin constructing targets from the environment and improved policy.
     let mut targets: Vec<_> = nodes

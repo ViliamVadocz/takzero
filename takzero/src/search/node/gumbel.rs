@@ -89,58 +89,61 @@ pub fn filter_by_unique_ascending_indices<T>(
     })
 }
 
-// TODO: For Reanalyze remove Gumbel from policy so that completedQ and improved
-// policy is correct.
 #[allow(
     clippy::missing_panics_doc,
     clippy::too_many_arguments,
     clippy::too_many_lines
 )]
-pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>>(
+/// Perform Sequential halving with Gumbel sampling.
+/// Assumes none of the environments are terminal.
+pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     nodes: &mut [Node<E>],
     envs: &[E],
     agent: &A,
-    rng: &mut impl Rng,
     sampled: usize,
     simulations: u32,
-    gumbel_scale: f32,
 
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
-    gumbel_noise: &mut [Vec<f32>],
+    mut gumbel_noise: Option<(&mut R, &mut [Vec<f32>])>,
 ) -> Vec<E::Action> {
     debug_assert_eq!(nodes.len(), envs.len());
     debug_assert_eq!(nodes.len(), actions.len());
     debug_assert_eq!(nodes.len(), trajectories.len());
-    debug_assert_eq!(nodes.len(), gumbel_noise.len());
     debug_assert!(actions.iter().all(Vec::is_empty));
     debug_assert!(trajectories.iter().all(Vec::is_empty));
-    debug_assert!(gumbel_noise.iter().all(Vec::is_empty));
     debug_assert!(envs.iter().all(|env| env.terminal().is_none()));
+    #[allow(clippy::debug_assert_with_mut_call)]
+    if let Some((_, gumbel_noise)) = &gumbel_noise {
+        debug_assert_eq!(nodes.len(), gumbel_noise.len());
+        debug_assert!(gumbel_noise.iter().all(Vec::is_empty));
+    }
 
     // Run one simulation on all nodes.
     batched_simulate(nodes, envs, agent, actions, trajectories);
 
     // Add gumbel noise to policy.
-    let gumbel_distr = Gumbel::new(0.0, gumbel_scale).unwrap();
-    let seed = rng.gen();
-    gumbel_noise
-        .par_iter_mut()
-        .zip(nodes.par_iter_mut())
-        .enumerate()
-        .for_each(|(i, (noise, node))| {
-            let mut rng = ChaCha8Rng::from_seed(seed);
-            rng.set_stream(i as u64);
-            noise.extend(
-                node.children
-                    .iter_mut()
-                    .zip(gumbel_distr.sample_iter(&mut rng))
-                    .map(|((_, child), g)| {
-                        child.policy += g;
-                        g
-                    }),
-            );
-        });
+    if let Some((rng, gumbel_noise)) = &mut gumbel_noise {
+        let gumbel_distr = Gumbel::new(0.0, 1.0).unwrap();
+        let seed = rng.gen();
+        gumbel_noise
+            .par_iter_mut()
+            .zip(nodes.par_iter_mut())
+            .enumerate()
+            .for_each(|(i, (noise, node))| {
+                let mut rng = ChaCha8Rng::from_seed(seed);
+                rng.set_stream(i as u64);
+                noise.extend(
+                    node.children
+                        .iter_mut()
+                        .zip(gumbel_distr.sample_iter(&mut rng))
+                        .map(|((_, child), g)| {
+                            child.policy += g;
+                            g
+                        }),
+                );
+            });
+    }
 
     // Sequential halving.
     let mut search_sets: Vec<_> = nodes
@@ -214,29 +217,33 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>>(
         .map(|search_set| search_set.iter().next().unwrap().0.clone())
         .collect();
 
-    // Recompute root node statistics.
-    nodes
-        .par_iter_mut()
-        .zip(gumbel_noise)
-        .for_each(|(node, noise)| {
-            // Remove Gumbel noise from policies.
-            node.children
-                .iter_mut()
-                .zip(noise.drain(..))
-                .for_each(|((_, child), g)| child.policy -= g);
+    // Remove Gumbel noise from policies
+    if let Some((_, gumbel_noise)) = &mut gumbel_noise {
+        nodes
+            .par_iter_mut()
+            .zip(gumbel_noise.par_iter_mut())
+            .for_each(|(node, noise)| {
+                node.children
+                    .iter_mut()
+                    .zip(noise.drain(..))
+                    .for_each(|((_, child), g)| child.policy -= g);
+            });
+    }
 
-            node.visit_count = node
-                .children
-                .iter()
-                .map(|(_, child)| child.visit_count)
-                .sum::<u32>()
-                + 1;
-            let child_evaluations = node.children.iter().map(|(_, child)| child.evaluation);
-            node.evaluation = child_evaluations.clone().find(Eval::is_loss).map_or_else(
-                || child_evaluations.min().unwrap().negate(), // wrong but whatever
-                |loss| loss.negate(),
-            );
-        });
+    // Recompute root node statistics.
+    nodes.par_iter_mut().for_each(|node| {
+        node.visit_count = node
+            .children
+            .iter()
+            .map(|(_, child)| child.visit_count)
+            .sum::<u32>()
+            + 1;
+        let child_evaluations = node.children.iter().map(|(_, child)| child.evaluation);
+        node.evaluation = child_evaluations.clone().find(Eval::is_loss).map_or_else(
+            || child_evaluations.min().unwrap().negate(), // wrong but whatever
+            |loss| loss.negate(),
+        );
+    });
 
     top_actions
 }
@@ -270,13 +277,11 @@ mod tests {
             &mut nodes,
             &[game],
             &Dummy,
-            &mut rng,
             SAMPLED,
             SIMULATIONS,
-            1.0,
             &mut [vec![]],
             &mut [vec![]],
-            &mut [vec![]],
+            Some((&mut rng, &mut [vec![]])),
         );
         let top_action = top.into_iter().next().unwrap();
         let root = nodes.into_iter().next().unwrap();
@@ -300,13 +305,11 @@ mod tests {
             &mut nodes,
             &[game],
             &Dummy,
-            &mut rng,
             SAMPLED,
             SIMULATIONS,
-            1.0,
             &mut [vec![]],
             &mut [vec![]],
-            &mut [vec![]],
+            Some((&mut rng, &mut [vec![]])),
         );
         let _top_action = top.into_iter().next().unwrap();
         let root = nodes.into_iter().next().unwrap();
@@ -334,13 +337,11 @@ mod tests {
                 &mut nodes,
                 &games,
                 &Dummy,
-                &mut rng,
                 SAMPLED,
                 SIMULATIONS,
-                1.0,
                 &mut actions,
                 &mut trajectories,
-                &mut gumbel_noise,
+                Some((&mut rng, &mut gumbel_noise)),
             );
 
             println!("=== === ===");
