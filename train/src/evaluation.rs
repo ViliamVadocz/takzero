@@ -21,7 +21,6 @@ use takzero::{
 };
 use tch::Device;
 
-// TODO: rayon!
 use crate::BetaNet;
 
 const BATCH_SIZE: usize = 64;
@@ -29,6 +28,8 @@ const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 1024;
 
 const MIN_WIN_RATE: f32 = 0.60;
+
+// TODO: Clean up
 
 /// Evaluate checkpoints of the network to make sure that it is improving.
 pub fn run<E: Environment, NET: Network + Agent<E>>(

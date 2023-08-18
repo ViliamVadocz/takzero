@@ -64,7 +64,7 @@ where
             .map(ToString::to_string)
             .collect::<Vec<_>>()
             .join(",");
-        write!(f, "{tps};{actions:?}")
+        writeln!(f, "{tps};{actions}")
     }
 }
 

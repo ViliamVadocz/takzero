@@ -128,14 +128,14 @@ fn self_play<E: Environment, A: Agent<E>>(
 
         // Refresh finished environments and nodes.
         replays_batch
-            .iter_mut()
-            .zip(nodes.iter_mut())
-            .zip(envs.iter_mut())
+            .par_iter_mut()
+            .zip(nodes.par_iter_mut())
+            .zip(envs.par_iter_mut())
             .filter_map(|((replays, node), env)| {
                 env.terminal().map(|_| {
                     *env = E::default();
                     *node = Node::default();
-                    replays.drain(..)
+                    replays.par_drain(..)
                 })
             })
             .flatten()

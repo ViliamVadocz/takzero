@@ -27,16 +27,16 @@ mod training;
 #[derive(Parser, Debug)]
 struct Args {
     /// Path to store models
-    #[arg(short, long)]
+    #[arg(long)]
     model_path: PathBuf,
     /// Path to store replays
-    #[arg(short, long)]
+    #[arg(long)]
     replay_path: PathBuf,
     /// Path to store evaluation statistics
-    #[arg(short, long)]
+    #[arg(long)]
     statistics_path: PathBuf,
     /// Seed for the RNG
-    #[arg(short, long, default_value_t = 42)]
+    #[arg(long, default_value_t = 42)]
     seed: u64,
 }
 
