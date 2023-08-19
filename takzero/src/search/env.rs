@@ -1,9 +1,10 @@
-use fast_tak::{takparse::Move, Game};
+use fast_tak::{takparse::Move, Game, Reserves};
+use rand::{seq::IteratorRandom, Rng};
 
-pub trait Environment: Clone + Send + Sync + Default {
-    type Action: Clone + PartialEq + Send + Sync;
+pub trait Environment: Send + Sync + Clone + Default {
+    type Action: Send + Sync + Clone + PartialEq;
 
-    fn new() -> Self;
+    fn new_opening(rng: &mut impl Rng) -> Self;
     fn populate_actions(&self, actions: &mut Vec<Self::Action>);
     fn step(&mut self, action: Self::Action);
     fn terminal(&self) -> Option<Terminal>;
@@ -17,12 +18,18 @@ pub enum Terminal {
 
 impl<const N: usize, const HALF_KOMI: i8> Environment for Game<N, HALF_KOMI>
 where
-    Self: Default,
+    Reserves<N>: Default,
 {
     type Action = Move;
 
-    fn new() -> Self {
-        Self::default()
+    fn new_opening(rng: &mut impl Rng) -> Self {
+        let mut game = Self::default();
+        let mut actions = Vec::new();
+        for _ in 0..2 {
+            game.populate_actions(&mut actions);
+            game.play(actions.drain(..).choose(rng).unwrap()).unwrap();
+        }
+        game
     }
 
     fn populate_actions(&self, actions: &mut Vec<Self::Action>) {

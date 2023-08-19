@@ -30,10 +30,10 @@ use crate::{
     STEP,
 };
 
-const BATCH_SIZE: usize = 512;
+const BATCH_SIZE: usize = 64;
 const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 100_000;
 
-const SAMPLED: usize = 32;
+const SAMPLED: usize = 64;
 const SIMULATIONS: u32 = 2048;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
@@ -62,7 +62,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 
     let mut replay_queue = VecDeque::with_capacity(MAXIMUM_REPLAY_BUFFER_SIZE);
 
-    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Default::default());
+    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| E::default());
     let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());

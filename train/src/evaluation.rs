@@ -24,8 +24,8 @@ use tch::Device;
 use crate::BetaNet;
 
 const BATCH_SIZE: usize = 128;
-const SAMPLED: usize = 32;
-const SIMULATIONS: u32 = 1024;
+const SAMPLED: usize = 64;
+const SIMULATIONS: u32 = 4096;
 
 const MIN_WIN_RATE: f32 = 0.55;
 
@@ -60,7 +60,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     let mut action_record: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut gumbel_noise: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut omega_full_games: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut beta_full_games: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
 
@@ -90,7 +89,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             &mut action_record,
             &mut actions,
             &mut trajectories,
-            &mut gumbel_noise,
             &mut omega_full_games,
             &mut beta_full_games,
         );
@@ -131,12 +129,11 @@ fn pit<E: Environment, A: Agent<E>, R: Rng>(
     action_record: &mut [Vec<E::Action>],
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
-    gumbel_noise: &mut [Vec<f32>],
 
     omega_full_games: &mut [Vec<E::Action>],
     beta_full_games: &mut [Vec<E::Action>],
 ) -> Evaluation {
-    // Evaluation is from the perspective of the omega.
+    // Evaluation is from the perspective of the beta.
     let mut evaluation = Evaluation::default();
 
     for (full_games, order) in [
@@ -144,8 +141,7 @@ fn pit<E: Environment, A: Agent<E>, R: Rng>(
         (beta_full_games, [beta, omega]),
     ] {
         // Reset.
-        // TODO: Think about openings???
-        envs.par_iter_mut().for_each(|env| *env = E::default());
+        envs.iter_mut().for_each(|env| *env = E::new_opening(rng));
         omega_nodes
             .par_iter_mut()
             .for_each(|node| *node = Node::default());
@@ -166,10 +162,10 @@ fn pit<E: Environment, A: Agent<E>, R: Rng>(
                     SIMULATIONS,
                     actions,
                     trajectories,
-                    Some((rng, gumbel_noise)),
+                    None,
                 );
 
-                let is_omega = std::ptr::eq(agent, omega);
+                let beta_playing = std::ptr::eq(agent, beta);
                 evaluation += top_actions
                     .into_par_iter()
                     .zip(envs.par_iter_mut())
@@ -198,9 +194,14 @@ fn pit<E: Environment, A: Agent<E>, R: Rng>(
                             }
                         },
                     )
-                    .map(|terminal| match (terminal, is_omega) {
-                        (Terminal::Win, true) | (Terminal::Loss, false) => Evaluation::win(),
-                        (Terminal::Loss, true) | (Terminal::Win, false) => Evaluation::loss(),
+                    // Mapping is flipped because we look at the terminal AFTER a move was made.
+                    .map(|terminal| match (terminal, beta_playing) {
+                        // If the position is a loss for the current player and beta just made a
+                        // move, it's win.
+                        (Terminal::Loss, true) | (Terminal::Win, false) => Evaluation::win(),
+                        // If the position is a win for the current player and beta just made a move
+                        // it's a loss.
+                        (Terminal::Win, true) | (Terminal::Loss, false) => Evaluation::loss(),
                         (Terminal::Draw, _) => Evaluation::draw(),
                     })
                     .sum::<Evaluation>();
@@ -237,8 +238,9 @@ impl Sum for Evaluation {
 
 impl Evaluation {
     fn win_rate(&self) -> f32 {
+        // TODO: Think about whether we should ignore draws or not.
         #![allow(clippy::cast_precision_loss)]
-        self.wins as f32 / (self.wins + self.losses + self.draws) as f32
+        self.wins as f32 / (self.wins + self.losses) as f32
     }
 
     fn win() -> Self {

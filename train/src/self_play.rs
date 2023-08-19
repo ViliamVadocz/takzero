@@ -16,10 +16,10 @@ use tch::Device;
 
 use crate::{target::Replay, BetaNet, STEP};
 
-const BATCH_SIZE: usize = 512;
-const SAMPLED: usize = 32;
-const SIMULATIONS: u32 = 256;
-const STEPS_BEFORE_CHECKING_NETWORK: usize = 10_000; // TODO: Think more about this number
+const BATCH_SIZE: usize = 64;
+const SAMPLED: usize = 64;
+const SIMULATIONS: u32 = 2048;
+const STEPS_BEFORE_CHECKING_NETWORK: usize = 1_000; // TODO: Think more about this number
 
 /// Populate the replay buffer with new state-action pairs from self-play.
 pub fn run<E: Environment, NET: Network + Agent<E>>(
@@ -84,8 +84,10 @@ fn self_play<E: Environment, A: Agent<E>>(
 
     tx: &mut Sender<Replay<E>>,
 ) {
-    envs.iter_mut().for_each(|env| *env = E::default());
-    nodes.iter_mut().for_each(|node| *node = Node::default());
+    envs.iter_mut().for_each(|env| *env = E::new_opening(rng));
+    nodes
+        .par_iter_mut()
+        .for_each(|node| *node = Node::default());
 
     for _ in 0..STEPS_BEFORE_CHECKING_NETWORK {
         let top_actions = gumbel_sequential_halving(
@@ -129,14 +131,14 @@ fn self_play<E: Environment, A: Agent<E>>(
 
         // Refresh finished environments and nodes.
         replays_batch
-            .par_iter_mut()
-            .zip(nodes.par_iter_mut())
-            .zip(envs.par_iter_mut())
+            .iter_mut()
+            .zip(nodes.iter_mut())
+            .zip(envs.iter_mut())
             .filter_map(|((replays, node), env)| {
                 env.terminal().map(|_| {
-                    *env = E::default();
+                    *env = E::new_opening(rng);
                     *node = Node::default();
-                    replays.par_drain(..)
+                    replays.drain(..)
                 })
             })
             .flatten()
