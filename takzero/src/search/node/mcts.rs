@@ -2,7 +2,6 @@ use ordered_float::NotNan;
 
 #[cfg(test)]
 use super::super::agent::Agent;
-
 use super::{
     super::{env::Environment, eval::Eval},
     Node,
@@ -57,7 +56,8 @@ impl<E: Environment> Node<E> {
     }
 
     /// Run the forward part of MCTS.
-    /// One of `backward_known_eval` and `backward_network_eval` must be called afterwards.
+    /// One of `backward_known_eval` and `backward_network_eval`
+    /// must be called afterwards.
     pub fn forward(&mut self, trajectory: &mut Vec<usize>, mut env: E) -> Forward<E> {
         debug_assert!(trajectory.is_empty());
         let mut node = self;
@@ -98,7 +98,8 @@ impl<E: Environment> Node<E> {
         }
     }
 
-    /// Initialize a leaf node and propagate a network evaluation through the tree.
+    /// Initialize a leaf node and propagate a network evaluation through the
+    /// tree.
     pub fn backward_network_eval(
         &mut self,
         mut trajectory: impl Iterator<Item = usize>,
@@ -119,23 +120,22 @@ impl<E: Environment> Node<E> {
     }
 
     #[cfg(test)]
-    fn simulate_simple<A: Agent<E>>(
-        &mut self,
-        agent: &A,
-        env: E,
-    ) -> Eval {
+    fn simulate_simple<A: Agent<E>>(&mut self, agent: &A, env: E) -> Eval {
         let mut trajectory = Vec::new();
         match self.forward(&mut trajectory, env) {
-            Forward::Known(eval) => {
-                self.backward_known_eval(trajectory.into_iter(), eval)
-            },
+            Forward::Known(eval) => self.backward_known_eval(trajectory.into_iter(), eval),
             Forward::NeedsNetwork(env) => {
                 let mut actions = [Vec::new()];
                 env.populate_actions(&mut actions[0]);
                 let (policy, value) = agent.policy_value(&[env], &actions).pop().unwrap();
                 self.backward_network_eval(
                     trajectory.into_iter(),
-                    actions.into_iter().next().unwrap().into_iter().map(|a| (a.clone(), policy[a])),
+                    actions
+                        .into_iter()
+                        .next()
+                        .unwrap()
+                        .into_iter()
+                        .map(|a| (a.clone(), policy[a])),
                     value,
                 )
             }
@@ -161,12 +161,7 @@ mod tests {
         let mut root = Node::default();
 
         (0..MAX_VISITS)
-            .find(|_| {
-                matches!(
-                    root.simulate_simple(&Dummy, game.clone()),
-                    Eval::Win(_)
-                )
-            })
+            .find(|_| matches!(root.simulate_simple(&Dummy, game.clone()), Eval::Win(_)))
             .expect("This position is solvable with MAX_VISITS.");
 
         println!("{root}");
@@ -189,12 +184,7 @@ mod tests {
         let mut root = Node::default();
 
         (0..MAX_VISITS)
-            .find(|_| {
-                matches!(
-                    root.simulate_simple(&Dummy, game.clone()),
-                    Eval::Win(_)
-                )
-            })
+            .find(|_| matches!(root.simulate_simple(&Dummy, game.clone()), Eval::Win(_)))
             .expect("This position is solvable with MAX_VISITS.");
 
         println!("{root}");

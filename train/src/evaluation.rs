@@ -5,7 +5,7 @@ use std::{
     io::Write,
     iter::{once, Sum},
     ops::AddAssign,
-    path::PathBuf,
+    path::Path,
     sync::atomic::Ordering,
 };
 
@@ -27,7 +27,7 @@ const BATCH_SIZE: usize = 128;
 const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 1024;
 
-const MIN_WIN_RATE: f32 = 0.60;
+const MIN_WIN_RATE: f32 = 0.55;
 
 // TODO: Clean up
 
@@ -36,7 +36,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     device: Device,
     seed: u64,
     beta_net: &BetaNet,
-    statistics_path: PathBuf,
+    statistics_path: &Path,
 ) where
     E::Action: fmt::Display,
 {
@@ -96,47 +96,17 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         );
         results += pit_results;
 
-        // Save full games to file.
-        let path_1 = statistics_path.join(format!(
-            "games_omega{omega_net_index}_vs_beta{net_index}.txt"
-        ));
-        let path_2 = statistics_path.join(format!(
-            "games_beta{net_index}_vs_omega{omega_net_index}.txt"
-        ));
-        let content_1 = full_games_to_string::<E>(&mut omega_full_games);
-        let content_2 = full_games_to_string::<E>(&mut beta_full_games);
-        rayon::spawn(move || {
-            let mut file = OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(path_1)
-                .expect("statistics file path should be valid and writable");
-            file.write_all(content_1.as_bytes()).unwrap();
-
-            let mut file = OpenOptions::new()
-                .append(true)
-                .create(true)
-                .open(path_2)
-                .expect("statistics file path should be valid and writable");
-            file.write_all(content_2.as_bytes()).unwrap();
-        });
+        save_statistics::<E>(
+            statistics_path,
+            omega_net_index,
+            net_index,
+            &mut omega_full_games,
+            &mut beta_full_games,
+            &results,
+        );
 
         // Update omega if beta is significantly better.
         if results.win_rate() >= MIN_WIN_RATE {
-            // Save statistics.
-            let path = statistics_path.join(format!(
-                "evaluation_omega{omega_net_index}_vs_beta{net_index}.txt"
-            ));
-            let content = format!("{results:?}");
-            rayon::spawn(move || {
-                let mut file = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(path)
-                    .expect("statistics file path should be valid and writable");
-                file.write_all(content.as_bytes()).unwrap();
-            });
             // Update network parameters.
             omega_net.vs_mut().copy(net.vs()).unwrap();
             omega_net_index = net_index;
@@ -258,7 +228,7 @@ impl AddAssign for Evaluation {
 
 impl Sum for Evaluation {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(Evaluation::default(), |mut a, b| {
+        iter.fold(Self::default(), |mut a, b| {
             a += b;
             a
         })
@@ -267,6 +237,7 @@ impl Sum for Evaluation {
 
 impl Evaluation {
     fn win_rate(&self) -> f32 {
+        #![allow(clippy::cast_precision_loss)]
         self.wins as f32 / (self.wins + self.losses + self.draws) as f32
     }
 
@@ -305,4 +276,52 @@ where
                 .chain(once("\n".to_string()))
         })
         .collect()
+}
+
+fn save_statistics<E: Environment>(
+    statistics_path: &Path,
+    omega_index: usize,
+    beta_index: usize,
+    omega_full_games: &mut [Vec<E::Action>],
+    beta_full_games: &mut [Vec<E::Action>],
+    results: &Evaluation,
+) where
+    E::Action: fmt::Display,
+{
+    // Save full games to file.
+    let path_omega_vs_beta =
+        statistics_path.join(format!("games_omega{omega_index}_vs_beta{beta_index}.txt"));
+    let path_beta_vs_omega =
+        statistics_path.join(format!("games_beta{beta_index}_vs_omega{omega_index}.txt"));
+    let path_evaluation = statistics_path.join(format!(
+        "evaluation_omega{omega_index}_vs_beta{beta_index}.txt"
+    ));
+    let content_omega_vs_beta = full_games_to_string::<E>(omega_full_games);
+    let content_beta_vs_omega = full_games_to_string::<E>(beta_full_games);
+    let content_evaluation = format!("{results:?}");
+    rayon::spawn(move || {
+        let mut file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path_omega_vs_beta)
+            .expect("statistics file path should be valid and writable");
+        file.write_all(content_omega_vs_beta.as_bytes()).unwrap();
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path_beta_vs_omega)
+            .expect("statistics file path should be valid and writable");
+        file.write_all(content_beta_vs_omega.as_bytes()).unwrap();
+
+        rayon::spawn(move || {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(path_evaluation)
+                .expect("statistics file path should be valid and writable");
+            file.write_all(content_evaluation.as_bytes()).unwrap();
+        });
+    });
 }

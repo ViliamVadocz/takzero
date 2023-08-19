@@ -4,7 +4,7 @@ use std::{
     fmt,
     fs::OpenOptions,
     io::Write,
-    path::PathBuf,
+    path::Path,
     sync::atomic::Ordering,
 };
 
@@ -30,11 +30,11 @@ use crate::{
     STEP,
 };
 
-const BATCH_SIZE: usize = 256;
-const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 1_000_000;
+const BATCH_SIZE: usize = 512;
+const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 100_000;
 
 const SAMPLED: usize = 32;
-const SIMULATIONS: u32 = 1024;
+const SIMULATIONS: u32 = 2048;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
 
@@ -43,13 +43,14 @@ const DISCOUNT_FACTOR: f32 = 0.99;
 
 /// Collect new state-action replays from self-play
 /// and generate batches for training.
+#[allow(clippy::needless_pass_by_value)]
 pub fn run<E: Environment, NET: Network + Agent<E>>(
     device: Device,
     seed: u64,
     beta_net: &BetaNet,
     rx: Receiver<Replay<E>>,
     tx: Sender<Vec<Target<E>>>,
-    replay_path: PathBuf,
+    replay_path: &Path,
 ) where
     Replay<E>: Augment + fmt::Display,
 {
@@ -185,6 +186,7 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
         .enumerate()
         .filter_map(|(index, ((((node, env), target), actions), replay))| {
             let mut flip = false;
+            #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
             if let Some(value) = replay.actions.iter().enumerate().find_map(|(i, action)| {
                 // If the node is solved, we can use that value.
                 if let Some(ply) = node.evaluation.ply() {
@@ -220,8 +222,9 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
         .zip(output)
         .zip(batch_actions)
         .for_each(|(((target, old_actions), (_, value)), mut actions)| {
-            target.value =
-                DISCOUNT_FACTOR.powi(STEP as i32) * value * if STEP % 2 == 0 { 1.0 } else { -1.0 };
+            target.value = DISCOUNT_FACTOR.powi(i32::try_from(STEP).unwrap())
+                * value
+                * if STEP % 2 == 0 { 1.0 } else { -1.0 };
             // Restore actions.
             actions.clear();
             let _ = std::mem::replace(old_actions, actions);
@@ -233,7 +236,10 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{atomic::AtomicUsize, RwLock};
+    use std::{
+        path::PathBuf,
+        sync::{atomic::AtomicUsize, RwLock},
+    };
 
     use arrayvec::ArrayVec;
     use rand::{Rng, SeedableRng};
@@ -294,7 +300,7 @@ mod tests {
             &beta_net,
             replay_rx,
             batch_tx,
-            Default::default(),
+            &PathBuf::default(),
         );
 
         let batch = batch_rx.recv().unwrap();

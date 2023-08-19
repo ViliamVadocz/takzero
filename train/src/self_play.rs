@@ -1,5 +1,6 @@
 use std::{array, sync::atomic::Ordering};
 
+use arrayvec::ArrayVec;
 use crossbeam::channel::Sender;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
@@ -15,10 +16,10 @@ use tch::Device;
 
 use crate::{target::Replay, BetaNet, STEP};
 
-const BATCH_SIZE: usize = 256;
+const BATCH_SIZE: usize = 64;
 const SAMPLED: usize = 32;
-const SIMULATIONS: u32 = 1024;
-const STEPS_BEFORE_CHECKING_NETWORK: usize = 100_000; // TODO: Think more about this number
+const SIMULATIONS: u32 = 256;
+const STEPS_BEFORE_CHECKING_NETWORK: usize = 10_000; // TODO: Think more about this number
 
 /// Populate the replay buffer with new state-action pairs from self-play.
 pub fn run<E: Environment, NET: Network + Agent<E>>(
@@ -58,6 +59,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         if maybe_new_net_index >= net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
+            println!("Updating self-play model to beta{net_index}");
         }
 
         if cfg!(test) {
@@ -106,7 +108,7 @@ fn self_play<E: Environment, A: Agent<E>>(
                 // Push start of fresh replay.
                 replays.push(Replay {
                     env: env.clone(),
-                    actions: Default::default(),
+                    actions: ArrayVec::default(),
                 });
                 // Update existing replays.
                 let from = replays.len().saturating_sub(STEP);

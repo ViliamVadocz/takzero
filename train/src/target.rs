@@ -87,7 +87,7 @@ where
         let tps: Tps = tps.parse()?;
         let actions = actions
             .split(',')
-            .map(|a| a.parse())
+            .map(str::parse)
             .collect::<Result<_, _>>()?;
         Ok(Self {
             env: tps.into(),
