@@ -236,12 +236,14 @@ mod tests {
     use std::sync::{atomic::AtomicUsize, RwLock};
 
     use arrayvec::ArrayVec;
-    use fast_tak::{
-        takparse::{Move, Tps},
-        Game,
-    };
     use rand::{Rng, SeedableRng};
-    use takzero::network::{net3::Net3, Network};
+    use takzero::{
+        fast_tak::{
+            takparse::{Move, Tps},
+            Game,
+        },
+        network::{net3::Net3, Network},
+    };
     use tch::Device;
 
     use crate::{

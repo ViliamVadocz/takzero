@@ -1,7 +1,7 @@
 use std::{sync::atomic::Ordering, path::PathBuf};
 
 use crossbeam::channel::Receiver;
-use fast_tak::{Game, Reserves};
+use takzero::fast_tak::{Game, Reserves};
 use takzero::{
     network::{
         repr::{game_to_tensor, move_mask, policy_tensor},
@@ -101,7 +101,7 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
 mod tests {
     use std::sync::{atomic::AtomicUsize, RwLock};
 
-    use fast_tak::Game;
+    use takzero::fast_tak::Game;
     use rand::{SeedableRng, Rng};
     use takzero::network::{net3::Net3, Network};
     use tch::Device;

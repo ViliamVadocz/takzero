@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fast-tak = "0.3.5"
 takzero = { path = "../takzero" }
 rayon = "1.7.0"
 crossbeam = "0.8.2"

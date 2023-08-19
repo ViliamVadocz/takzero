@@ -1,13 +1,16 @@
 use std::{fmt, str::FromStr};
 
 use arrayvec::ArrayVec;
-use fast_tak::{
-    takparse::{ParseMoveError, ParseTpsError, Tps},
-    Game,
-    Reserves,
-};
 use rand::prelude::*;
-use takzero::search::env::Environment;
+use takzero::{
+    fast_tak::{
+        takparse::{ParseMoveError, ParseTpsError, Tps},
+        Game,
+        Reserves,
+        Symmetry,
+    },
+    search::env::Environment,
+};
 use thiserror::Error;
 
 use crate::STEP;
@@ -32,19 +35,16 @@ impl<const N: usize, const HALF_KOMI: i8> Augment for Replay<Game<N, HALF_KOMI>>
 where
     Reserves<N>: Default,
 {
-    fn augment(&self, _rng: &mut impl Rng) -> Self {
-        self.clone()
-
-        // FIXME:
-        // let index = rng.gen_range(0..8);
-        // Self {
-        //     env: self.env.symmetries().into_iter().nth(index).unwrap(),
-        //     actions: self
-        //         .actions
-        //         .iter()
-        //         .map(|a| Symmetry::<N>::symmetries(a)[index])
-        //         .collect(),
-        // }
+    fn augment(&self, rng: &mut impl Rng) -> Self {
+        let index = rng.gen_range(0..8);
+        Self {
+            env: self.env.symmetries().into_iter().nth(index).unwrap(),
+            actions: self
+                .actions
+                .iter()
+                .map(|a| Symmetry::<N>::symmetries(a)[index])
+                .collect(),
+        }
     }
 }
 

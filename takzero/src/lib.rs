@@ -14,3 +14,5 @@
 
 pub mod network;
 pub mod search;
+
+pub use fast_tak;

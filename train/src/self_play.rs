@@ -157,9 +157,11 @@ fn self_play<E: Environment, A: Agent<E>>(
 mod tests {
     use std::sync::{atomic::AtomicUsize, RwLock};
 
-    use fast_tak::{takparse::Tps, Game};
     use rand::{Rng, SeedableRng};
-    use takzero::network::{net3::Net3, Network};
+    use takzero::{
+        fast_tak::{takparse::Tps, Game},
+        network::{net3::Net3, Network},
+    };
     use tch::Device;
 
     use crate::{self_play::run, target::Replay, BetaNet};

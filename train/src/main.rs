@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::Parser;
-use fast_tak::Game;
+use takzero::fast_tak::Game;
 use rand::prelude::*;
 use takzero::{
     network::{net3::Net3, Network},
