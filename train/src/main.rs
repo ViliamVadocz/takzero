@@ -13,6 +13,8 @@ use takzero::{
 use target::{Replay, Target};
 use tch::{nn::VarStore, Device};
 
+// #[warn(clippy::pedantic, clippy::style, clippy::nursery)]
+
 // Windows allocator sucks, so use MiMalloc instead.
 #[cfg(windows)]
 #[global_allocator]
@@ -71,15 +73,15 @@ fn run<NET: Network + Agent<Env>>() {
     net.save(args.model_path.join(file_name(0))).unwrap();
     let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
-    rayon::scope(|s| {
+    std::thread::scope(|s| {
         let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Env>>();
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
 
         #[rustfmt::skip]
-        s.spawn(|_| tch::no_grad(|| reanalyze::run::<_, Net>(Device::Cuda(0), seeds[0], &beta_net, replay_rx, batch_tx, args.replay_path)));
-        s.spawn(|_| tch::no_grad(|| self_play::run::<_, Net>(Device::Cuda(0), seeds[1], &beta_net, replay_tx)));
-        s.spawn(|_| tch::no_grad(|| evaluation::run::<_, Net>(Device::Cuda(0), seeds[2], &beta_net, args.statistics_path)));
-        s.spawn(|_| training::run::<N, HALF_KOMI, Net>(Device::Cuda(0), &beta_net, batch_rx, args.model_path));
+        s.spawn(|| tch::no_grad(|| reanalyze::run::<_, Net>(Device::Cuda(0), seeds[0], &beta_net, replay_rx, batch_tx, args.replay_path)));
+        s.spawn(|| tch::no_grad(|| self_play::run::<_, Net>(Device::Cuda(1), seeds[1], &beta_net, replay_tx)));
+        s.spawn(|| tch::no_grad(|| evaluation::run::<_, Net>(Device::Cuda(2), seeds[2], &beta_net, args.statistics_path)));
+        s.spawn(|| training::run::<N, HALF_KOMI, Net>(Device::Cuda(3), &beta_net, batch_rx, args.model_path));
     });
 }
 

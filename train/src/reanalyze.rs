@@ -39,8 +39,6 @@ const SIMULATIONS: u32 = 1024;
 const DISCOUNT_FACTOR: f32 = 0.99;
 
 // TODO: Less n-step for older replays
-// TODO: Save replays
-
 // TODO: Clean up a little bit
 
 /// Collect new state-action replays from self-play
@@ -74,7 +72,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         // FIXME: If the self-play thread generates replays too fast
         // this can loop without generating any new batches
         while let Ok(replay) = rx.try_recv() {
-            if replay_queue.len() + 1 >= MAXIMUM_REPLAY_BUFFER_SIZE {
+            if replay_queue.len() == MAXIMUM_REPLAY_BUFFER_SIZE {
                 replay_queue.pop_front();
             }
             replay_queue.push_back(replay);
@@ -164,7 +162,7 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
     // Begin constructing targets from the environment and improved policy.
     let mut targets: Vec<_> = nodes
         .par_iter()
-        .zip(envs.par_iter_mut())
+        .zip(envs.par_iter())
         .map(|(node, env)| Target {
             env: env.clone(),
             policy: node
@@ -190,16 +188,14 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
             if let Some(value) = replay.actions.iter().enumerate().find_map(|(i, action)| {
                 // If the node is solved, we can use that value.
                 if let Some(ply) = node.evaluation.ply() {
-                    return Some(
-                        DISCOUNT_FACTOR.powi(ply as i32) * Into::<f32>::into(node.evaluation),
-                    );
+                    return Some(DISCOUNT_FACTOR.powi(ply as i32) * f32::from(node.evaluation));
                 }
                 // Take a step in the search tree and the environment.
                 node.descend(action);
                 env.step(action.clone());
                 // If the state is terminal we can use the terminal reward.
                 if let Some(terminal) = env.terminal() {
-                    return Some(-DISCOUNT_FACTOR.powi(i as i32) * Into::<f32>::into(terminal));
+                    return Some(-DISCOUNT_FACTOR.powi(i as i32) * f32::from(terminal));
                 }
                 // Keep track of perspective.
                 flip = !flip;
@@ -231,7 +227,7 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
             let _ = std::mem::replace(old_actions, actions);
         });
 
-    debug_assert!(targets.iter().all(|target| target.value.is_normal()));
+    debug_assert!(targets.iter().all(|target| target.value.is_finite()));
     targets
 }
 

@@ -23,7 +23,7 @@ use tch::Device;
 
 use crate::BetaNet;
 
-const BATCH_SIZE: usize = 64;
+const BATCH_SIZE: usize = 128;
 const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 1024;
 
@@ -60,6 +60,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     let mut action_record: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut gumbel_noise: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut omega_full_games: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut beta_full_games: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
 
@@ -70,6 +71,8 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         if maybe_new_net_index >= net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
+            // Reset statistics.
+            results = Evaluation::default();
         }
         // If the network are the same there is no need to run evaluation.
         if omega_net_index == net_index {
@@ -87,6 +90,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             &mut action_record,
             &mut actions,
             &mut trajectories,
+            &mut gumbel_noise,
             &mut omega_full_games,
             &mut beta_full_games,
         );
@@ -96,8 +100,9 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         let path_1 = statistics_path.join(format!(
             "games_omega{omega_net_index}_vs_beta{net_index}.txt"
         ));
-        let path_2 =
-            statistics_path.join(format!("games_beta{net_index}_vs_{omega_net_index}.txt"));
+        let path_2 = statistics_path.join(format!(
+            "games_beta{net_index}_vs_omega{omega_net_index}.txt"
+        ));
         let content_1 = full_games_to_string::<E>(&mut omega_full_games);
         let content_2 = full_games_to_string::<E>(&mut beta_full_games);
         rayon::spawn(move || {
@@ -147,7 +152,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 fn pit<E: Environment, A: Agent<E>, R: Rng>(
     omega: &A,
     beta: &A,
-    _rng: &mut R,
+    rng: &mut R,
 
     omega_nodes: &mut [Node<E>], // not specific to omega
     beta_nodes: &mut [Node<E>],  // not specific to beta
@@ -156,6 +161,7 @@ fn pit<E: Environment, A: Agent<E>, R: Rng>(
     action_record: &mut [Vec<E::Action>],
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
+    gumbel_noise: &mut [Vec<f32>],
 
     omega_full_games: &mut [Vec<E::Action>],
     beta_full_games: &mut [Vec<E::Action>],
@@ -190,7 +196,7 @@ fn pit<E: Environment, A: Agent<E>, R: Rng>(
                     SIMULATIONS,
                     actions,
                     trajectories,
-                    None,
+                    Some((rng, gumbel_noise)),
                 );
 
                 let is_omega = std::ptr::eq(agent, omega);

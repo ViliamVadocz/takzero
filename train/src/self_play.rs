@@ -41,7 +41,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     let mut gumbel_noise: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
 
     loop {
-        // TODO: self-play
         self_play(
             &mut rng,
             &net,

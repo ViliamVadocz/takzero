@@ -27,8 +27,8 @@ pub struct Net3 {
 
 impl Network for Net3 {
     fn new(device: Device, seed: Option<i64>) -> Self {
-        const FILTERS: i64 = 8;
-        const CORE_RES_BLOCKS: u32 = 2;
+        const FILTERS: i64 = 128;
+        const CORE_RES_BLOCKS: u32 = 8;
 
         if let Some(seed) = seed {
             tch::manual_seed(seed);

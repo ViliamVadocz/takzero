@@ -21,8 +21,8 @@ use crate::{target::Target, BetaNet, file_name};
 
 const WEIGHT_DECAY: f64 = 1e-4;
 const LEARNING_RATE: f64 = 1e-4; // TODO: Consider learning rate scheduler: https://pytorch.org/docs/stable/optim.html
-const STEPS_BETWEEN_PUBLISH: u32 = 100;
-const PUBLISHES_BETWEEN_SAVE: u32 = 10;
+const STEPS_BETWEEN_PUBLISH: u64 = 100;
+const PUBLISHES_BETWEEN_SAVE: u64 = 10;
 
 /// Improve the network by training on batches from the re-analyze thread.
 /// Save checkpoints and distribute the newest model.
@@ -87,10 +87,11 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
         training_steps += 1;
         if training_steps % STEPS_BETWEEN_PUBLISH == 0 {
             beta_net.1.write().unwrap().copy(alpha_net.vs()).unwrap();
-            let index_minus_one = beta_net.0.fetch_add(1, Ordering::Relaxed);
+            beta_net.0.fetch_add(1, Ordering::Relaxed);
             // Save checkpoint.
             if (training_steps / STEPS_BETWEEN_PUBLISH) % PUBLISHES_BETWEEN_SAVE == 0 {
-                alpha_net.save(model_path.join(file_name(index_minus_one as u64 + 1))).unwrap();
+                // FIXME: This will stall until write is complete, which might be a long time because we are writing to a different computer.
+                alpha_net.save(model_path.join(file_name(training_steps/STEPS_BETWEEN_PUBLISH/PUBLISHES_BETWEEN_SAVE))).unwrap();
             }
         }
     }

@@ -2,10 +2,9 @@ use std::{fmt, str::FromStr};
 
 use arrayvec::ArrayVec;
 use fast_tak::{
-    takparse::{Move, ParseMoveError, ParseTpsError, Tps},
+    takparse::{ParseMoveError, ParseTpsError, Tps},
     Game,
     Reserves,
-    Symmetry,
 };
 use rand::prelude::*;
 use takzero::search::env::Environment;
@@ -13,6 +12,7 @@ use thiserror::Error;
 
 use crate::STEP;
 
+#[derive(Clone)]
 pub struct Replay<E: Environment> {
     pub env: E,                             // s_t
     pub actions: ArrayVec<E::Action, STEP>, // a_t:t+n
@@ -32,23 +32,19 @@ impl<const N: usize, const HALF_KOMI: i8> Augment for Replay<Game<N, HALF_KOMI>>
 where
     Reserves<N>: Default,
 {
-    fn augment(&self, rng: &mut impl Rng) -> Self {
-        self.symmetries().into_iter().choose(rng).unwrap()
-    }
-}
+    fn augment(&self, _rng: &mut impl Rng) -> Self {
+        self.clone()
 
-impl<const N: usize, const HALF_KOMI: i8> Symmetry<N> for Replay<Game<N, HALF_KOMI>>
-where
-    Reserves<N>: Default,
-{
-    fn symmetries(&self) -> [Self; 8] {
-        let mut iter = self.env.symmetries().into_iter();
-        let actions: ArrayVec<[Move; 8], STEP> =
-            self.actions.iter().map(Symmetry::<N>::symmetries).collect();
-        std::array::from_fn(|i| Replay {
-            env: iter.next().unwrap(),
-            actions: actions.iter().map(|s| s[i]).collect(),
-        })
+        // FIXME:
+        // let index = rng.gen_range(0..8);
+        // Self {
+        //     env: self.env.symmetries().into_iter().nth(index).unwrap(),
+        //     actions: self
+        //         .actions
+        //         .iter()
+        //         .map(|a| Symmetry::<N>::symmetries(a)[index])
+        //         .collect(),
+        // }
     }
 }
 
