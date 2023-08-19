@@ -73,6 +73,7 @@ fn run<NET: Network + Agent<Env>>() {
     net.save(args.model_path.join(file_name(0))).unwrap();
     let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
+    println!("Ready, set, go!");
     std::thread::scope(|s| {
         let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Env>>();
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();

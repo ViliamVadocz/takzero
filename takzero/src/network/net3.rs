@@ -131,8 +131,7 @@ impl Agent<Env> for Net3 {
         if env_batch.is_empty() {
             return Vec::new();
         }
-
-        let device = Device::cuda_if_available();
+        let device = self.vs.device();
 
         let xs = Tensor::cat(
             &env_batch
