@@ -95,20 +95,20 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
             opt.step();
             opt.zero_grad();
             training_steps += 1;
-        }
 
-        if training_steps % STEPS_BETWEEN_PUBLISH == 0 {
-            beta_net.1.write().unwrap().copy(alpha_net.vs()).unwrap();
-            beta_net.0.fetch_add(1, Ordering::Relaxed);
-            // Save checkpoint.
-            if (training_steps / STEPS_BETWEEN_PUBLISH) % PUBLISHES_BETWEEN_SAVE == 0 {
-                // FIXME: This will stall until write is complete, which might be a long time
-                // because we are writing to a different computer.
-                alpha_net
-                    .save(model_path.join(file_name(
-                        training_steps / STEPS_BETWEEN_PUBLISH / PUBLISHES_BETWEEN_SAVE,
-                    )))
-                    .unwrap();
+            if training_steps % STEPS_BETWEEN_PUBLISH == 0 {
+                beta_net.1.write().unwrap().copy(alpha_net.vs()).unwrap();
+                beta_net.0.fetch_add(1, Ordering::Relaxed);
+                // Save checkpoint.
+                if (training_steps / STEPS_BETWEEN_PUBLISH) % PUBLISHES_BETWEEN_SAVE == 0 {
+                    // FIXME: This will stall until write is complete, which might be a long time
+                    // because we are writing to a different computer.
+                    alpha_net
+                        .save(model_path.join(file_name(
+                            training_steps / STEPS_BETWEEN_PUBLISH / PUBLISHES_BETWEEN_SAVE,
+                        )))
+                        .unwrap();
+                }
             }
         }
     }
