@@ -91,6 +91,7 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
         total_loss.backward();
         batches += 1;
         if batches % BATCHES_PER_STEP == 0 {
+            println!("Taking step!");
             opt.step();
             opt.zero_grad();
             training_steps += 1;

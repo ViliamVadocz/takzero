@@ -16,7 +16,7 @@ use tch::Device;
 
 use crate::{target::Replay, BetaNet, STEP};
 
-const BATCH_SIZE: usize = 64;
+const BATCH_SIZE: usize = 512;
 const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 256;
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 10_000; // TODO: Think more about this number
