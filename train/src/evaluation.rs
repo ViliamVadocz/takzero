@@ -67,7 +67,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     loop {
         // Update the beta network.
         let maybe_new_net_index = beta_net.0.load(Ordering::Relaxed);
-        if maybe_new_net_index >= net_index {
+        if maybe_new_net_index > net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
             // Reset statistics.

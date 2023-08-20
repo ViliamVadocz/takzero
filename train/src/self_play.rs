@@ -18,7 +18,7 @@ use crate::{target::Replay, BetaNet, STEP};
 
 const BATCH_SIZE: usize = 64;
 const SAMPLED: usize = 64;
-const SIMULATIONS: u32 = 2048;
+const SIMULATIONS: u32 = 4096;
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 1_000; // TODO: Think more about this number
 
 /// Populate the replay buffer with new state-action pairs from self-play.
@@ -56,7 +56,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 
         //  Get the latest network
         let maybe_new_net_index = beta_net.0.load(Ordering::Relaxed);
-        if maybe_new_net_index >= net_index {
+        if maybe_new_net_index > net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
             println!("Updating self-play model to beta{net_index}");

@@ -20,7 +20,7 @@ use tch::{
 use crate::{file_name, target::Target, BetaNet};
 
 const WEIGHT_DECAY: f64 = 1e-4;
-const LEARNING_RATE: f64 = 1e-3;
+const LEARNING_RATE: f64 = 1e-4;
 const BATCHES_PER_STEP: u64 = 16;
 const STEPS_BETWEEN_PUBLISH: u64 = 2;
 const PUBLISHES_BETWEEN_SAVE: u64 = 10;

@@ -34,7 +34,7 @@ const BATCH_SIZE: usize = 64;
 const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 100_000;
 
 const SAMPLED: usize = 64;
-const SIMULATIONS: u32 = 2048;
+const SIMULATIONS: u32 = 4096;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
 
@@ -104,7 +104,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 
         //  Get the latest network
         let maybe_new_net_index = beta_net.0.load(Ordering::Relaxed);
-        if maybe_new_net_index >= net_index {
+        if maybe_new_net_index > net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
             println!("Updating reanalyze to model beta{net_index}");
