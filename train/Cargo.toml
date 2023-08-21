@@ -15,7 +15,3 @@ tch = "0.13.0"
 
 [target.'cfg(windows)'.dependencies]
 mimalloc = { version = "0.1.37", default-features = false }
-
-[profile.release]
-lto = true
-codegen-units = 1
