@@ -150,9 +150,9 @@ impl Agent<Env> for Net3 {
 
         let (policy, values) = self.forward_t(&xs, false);
         let masked_policy: Vec<Vec<_>> = policy
-            .masked_fill(&mask, 0.0)
-            .softmax(1, Kind::Float)
+            .masked_fill(&mask, f64::from(f32::MIN))
             .view([-1, output_size::<3>() as i64])
+            .softmax(1, Kind::Float)
             .try_into()
             .unwrap();
         let values: Vec<_> = values.view([-1]).try_into().unwrap();

@@ -4,7 +4,7 @@ use crossbeam::channel::Receiver;
 use takzero::{
     fast_tak::{Game, Reserves},
     network::{
-        repr::{game_to_tensor, move_mask, policy_tensor},
+        repr::{game_to_tensor, move_mask, output_size, policy_tensor},
         Network,
     },
     search::agent::Agent,
@@ -22,7 +22,7 @@ use crate::{file_name, target::Target, BetaNet};
 const WEIGHT_DECAY: f64 = 1e-4;
 const LEARNING_RATE: f64 = 1e-4;
 const BATCHES_PER_STEP: u64 = 16;
-const STEPS_BETWEEN_PUBLISH: u64 = 2;
+const STEPS_BETWEEN_PUBLISH: u64 = 5;
 const PUBLISHES_BETWEEN_SAVE: u64 = 10;
 
 // TODO: Consider learning rate scheduler: https://pytorch.org/docs/stable/optim.html
@@ -75,7 +75,11 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
         let input = Tensor::cat(&inputs, 0);
         let mask = Tensor::cat(&masks, 0);
         let (policy, values) = alpha_net.forward_t(&input, true);
-        let policy = policy.masked_fill(&mask, 0.0).log_softmax(1, Kind::Float);
+        #[allow(clippy::cast_possible_wrap)]
+        let policy = policy
+            .masked_fill(&mask, f64::from(f32::MIN))
+            .view([-1, output_size::<N>() as i64])
+            .log_softmax(1, Kind::Float);
 
         // Get the target.
         let p = Tensor::stack(&policy_targets, 0).view(policy.size().as_slice());
