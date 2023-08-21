@@ -2,7 +2,7 @@ use std::{array, sync::atomic::Ordering};
 
 use arrayvec::ArrayVec;
 use crossbeam::channel::Sender;
-use rand::{Rng, SeedableRng};
+use rand::{seq::IteratorRandom, Rng, SeedableRng};
 use rayon::prelude::*;
 use takzero::{
     network::Network,
@@ -39,7 +39,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     let mut replays_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut gumbel_noise: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
 
     loop {
         self_play(
@@ -50,7 +49,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             &mut replays_batch,
             &mut actions,
             &mut trajectories,
-            &mut gumbel_noise,
             &mut tx,
         );
 
@@ -80,11 +78,12 @@ fn self_play<E: Environment, A: Agent<E>>(
     replays_batch: &mut [Vec<Replay<E>>],
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
-    gumbel_noise: &mut [Vec<f32>],
 
     tx: &mut Sender<Replay<E>>,
 ) {
-    envs.iter_mut().for_each(|env| *env = E::new_opening(rng));
+    envs.iter_mut()
+        .zip(actions.iter_mut())
+        .for_each(|(env, actions)| new_opening(env, actions, rng));
     nodes
         .par_iter_mut()
         .for_each(|node| *node = Node::default());
@@ -98,7 +97,7 @@ fn self_play<E: Environment, A: Agent<E>>(
             SIMULATIONS,
             actions,
             trajectories,
-            Some((rng, gumbel_noise)),
+            Some(rng),
         );
 
         // Update replays.
@@ -134,9 +133,10 @@ fn self_play<E: Environment, A: Agent<E>>(
             .iter_mut()
             .zip(nodes.iter_mut())
             .zip(envs.iter_mut())
-            .filter_map(|((replays, node), env)| {
+            .zip(actions.iter_mut())
+            .filter_map(|(((replays, node), env), actions)| {
                 env.terminal().map(|_| {
-                    *env = E::new_opening(rng);
+                    new_opening(env, actions, rng);
                     *node = Node::default();
                     replays.drain(..)
                 })
@@ -157,13 +157,21 @@ fn self_play<E: Environment, A: Agent<E>>(
     }
 }
 
+fn new_opening<E: Environment>(env: &mut E, actions: &mut Vec<E::Action>, rng: &mut impl Rng) {
+    *env = E::default();
+    for _ in 0..2 {
+        env.populate_actions(actions);
+        env.step(actions.drain(..).choose(rng).unwrap());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{atomic::AtomicUsize, RwLock};
 
     use rand::{Rng, SeedableRng};
     use takzero::{
-        fast_tak::{takparse::Tps, Game},
+        fast_tak::Game,
         network::{net3::Net3, Network},
     };
     use tch::Device;
@@ -185,15 +193,7 @@ mod tests {
 
         run::<_, Net3>(Device::cuda_if_available(), rng.gen(), &beta_net, replay_tx);
         while let Ok(replay) = replay_rx.recv() {
-            let tps: Tps = replay.env.into();
-            println!(
-                "{tps} {:?}",
-                replay
-                    .actions
-                    .into_iter()
-                    .map(|a| a.to_string())
-                    .collect::<Vec<_>>()
-            );
+            println!("{replay}");
         }
     }
 }

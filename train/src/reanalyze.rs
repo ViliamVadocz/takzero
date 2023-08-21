@@ -12,6 +12,7 @@ use crossbeam::channel::{Receiver, Sender};
 use rand::{seq::IteratorRandom, Rng, SeedableRng};
 use rayon::prelude::*;
 use takzero::{
+    fast_tak::takparse::Tps,
     network::Network,
     search::{
         agent::Agent,
@@ -31,10 +32,10 @@ use crate::{
 };
 
 const BATCH_SIZE: usize = 64;
-const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 100_000;
+const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 500_000;
 
-const SAMPLED: usize = 64;
-const SIMULATIONS: u32 = 4096;
+const SAMPLED: usize = 16;
+const SIMULATIONS: u32 = 800;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
 
@@ -66,7 +67,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut gumbel_noise: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
 
     loop {
         // Receive until the replay channel is empty.
@@ -97,7 +97,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             &mut nodes,
             &mut actions,
             &mut trajectories,
-            &mut gumbel_noise,
         );
 
         tx.send(targets).unwrap();
@@ -139,7 +138,6 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
     nodes: &mut [Node<E>],
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
-    gumbel_noise: &mut [Vec<f32>],
 ) -> Vec<Target<E>> {
     debug_assert_eq!(replays.len(), BATCH_SIZE);
 
@@ -159,7 +157,7 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
         SIMULATIONS,
         actions,
         trajectories,
-        Some((rng, gumbel_noise)),
+        Some(rng),
     );
     // Begin constructing targets from the environment and improved policy.
     let mut targets: Vec<_> = nodes
@@ -191,14 +189,16 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
             if let Some(value) = replay.actions.iter().enumerate().find_map(|(i, action)| {
                 // If the node is solved, we can use that value.
                 if let Some(ply) = node.evaluation.ply() {
-                    return Some(DISCOUNT_FACTOR.powi(ply as i32) * f32::from(node.evaluation));
+                    return Some(
+                        DISCOUNT_FACTOR.powi(i as i32 + ply as i32) * f32::from(node.evaluation),
+                    );
                 }
                 // Take a step in the search tree and the environment.
                 node.descend(action);
                 env.step(action.clone());
                 // If the state is terminal we can use the terminal reward.
                 if let Some(terminal) = env.terminal() {
-                    return Some(-DISCOUNT_FACTOR.powi(i as i32) * f32::from(terminal));
+                    return Some(-DISCOUNT_FACTOR.powi(1 + i as i32) * f32::from(terminal));
                 }
                 // Keep track of perspective.
                 flip = !flip;
@@ -242,13 +242,9 @@ mod tests {
         sync::{atomic::AtomicUsize, RwLock},
     };
 
-    use arrayvec::ArrayVec;
     use rand::{Rng, SeedableRng};
     use takzero::{
-        fast_tak::{
-            takparse::{Move, Tps},
-            Game,
-        },
+        fast_tak::{takparse::Tps, Game, Reserves},
         network::{net3::Net3, Network},
     };
     use tch::Device;
@@ -257,16 +253,30 @@ mod tests {
         reanalyze::run,
         target::{Replay, Target},
         BetaNet,
-        STEP,
     };
+
+    fn replay_from<const N: usize, const HALF_KOMI: i8>(
+        tps: &str,
+        moves: Vec<&str>,
+    ) -> Replay<Game<N, HALF_KOMI>>
+    where
+        Reserves<N>: Default,
+    {
+        let tps: Tps = tps.parse().unwrap();
+        let moves = moves
+            .into_iter()
+            .map(str::parse)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        Replay {
+            env: tps.into(),
+            actions: moves,
+        }
+    }
 
     #[test]
     fn reanalyze_works() {
         const SEED: u64 = 1234;
-
-        fn make_array(actions: [&str; STEP]) -> ArrayVec<Move, STEP> {
-            actions.map(|s| s.parse().unwrap()).into()
-        }
 
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
@@ -277,22 +287,30 @@ mod tests {
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Game<3, 0>>>>();
 
         replay_tx
-            .send(Replay {
-                env: Game::default(),
-                actions: make_array(["a1", "a2", "a3", "b1", "b2"]),
-            })
+            .send(replay_from("x3/x3/x3 1 1", vec![
+                "a3", "a1", "b1", "b3", "c1",
+            ]))
             .unwrap();
         replay_tx
-            .send(Replay {
-                env: Game::from_ptn_moves(&["a3", "c1", "c2", "a2"]),
-                actions: make_array(["b2", "b1", "Sa1", "b1+", "b1"]),
-            })
+            .send(replay_from("2,1,1/2,x2/x3 1 3", vec![
+                "a1", "b1", "b2", "b1<",
+            ]))
             .unwrap();
         replay_tx
-            .send(Replay {
-                env: Game::default(),
-                actions: make_array(["a3", "c1", "a1", "a2", "b1"]),
-            })
+            .send(replay_from("2,1,1/2,x2/1,x2 2 3", vec!["b1", "b2", "b1<"]))
+            .unwrap();
+        replay_tx
+            .send(replay_from("x2,1/2,x,1/2,x2 1 3", vec![
+                "Sb3", "Sc1", "b3>", "c1+", "b3",
+            ]))
+            .unwrap();
+        replay_tx
+            .send(replay_from("2,1,x/2,2,x/1,x,1 1 4", vec!["c2", "b1"]))
+            .unwrap();
+        replay_tx
+            .send(replay_from("x,1,x/112,1,x/1,2S,2 1 6", vec![
+                "a3", "b1+", "a1+", "2b2<", "b2",
+            ]))
             .unwrap();
 
         run::<_, Net3>(

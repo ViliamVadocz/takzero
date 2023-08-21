@@ -9,7 +9,7 @@ use std::{
     sync::atomic::Ordering,
 };
 
-use rand::{Rng, SeedableRng};
+use rand::{seq::IteratorRandom, Rng, SeedableRng};
 use rayon::prelude::*;
 use takzero::{
     network::Network,
@@ -23,9 +23,9 @@ use tch::Device;
 
 use crate::BetaNet;
 
-const BATCH_SIZE: usize = 128;
+const BATCH_SIZE: usize = 64;
 const SAMPLED: usize = 64;
-const SIMULATIONS: u32 = 4096;
+const SIMULATIONS: u32 = 1024;
 
 const MIN_WIN_RATE: f32 = 0.55;
 
@@ -141,7 +141,10 @@ fn pit<E: Environment, A: Agent<E>, R: Rng>(
         (beta_full_games, [beta, omega]),
     ] {
         // Reset.
-        envs.iter_mut().for_each(|env| *env = E::new_opening(rng));
+        envs.iter_mut()
+            .zip(actions.iter_mut())
+            .zip(full_games.iter_mut())
+            .for_each(|((env, actions), record)| new_opening(env, actions, record, rng));
         omega_nodes
             .par_iter_mut()
             .for_each(|node| *node = Node::default());
@@ -210,6 +213,21 @@ fn pit<E: Environment, A: Agent<E>, R: Rng>(
     }
 
     evaluation
+}
+
+fn new_opening<E: Environment>(
+    env: &mut E,
+    actions: &mut Vec<E::Action>,
+    record: &mut Vec<E::Action>,
+    rng: &mut impl Rng,
+) {
+    *env = E::default();
+    for _ in 0..2 {
+        env.populate_actions(actions);
+        let action = actions.drain(..).choose(rng).unwrap();
+        record.push(action.clone());
+        env.step(action);
+    }
 }
 
 #[derive(Debug, Default)]
