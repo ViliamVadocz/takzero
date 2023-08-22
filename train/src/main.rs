@@ -9,7 +9,7 @@ use clap::Parser;
 use rand::prelude::*;
 use takzero::{
     fast_tak::Game,
-    network::{net4::Net4, Network},
+    network::{net3::Net3, net4::Net4, Network},
     search::agent::Agent,
 };
 use target::{Replay, Target};
@@ -56,10 +56,10 @@ const STEP: usize = 5;
 // Reference counted RW-lock to the variable store for the beta network.
 type BetaNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);
 
-const SELF_PLAY_DEVICE: Device = Device::Cuda(1);
-const REANALYZE_DEVICE: Device = Device::Cuda(0);
-const TRAINING_DEVICE: Device = Device::Cuda(0);
-const EVALUATION_DEVICE: Device = Device::Cuda(1);
+const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
+const REANALYZE_DEVICE: Device = Device::Cuda(1);
+const TRAINING_DEVICE: Device = Device::Cuda(2);
+const EVALUATION_DEVICE: Device = Device::Cuda(3);
 
 fn main() {
     run::<Net>();
