@@ -12,7 +12,6 @@ use crossbeam::channel::{Receiver, Sender};
 use rand::{seq::IteratorRandom, Rng, SeedableRng};
 use rayon::prelude::*;
 use takzero::{
-    fast_tak::takparse::Tps,
     network::Network,
     search::{
         agent::Agent,

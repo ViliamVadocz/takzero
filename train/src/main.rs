@@ -9,7 +9,7 @@ use clap::Parser;
 use rand::prelude::*;
 use takzero::{
     fast_tak::Game,
-    network::{net3::Net3, Network},
+    network::{net4::Net4, Network},
     search::agent::Agent,
 };
 use target::{Replay, Target};
@@ -43,18 +43,23 @@ struct Args {
 }
 
 // The environment to learn.
-const N: usize = 3;
+const N: usize = 4;
 const HALF_KOMI: i8 = 0;
 type Env = Game<N, HALF_KOMI>;
 
 // The network architecture.
-type Net = Net3;
+type Net = Net4;
 
 // Steps for TD-learning.
 const STEP: usize = 5;
 
 // Reference counted RW-lock to the variable store for the beta network.
 type BetaNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);
+
+const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
+const REANALYZE_DEVICE: Device = Device::Cuda(0);
+const TRAINING_DEVICE: Device = Device::Cuda(0);
+const EVALUATION_DEVICE: Device = Device::Cuda(0);
 
 fn main() {
     run::<Net>();
@@ -86,9 +91,14 @@ fn run<NET: Network + Agent<Env>>() {
 
         s.spawn(|| {
             tch::no_grad(|| {
+                self_play::run::<_, Net>(SELF_PLAY_DEVICE, seeds[0], &beta_net, replay_tx);
+            });
+        });
+        s.spawn(|| {
+            tch::no_grad(|| {
                 reanalyze::run::<_, Net>(
-                    Device::Cuda(0),
-                    seeds[0],
+                    REANALYZE_DEVICE,
+                    seeds[1],
                     &beta_net,
                     replay_rx,
                     batch_tx,
@@ -97,27 +107,22 @@ fn run<NET: Network + Agent<Env>>() {
             });
         });
         s.spawn(|| {
-            tch::no_grad(|| {
-                self_play::run::<_, Net>(Device::Cuda(1), seeds[1], &beta_net, replay_tx);
-            });
+            training::run::<N, HALF_KOMI, Net>(
+                TRAINING_DEVICE,
+                &beta_net,
+                batch_rx,
+                &args.model_path,
+            );
         });
         s.spawn(|| {
             tch::no_grad(|| {
                 evaluation::run::<_, Net>(
-                    Device::Cuda(2),
+                    EVALUATION_DEVICE,
                     seeds[2],
                     &beta_net,
                     &args.statistics_path,
                 );
             });
-        });
-        s.spawn(|| {
-            training::run::<N, HALF_KOMI, Net>(
-                Device::Cuda(3),
-                &beta_net,
-                batch_rx,
-                &args.model_path,
-            );
         });
     });
 }
