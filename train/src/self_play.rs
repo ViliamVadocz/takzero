@@ -16,9 +16,9 @@ use tch::Device;
 
 use crate::{target::Replay, BetaNet, STEP};
 
-const BATCH_SIZE: usize = 64;
-const SAMPLED: usize = 64;
-const SIMULATIONS: u32 = 4096;
+const BATCH_SIZE: usize = 128;
+const SAMPLED: usize = 8;
+const SIMULATIONS: u32 = 512;
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 1_000; // TODO: Think more about this number
 
 /// Populate the replay buffer with new state-action pairs from self-play.

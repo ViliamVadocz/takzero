@@ -21,7 +21,7 @@ use crate::{file_name, target::Target, BetaNet};
 
 const WEIGHT_DECAY: f64 = 1e-4;
 const LEARNING_RATE: f64 = 1e-4;
-const BATCHES_PER_STEP: u64 = 16;
+const BATCHES_PER_STEP: i64 = 16;
 const STEPS_BETWEEN_PUBLISH: u64 = 5;
 const PUBLISHES_BETWEEN_SAVE: u64 = 5;
 
@@ -89,7 +89,7 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
         let loss_p = policy.kl_div(&p, Reduction::Sum, false) / i64::try_from(batch_size).unwrap();
         let loss_z = (z - values).square().mean(Kind::Float);
         println!("p={loss_p:?}\t z={loss_z:?}");
-        let total_loss = loss_z + loss_p;
+        let total_loss = (loss_z + loss_p) / BATCHES_PER_STEP;
 
         // Do multiple backwards batches before making a step.
         total_loss.backward();

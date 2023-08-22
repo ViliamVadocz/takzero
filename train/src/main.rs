@@ -56,10 +56,10 @@ const STEP: usize = 5;
 // Reference counted RW-lock to the variable store for the beta network.
 type BetaNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);
 
-const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
+const SELF_PLAY_DEVICE: Device = Device::Cuda(1);
 const REANALYZE_DEVICE: Device = Device::Cuda(0);
 const TRAINING_DEVICE: Device = Device::Cuda(0);
-const EVALUATION_DEVICE: Device = Device::Cuda(0);
+const EVALUATION_DEVICE: Device = Device::Cuda(1);
 
 fn main() {
     run::<Net>();

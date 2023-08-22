@@ -30,11 +30,11 @@ use crate::{
     STEP,
 };
 
-const BATCH_SIZE: usize = 64;
+const BATCH_SIZE: usize = 128;
 const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 500_000;
 
-const SAMPLED: usize = 16;
-const SIMULATIONS: u32 = 800;
+const SAMPLED: usize = 4;
+const SIMULATIONS: u32 = 128;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
 

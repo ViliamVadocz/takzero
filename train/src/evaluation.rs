@@ -23,7 +23,7 @@ use tch::Device;
 
 use crate::BetaNet;
 
-const BATCH_SIZE: usize = 64;
+const BATCH_SIZE: usize = 128;
 const SAMPLED: usize = 64;
 const SIMULATIONS: u32 = 1024;
 
@@ -318,7 +318,7 @@ fn save_statistics<E: Environment>(
     ));
     let content_omega_vs_beta = full_games_to_string::<E>(omega_full_games);
     let content_beta_vs_omega = full_games_to_string::<E>(beta_full_games);
-    let content_evaluation = format!("{results:?}");
+    let content_evaluation = format!("{results:?} win rate: {:.2}%", results.win_rate());
     rayon::spawn(move || {
         let mut file = OpenOptions::new()
             .append(true)
