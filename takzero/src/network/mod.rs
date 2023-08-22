@@ -1,4 +1,5 @@
 pub mod net3;
+pub mod net4;
 pub mod repr;
 mod residual;
 

@@ -15,17 +15,17 @@ use super::{
 };
 use crate::{network::repr::move_mask, search::agent::Agent};
 
-const N: usize = 3;
+const N: usize = 4;
 
 #[derive(Debug)]
-pub struct Net3 {
+pub struct Net4 {
     vs: nn::VarStore,
     core: nn::SequentialT,
     policy_head: nn::SequentialT,
     value_head: nn::SequentialT,
 }
 
-impl Network for Net3 {
+impl Network for Net4 {
     fn new(device: Device, seed: Option<i64>) -> Self {
         const FILTERS: i64 = 128;
         const CORE_RES_BLOCKS: u32 = 8;
@@ -119,7 +119,7 @@ type Env = Game<N, 0>;
 // instead of masking)?
 // - https://pytorch.org/docs/stable/generated/torch.gather.html
 // - https://pytorch.org/docs/stable/generated/torch.index_select.html
-impl Agent<Env> for Net3 {
+impl Agent<Env> for Net4 {
     type Policy = Policy;
 
     fn policy_value(
@@ -178,7 +178,7 @@ mod tests {
     use fast_tak::Game;
     use tch::Device;
 
-    use super::{Env, Net3};
+    use super::{Env, Net4};
     use crate::{
         network::Network,
         search::{agent::Agent, env::Environment},
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn evaluate() {
-        let net = Net3::new(Device::cuda_if_available(), Some(123));
+        let net = Net4::new(Device::cuda_if_available(), Some(123));
         let game: Env = Game::default();
         let mut moves = Vec::new();
         game.possible_moves(&mut moves);
@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn evaluate_batch() {
         const BATCH_SIZE: usize = 128;
-        let net = Net3::new(Device::cuda_if_available(), Some(456));
+        let net = Net4::new(Device::cuda_if_available(), Some(456));
         let mut games: [Env; BATCH_SIZE] = array::from_fn(|_| Game::default());
         let mut actions_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
         games
