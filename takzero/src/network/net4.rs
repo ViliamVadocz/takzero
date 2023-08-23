@@ -27,7 +27,7 @@ pub struct Net4 {
 
 impl Network for Net4 {
     fn new(device: Device, seed: Option<i64>) -> Self {
-        const FILTERS: i64 = 128;
+        const FILTERS: i64 = 64;
         const CORE_RES_BLOCKS: u32 = 8;
 
         if let Some(seed) = seed {
