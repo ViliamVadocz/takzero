@@ -234,11 +234,27 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
             .map(|(_, child)| child.visit_count)
             .sum::<u32>()
             + 1;
-        let child_evaluations = node.children.iter().map(|(_, child)| child.evaluation);
-        node.evaluation = child_evaluations.clone().find(Eval::is_loss).map_or_else(
-            || child_evaluations.min().unwrap().negate(), // wrong but whatever
-            |loss| loss.negate(),
-        );
+
+        let evaluations = node.children.iter().map(|(_, child)| &child.evaluation);
+        node.evaluation =
+            if evaluations.clone().any(Eval::is_loss) || evaluations.clone().all(Eval::is_known) {
+                evaluations.min().unwrap().negate()
+            } else {
+                // Slightly different formula than in the Gumbel MuZero paper.
+                // Here we are ignoring the original network eval because we no longer have
+                // access to it. node.evaluation might already include child
+                // evaluations because of tree re-use.
+                let visited_children = node
+                    .children
+                    .iter()
+                    .map(|(_, child)| child)
+                    .filter(|child| child.visit_count > 0);
+                let sum_policies: f32 = visited_children.clone().map(|child| child.policy).sum();
+                let weighted_q: f32 = visited_children
+                    .map(|child| f32::from(child.evaluation.negate()) * child.policy)
+                    .sum();
+                Eval::new_value(weighted_q / sum_policies)
+            };
     });
 
     top_actions
