@@ -17,8 +17,8 @@ use tch::Device;
 use crate::{target::Replay, BetaNet, STEP};
 
 const BATCH_SIZE: usize = 128;
-const SAMPLED: usize = 8;
-const SIMULATIONS: u32 = 512;
+const SAMPLED: usize = 16;
+const SIMULATIONS: u32 = 1024;
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 1_000; // TODO: Think more about this number
 
 /// Populate the replay buffer with new state-action pairs from self-play.
@@ -65,8 +65,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         }
     }
 }
-
-// TODO: ignore first two positions (because of swap)?
 
 #[allow(clippy::too_many_arguments)]
 fn self_play<E: Environment, A: Agent<E>>(

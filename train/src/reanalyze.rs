@@ -33,8 +33,8 @@ use crate::{
 const BATCH_SIZE: usize = 128;
 const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 500_000;
 
-const SAMPLED: usize = 4;
-const SIMULATIONS: u32 = 128;
+const SAMPLED: usize = 8;
+const SIMULATIONS: u32 = 256;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
 

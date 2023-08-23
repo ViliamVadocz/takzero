@@ -9,7 +9,7 @@ use clap::Parser;
 use rand::prelude::*;
 use takzero::{
     fast_tak::Game,
-    network::{net3::Net3, net4::Net4, Network},
+    network::{net4::Net4, Network},
     search::agent::Agent,
 };
 use target::{Replay, Target};
@@ -58,8 +58,8 @@ type BetaNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);
 
 const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
 const REANALYZE_DEVICE: Device = Device::Cuda(1);
-const TRAINING_DEVICE: Device = Device::Cuda(2);
-const EVALUATION_DEVICE: Device = Device::Cuda(3);
+const TRAINING_DEVICE: Device = Device::Cuda(1);
+// const EVALUATION_DEVICE: Device = Device::Cuda(3);
 
 fn main() {
     run::<Net>();
@@ -114,19 +114,19 @@ fn run<NET: Network + Agent<Env>>() {
                 &args.model_path,
             );
         });
-        s.spawn(|| {
-            tch::no_grad(|| {
-                evaluation::run::<_, Net>(
-                    EVALUATION_DEVICE,
-                    seeds[2],
-                    &beta_net,
-                    &args.statistics_path,
-                );
-            });
-        });
+        // s.spawn(|| {
+        //     tch::no_grad(|| {
+        //         evaluation::run::<_, Net>(
+        //             EVALUATION_DEVICE,
+        //             seeds[2],
+        //             &beta_net,
+        //             &args.statistics_path,
+        //         );
+        //     });
+        // });
     });
 }
 
 fn file_name(n: u64) -> String {
-    format!("{n:0>3}.pt")
+    format!("{n:0>3}_steps.pt")
 }

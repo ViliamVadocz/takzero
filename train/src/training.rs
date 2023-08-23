@@ -1,6 +1,7 @@
 use std::{path::Path, sync::atomic::Ordering};
 
 use crossbeam::channel::Receiver;
+use rayon::prelude::*;
 use takzero::{
     fast_tak::{Game, Reserves},
     network::{
@@ -20,9 +21,9 @@ use tch::{
 use crate::{file_name, target::Target, BetaNet};
 
 const WEIGHT_DECAY: f64 = 1e-4;
-const LEARNING_RATE: f64 = 1e-4;
-const BATCHES_PER_STEP: i64 = 16;
-const STEPS_BETWEEN_PUBLISH: u64 = 5;
+const LEARNING_RATE: f64 = 5e-5;
+const BATCHES_PER_STEP: i64 = 8;
+const STEPS_BETWEEN_PUBLISH: u64 = 10;
 const PUBLISHES_BETWEEN_SAVE: u64 = 5;
 
 // TODO: Consider learning rate scheduler: https://pytorch.org/docs/stable/optim.html
@@ -101,6 +102,7 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
             accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
             training_steps += 1;
 
+            #[allow(clippy::modulo_one)]
             if training_steps % STEPS_BETWEEN_PUBLISH == 0 {
                 beta_net.1.write().unwrap().copy(alpha_net.vs()).unwrap();
                 beta_net.0.fetch_add(1, Ordering::Relaxed);
@@ -109,9 +111,7 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
                     // FIXME: This will stall until write is complete, which might be a long time
                     // because we are writing to a different computer.
                     alpha_net
-                        .save(model_path.join(file_name(
-                            training_steps / STEPS_BETWEEN_PUBLISH / PUBLISHES_BETWEEN_SAVE,
-                        )))
+                        .save(model_path.join(file_name(training_steps / STEPS_BETWEEN_PUBLISH)))
                         .unwrap();
                 }
             }
