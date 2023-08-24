@@ -30,11 +30,11 @@ use crate::{
     STEP,
 };
 
-const BATCH_SIZE: usize = 128;
+const BATCH_SIZE: usize = 64;
 const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 500_000;
 
 const SAMPLED: usize = 8;
-const SIMULATIONS: u32 = 256;
+const SIMULATIONS: u32 = 128;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
 
@@ -81,6 +81,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             std::thread::yield_now();
             continue;
         }
+        println!("Replay queue size: {}", replay_queue.len());
 
         // TODO: Prioritized sampling
         let replays = replay_queue.iter().choose_multiple(&mut rng, BATCH_SIZE);

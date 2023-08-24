@@ -26,7 +26,7 @@ use crate::{target::Replay, BetaNet, STEP};
 const BATCH_SIZE: usize = 64;
 
 const SAMPLED: usize = 16;
-const SIMULATIONS: u32 = 1024;
+const SIMULATIONS: u32 = 512;
 
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 1_000; // TODO: Think more about this number
 
