@@ -81,7 +81,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             std::thread::yield_now();
             continue;
         }
-        println!("Replay queue size: {}", replay_queue.len());
 
         // TODO: Prioritized sampling
         let replays = replay_queue.iter().choose_multiple(&mut rng, BATCH_SIZE);
