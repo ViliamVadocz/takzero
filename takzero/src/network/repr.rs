@@ -4,7 +4,7 @@ use fast_tak::{
     Reserves,
 };
 use ordered_float::NotNan;
-use tch::{Device, Kind, Tensor};
+use tch::{Device, Tensor};
 
 /// Get the number of possible moves for a given board size.
 ///
@@ -75,23 +75,11 @@ pub fn move_mask<const N: usize>(moves: &[Move], device: Device) -> Tensor {
     for mov in moves {
         mask[move_index::<N>(mov)] = false;
     }
-    let size = [1, output_channels::<N>() as i64, N as i64, N as i64];
-    let strides = [
-        (N * N * output_channels::<N>()) as i64,
-        (N * N) as i64,
-        N as i64,
-        1,
-    ];
-    unsafe {
-        Tensor::from_blob(
-            mask.as_ptr().cast(),
-            &size,
-            &strides,
-            Kind::Bool,
-            Device::Cpu,
-        )
-    }
-    .to(device)
+    // FIXME: Can we prevent this copy?
+    // `Tensor::from_blob` will not work because backing data will deallocate.
+    Tensor::from_slice(&mask)
+        .reshape([1, output_channels::<N>() as i64, N as i64, N as i64])
+        .to(device)
 }
 
 pub fn policy_tensor<const N: usize>(policy: &[(Move, f32)], device: Device) -> Tensor {
@@ -99,23 +87,10 @@ pub fn policy_tensor<const N: usize>(policy: &[(Move, f32)], device: Device) -> 
     for (mov, p) in policy {
         data[move_index::<N>(mov)] = *p;
     }
-    let size = [1, output_channels::<N>() as i64, N as i64, N as i64];
-    let strides = [
-        (N * N * output_channels::<N>()) as i64,
-        (N * N) as i64,
-        N as i64,
-        1,
-    ];
-    unsafe {
-        Tensor::from_blob(
-            data.as_ptr().cast(),
-            &size,
-            &strides,
-            Kind::Float,
-            Device::Cpu,
-        )
-    }
-    .to(device)
+    // FIXME: Can we prevent this copy?
+    Tensor::from_slice(&data)
+        .reshape([1, output_channels::<N>() as i64, N as i64, N as i64])
+        .to(device)
 }
 
 /// Get the number of channels needed to encode each move type.
@@ -251,24 +226,11 @@ where
     Reserves<N>: Default,
 {
     let mut buffer = vec![0.0; input_size::<N>()];
-    let size = [1, input_channels::<N>() as i64, N as i64, N as i64];
-    let strides = [
-        (N * N * input_channels::<N>()) as i64,
-        (N * N) as i64,
-        N as i64,
-        1,
-    ];
     game_repr(&mut buffer, game);
-    let tensor = unsafe {
-        Tensor::from_blob(
-            buffer.as_ptr().cast(),
-            &size,
-            &strides,
-            Kind::Float,
-            Device::Cpu,
-        )
-    };
-    tensor.to(device)
+    // FIXME: Can we prevent this copy?
+    Tensor::from_slice(&buffer)
+        .reshape([1, input_channels::<N>() as i64, N as i64, N as i64])
+        .to(device)
 }
 
 #[cfg(test)]
