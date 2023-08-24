@@ -6,6 +6,7 @@ pub trait Environment: Send + Sync + Clone + Default {
     fn populate_actions(&self, actions: &mut Vec<Self::Action>);
     fn step(&mut self, action: Self::Action);
     fn terminal(&self) -> Option<Terminal>;
+    fn steps(&self) -> u16;
 }
 
 pub enum Terminal {
@@ -40,6 +41,10 @@ where
             fast_tak::GameResult::Draw { .. } => Some(Terminal::Draw),
             fast_tak::GameResult::Ongoing => None,
         }
+    }
+
+    fn steps(&self) -> u16 {
+        self.ply
     }
 }
 

@@ -2,7 +2,14 @@ use std::{array, sync::atomic::Ordering};
 
 use arrayvec::ArrayVec;
 use crossbeam::channel::Sender;
-use rand::{seq::IteratorRandom, Rng, SeedableRng};
+use rand::{
+    distributions::WeightedIndex,
+    prelude::Distribution,
+    seq::IteratorRandom,
+    Rng,
+    SeedableRng,
+};
+use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 use takzero::{
     network::Network,
@@ -16,10 +23,15 @@ use tch::Device;
 
 use crate::{target::Replay, BetaNet, STEP};
 
-const BATCH_SIZE: usize = 128;
+const BATCH_SIZE: usize = 64;
+
 const SAMPLED: usize = 16;
 const SIMULATIONS: u32 = 1024;
+
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 1_000; // TODO: Think more about this number
+
+const RANDOM_GAMES: u32 = 5;
+const WEIGHTED_RANDOM_PLIES: u16 = 30;
 
 /// Populate the replay buffer with new state-action pairs from self-play.
 pub fn run<E: Environment, NET: Network + Agent<E>>(
@@ -29,6 +41,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     mut tx: Sender<Replay<E>>,
 ) {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    let chacha_seed = rng.gen();
 
     let mut net = NET::new(device, None);
     let mut net_index = beta_net.0.load(Ordering::Relaxed);
@@ -39,10 +52,50 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     let mut replays_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut rngs: [_; BATCH_SIZE] = array::from_fn(|i| {
+        let mut rng = ChaCha8Rng::from_seed(chacha_seed);
+        rng.set_stream(i as u64);
+        rng
+    });
+
+    // Initialize replay buffer with random moves.
+    envs.par_iter_mut()
+        .zip(&mut replays_batch)
+        .zip(&mut actions)
+        .zip(&mut rngs)
+        .map(|(((env, replays), actions), rng)| {
+            let mut replays_buffer = Vec::new();
+            for _ in 0..RANDOM_GAMES {
+                while env.terminal().is_none() {
+                    // Choose random action.
+                    env.populate_actions(actions);
+                    let action = actions.drain(..).choose(rng).unwrap();
+                    // Push start of fresh replay.
+                    replays.push(Replay {
+                        env: env.clone(),
+                        actions: ArrayVec::default(),
+                    });
+                    // Update existing replays.
+                    let from = replays.len().saturating_sub(STEP);
+                    for replay in &mut replays[from..] {
+                        replay.actions.push(action.clone());
+                    }
+                    // Take a step in the environment.
+                    env.step(action);
+                }
+                replays_buffer.append(replays);
+                *env = E::default();
+            }
+            replays_buffer.into_par_iter()
+        })
+        .flatten()
+        .try_for_each(|replay| tx.send(replay))
+        .unwrap();
 
     loop {
         self_play(
             &mut rng,
+            &mut rngs,
             &net,
             &mut envs,
             &mut nodes,
@@ -69,6 +122,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 #[allow(clippy::too_many_arguments)]
 fn self_play<E: Environment, A: Agent<E>>(
     rng: &mut impl Rng,
+    rngs: &mut [ChaCha8Rng],
     agent: &A,
 
     envs: &mut [E],
@@ -87,7 +141,7 @@ fn self_play<E: Environment, A: Agent<E>>(
         .for_each(|node| *node = Node::default());
 
     for _ in 0..STEPS_BEFORE_CHECKING_NETWORK {
-        let top_actions = gumbel_sequential_halving(
+        let mut top_actions = gumbel_sequential_halving(
             nodes,
             envs,
             agent,
@@ -97,6 +151,18 @@ fn self_play<E: Environment, A: Agent<E>>(
             trajectories,
             Some(rng),
         );
+        // For openings, sample actions according to visits instead.
+        envs.par_iter()
+            .zip(rngs.par_iter_mut())
+            .zip(nodes.par_iter_mut())
+            .zip(&mut top_actions)
+            .filter(|(((env, _), _), _)| env.steps() < WEIGHTED_RANDOM_PLIES)
+            .for_each(|(((_, rng), node), top_action)| {
+                let weighted_index =
+                    WeightedIndex::new(node.children.iter().map(|(_, child)| child.visit_count))
+                        .unwrap();
+                *top_action = node.children[weighted_index.sample(rng)].0.clone();
+            });
 
         // Update replays.
         replays_batch
