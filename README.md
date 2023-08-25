@@ -11,7 +11,11 @@ See [tch-rs](https://github.com/LaurentMazare/tch-rs#getting-started) for instal
 
 ### Windows
 
+Worked:
 - Stable (2.0.1), CUDA 11.8, Release
+
+Did **not** work:
+- Preview (Nightly), CUDA 12.1, Release
 
 ### Linux
 
@@ -25,6 +29,7 @@ Did **not** work:
 - Stable (2.0.1), CUDA 11.8, cxx11 ABI
 
 # Threading model
+
 ```
 self-play  reanalyze  training  evaluation
     |          |          |         |

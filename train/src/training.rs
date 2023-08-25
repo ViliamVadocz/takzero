@@ -91,13 +91,13 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
         // Calculate loss.
         let loss_p = policy.kl_div(&p, Reduction::Sum, false) / i64::try_from(batch_size).unwrap();
         let loss_z = (z - values).square().mean(Kind::Float);
-        println!("p={loss_p:?}\t z={loss_z:?}");
+        log::info!("p={loss_p:?}\t z={loss_z:?}");
         accumulated_total_loss += loss_z + loss_p;
 
         // Do multiple backwards batches before making a step.
         batches += 1;
         if batches % BATCHES_PER_STEP == 0 {
-            println!("Taking step!");
+            log::info!("Taking step, accumulated_loss = {accumulated_total_loss:?}");
             opt.backward_step(&(accumulated_total_loss / BATCHES_PER_STEP));
             accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
             training_steps += 1;

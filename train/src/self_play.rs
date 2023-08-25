@@ -28,7 +28,7 @@ const BATCH_SIZE: usize = 64;
 const SAMPLED: usize = 16;
 const SIMULATIONS: u32 = 512;
 
-const STEPS_BEFORE_CHECKING_NETWORK: usize = 1_000; // TODO: Think more about this number
+const STEPS_BEFORE_CHECKING_NETWORK: usize = 200; // TODO: Think more about this number
 
 const RANDOM_GAMES: u32 = 5;
 const WEIGHTED_RANDOM_PLIES: u16 = 30;
@@ -110,7 +110,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         if maybe_new_net_index > net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
-            println!("Updating self-play model to beta{net_index}");
+            log::info!("Updating self-play model to beta{net_index}");
         }
 
         if cfg!(test) {

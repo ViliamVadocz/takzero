@@ -1,6 +1,5 @@
 use std::{cmp::Reverse, ops::Div};
 
-use ordered_float::NotNan;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Gumbel};
@@ -254,7 +253,10 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                 let weighted_q: f32 = visited_children
                     .map(|child| f32::from(child.evaluation.negate()) * child.policy)
                     .sum();
-                Eval::Value(NotNan::new(weighted_q / sum_policies).unwrap_or_default())
+                Eval::new_value(weighted_q / sum_policies).unwrap_or_else(|_| {
+                    log::warn!("NaN in gumbel root value");
+                    Eval::default()
+                })
             };
     });
 

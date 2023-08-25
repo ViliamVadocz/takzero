@@ -50,7 +50,7 @@ impl<E: Environment> Node<E> {
             _ => {
                 let negated = child_eval.negate().into();
                 self.update_mean_value(negated);
-                Eval::new_value(negated)
+                Eval::new_value(negated).unwrap()
             }
         }
     }
@@ -114,7 +114,10 @@ impl<E: Environment> Node<E> {
         } else {
             // Finish leaf initialization.
             self.children = policy.map(|(a, p)| (a, Self::from_policy(p))).collect();
-            self.evaluation = Eval::new_value(value);
+            self.evaluation = Eval::new_value(value).unwrap_or_else(|_| {
+                log::warn!("value NaN");
+                    Eval::default()
+            });
             self.evaluation
         }
     }

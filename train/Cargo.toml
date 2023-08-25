@@ -13,6 +13,8 @@ thiserror = "1.0.47"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 tch = "0.13.0"
+log = "0.4.20"
+env_logger = "0.10.0"
 
 [target.'cfg(windows)'.dependencies]
 mimalloc = { version = "0.1.37", default-features = false }

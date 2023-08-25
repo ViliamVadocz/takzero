@@ -105,7 +105,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         if maybe_new_net_index > net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
-            println!("Updating reanalyze to model beta{net_index}");
+            log::info!("Updating reanalyze to model beta{net_index}");
 
             // Save replays
             let s: String = replay_queue.iter().map(ToString::to_string).collect();
@@ -230,7 +230,7 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
             let _ = std::mem::replace(old_actions, actions);
         });
 
-    debug_assert!(targets.iter().all(|target| target.value.is_finite()));
+    assert!(targets.iter().all(|target| target.value.is_finite()));
     targets
 }
 

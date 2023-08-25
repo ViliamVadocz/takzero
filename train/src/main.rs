@@ -1,4 +1,5 @@
 #![warn(clippy::pedantic, clippy::style, clippy::nursery)]
+// #![warn(clippy::unwrap_used)]
 
 use std::{
     path::PathBuf,
@@ -20,6 +21,7 @@ use tch::{nn::VarStore, Device};
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+#[allow(dead_code)]
 mod evaluation;
 mod reanalyze;
 mod self_play;
@@ -77,6 +79,8 @@ fn run<NET: Network + Agent<Env>>() {
         "`replay_path` should point to a directory"
     );
 
+    env_logger::init();
+
     let mut rng = rand::rngs::StdRng::seed_from_u64(args.seed);
     let seeds: [u64; 3] = rng.gen();
 
@@ -84,7 +88,7 @@ fn run<NET: Network + Agent<Env>>() {
     net.save(args.model_path.join(file_name(0))).unwrap();
     let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
-    println!("Ready, set, go!");
+    log::info!("Begin.");
     std::thread::scope(|s| {
         let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Env>>();
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();

@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, fmt};
 
-use ordered_float::NotNan;
+use ordered_float::{FloatIsNan, NotNan};
 
 use super::env::Terminal;
 
@@ -24,13 +24,12 @@ impl fmt::Display for Eval {
 }
 
 impl Eval {
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the value is a NaN.
-    #[must_use]
-    pub fn new_value(value: f32) -> Self {
+    /// Errors if the value is NaN.
+    pub fn new_value(value: f32) -> Result<Self, FloatIsNan> {
         debug_assert!((-1.0..=1.0).contains(&value), "value was {value}");
-        Self::Value(NotNan::new(value).expect("value should not be NaN"))
+        NotNan::new(value).map(Self::Value)
     }
 
     #[must_use]
@@ -156,9 +155,9 @@ mod tests {
     #[test]
     fn eval_order() {
         let mut evals = [
-            Eval::new_value(1.0),
-            Eval::new_value(CONTEMPT + 0.1),
-            Eval::new_value(-1.0),
+            Eval::new_value(1.0).unwrap(),
+            Eval::new_value(CONTEMPT + 0.1).unwrap(),
+            Eval::new_value(-1.0).unwrap(),
             Eval::Win(5),
             Eval::Win(10),
             Eval::Draw(5),
@@ -170,11 +169,11 @@ mod tests {
         assert_eq!(evals, [
             Eval::Loss(5),
             Eval::Loss(10),
-            Eval::new_value(-1.0),
+            Eval::new_value(-1.0).unwrap(),
             Eval::Draw(5),
             Eval::Draw(10),
-            Eval::new_value(CONTEMPT + 0.1),
-            Eval::new_value(1.0),
+            Eval::new_value(CONTEMPT + 0.1).unwrap(),
+            Eval::new_value(1.0).unwrap(),
             Eval::Win(10),
             Eval::Win(5),
         ]);
