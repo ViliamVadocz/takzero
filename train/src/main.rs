@@ -16,8 +16,6 @@ use takzero::{
 use target::{Replay, Target};
 use tch::{nn::VarStore, Device};
 
-#[allow(dead_code)]
-mod evaluation;
 mod reanalyze;
 mod self_play;
 mod target;
@@ -56,7 +54,6 @@ type BetaNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);
 const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
 const REANALYZE_DEVICE: Device = Device::Cuda(1);
 const TRAINING_DEVICE: Device = Device::Cuda(1);
-// const EVALUATION_DEVICE: Device = Device::Cuda(3);
 
 fn main() {
     run::<Net>();
@@ -77,7 +74,7 @@ fn run<NET: Network + Agent<Env>>() {
     env_logger::init();
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-    let seeds: [u64; 3] = rng.gen();
+    let seeds: [u64; 2] = rng.gen();
 
     let mut net = NET::new(Device::Cpu, Some(rng.gen()));
     net.save(args.model_path.join(file_name(0))).unwrap();
@@ -106,23 +103,15 @@ fn run<NET: Network + Agent<Env>>() {
             });
         });
         s.spawn(|| {
-            training::run::<N, HALF_KOMI, Net>(
-                TRAINING_DEVICE,
-                &beta_net,
-                batch_rx,
-                &args.model_path,
-            );
+            tch::with_grad(|| {
+                training::run::<N, HALF_KOMI, Net>(
+                    TRAINING_DEVICE,
+                    &beta_net,
+                    batch_rx,
+                    &args.model_path,
+                );
+            });
         });
-        // s.spawn(|| {
-        //     tch::no_grad(|| {
-        //         evaluation::run::<_, Net>(
-        //             EVALUATION_DEVICE,
-        //             seeds[2],
-        //             &beta_net,
-        //             &args.statistics_path,
-        //         );
-        //     });
-        // });
     });
 }
 
