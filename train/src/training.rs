@@ -111,7 +111,7 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
                     // FIXME: This will stall until write is complete, which might be a long time
                     // because we are writing to a different computer.
                     alpha_net
-                        .save(model_path.join(file_name(training_steps / STEPS_BETWEEN_PUBLISH)))
+                        .save(model_path.join(file_name(training_steps)))
                         .unwrap();
                 }
             }
