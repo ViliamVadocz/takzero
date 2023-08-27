@@ -16,11 +16,6 @@ use takzero::{
 use target::{Replay, Target};
 use tch::{nn::VarStore, Device};
 
-// Windows allocator sucks, so use MiMalloc instead.
-#[cfg(windows)]
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[allow(dead_code)]
 mod evaluation;
 mod reanalyze;
@@ -132,5 +127,5 @@ fn run<NET: Network + Agent<Env>>() {
 }
 
 fn file_name(n: u64) -> String {
-    format!("{n:0>3}_steps.pt")
+    format!("{n:0>6}_steps.ot")
 }
