@@ -116,7 +116,7 @@ impl<E: Environment> Node<E> {
             self.children = policy.map(|(a, p)| (a, Self::from_policy(p))).collect();
             self.evaluation = Eval::new_value(value).unwrap_or_else(|_| {
                 log::warn!("value NaN");
-                    Eval::default()
+                Eval::default()
             });
             self.evaluation
         }
