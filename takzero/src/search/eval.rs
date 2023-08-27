@@ -28,7 +28,6 @@ impl Eval {
     ///
     /// Errors if the value is NaN.
     pub fn new_value(value: f32) -> Result<Self, FloatIsNan> {
-        debug_assert!((-1.0..=1.0).contains(&value), "value was {value}");
         NotNan::new(value).map(Self::Value)
     }
 
