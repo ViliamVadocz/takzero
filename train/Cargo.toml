@@ -7,7 +7,7 @@ edition = "2021"
 takzero = { path = "../takzero" }
 rayon = "1.7.0"
 crossbeam = "0.8.2"
-clap = { version = "4.3.19", features = ["derive"] }
+clap = { version = "4.4.0", features = ["derive"] }
 arrayvec = "0.7.4"
 thiserror = "1.0.47"
 rand = "0.8.5"
