@@ -40,6 +40,9 @@ struct Args {
 }
 
 fn main() {
+    env_logger::init();
+    log::info!("Begin.");
+
     let args = Args::parse();
     let reference = Net::load(&args.reference_model, DEVICE).unwrap();
 
@@ -52,7 +55,7 @@ fn main() {
             continue;
         }
 
-        log::info!("competing against {path:?}");
+        log::info!("Competing against {path:?}");
         let subject = Net::load(path, DEVICE).unwrap();
 
         let result = compete(&reference, &subject);
