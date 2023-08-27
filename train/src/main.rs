@@ -29,9 +29,6 @@ struct Args {
     /// Path to store replays
     #[arg(long)]
     replay_path: PathBuf,
-    /// Path to store evaluation statistics
-    #[arg(long)]
-    statistics_path: PathBuf,
     /// Seed for the RNG
     #[arg(long, default_value_t = 42)]
     seed: u64,
