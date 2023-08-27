@@ -25,8 +25,8 @@ type Net = Net4;
 
 const DEVICE: Device = Device::Cuda(0);
 
-const SAMPLED: usize = usize::MAX;
-const SIMULATIONS: u32 = 1024;
+const SAMPLED: usize = 8;
+const SIMULATIONS: u32 = 256;
 const OPENINGS: usize = N * N * (N * N - 1);
 
 #[derive(Parser, Debug)]
@@ -34,9 +34,9 @@ struct Args {
     /// Path to models
     #[arg(long)]
     model_path: PathBuf,
-    /// Path to reference model
+    /// Path to starting model
     #[arg(long)]
-    reference_model: PathBuf,
+    starting_model: PathBuf,
 }
 
 fn main() {
@@ -44,22 +44,36 @@ fn main() {
     log::info!("Begin.");
 
     let args = Args::parse();
-    let reference = Net::load(&args.reference_model, DEVICE).unwrap();
+    let mut best_so_far_path = args.starting_model.clone();
+    let mut best_so_far = Net::load(&best_so_far_path, DEVICE).unwrap();
 
-    for entry in read_dir(args.model_path).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        assert!(path.is_file());
-        if path == args.reference_model {
-            log::info!("Skipping {path:?} because it is the same as the reference");
+    let mut paths: Vec<_> = read_dir(args.model_path)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path != &best_so_far_path)
+        .collect();
+    paths.sort();
+
+    for path in paths {
+        if !path.is_file() {
+            log::warn!("Skipping {path:?} because it is not a file");
+            continue;
+        }
+        if path == args.starting_model {
+            log::info!("Skipping {path:?} because it is the same as the starting");
             continue;
         }
 
-        log::info!("Competing against {path:?}");
-        let subject = Net::load(path, DEVICE).unwrap();
+        log::info!("Evaluation {best_so_far_path:?} vs. {path:?}");
+        let subject = Net::load(&path, DEVICE).unwrap();
 
-        let result = compete(&reference, &subject);
+        let result = compete(&best_so_far, &subject);
         log::info!("{result:?} win rate: {:.2}", 100. * result.win_rate());
+
+        if result.wins > result.losses {
+            best_so_far = subject;
+            best_so_far_path = path;
+        }
     }
 }
 

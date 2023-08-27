@@ -2,9 +2,9 @@ use std::{iter::Sum, ops::AddAssign};
 
 #[derive(Debug, Default)]
 pub struct Evaluation {
-    wins: u32,
-    losses: u32,
-    draws: u32,
+    pub wins: u32,
+    pub losses: u32,
+    pub draws: u32,
 }
 
 impl AddAssign for Evaluation {
@@ -28,7 +28,7 @@ impl Evaluation {
     pub fn win_rate(&self) -> f32 {
         // TODO: Think about whether we should ignore draws or not.
         #![allow(clippy::cast_precision_loss)]
-        self.wins as f32 / (self.wins + self.losses) as f32
+        self.wins as f32 / (self.wins + self.draws + self.losses) as f32
     }
 
     pub fn win() -> Self {
