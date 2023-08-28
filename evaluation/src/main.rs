@@ -1,13 +1,16 @@
 #![warn(clippy::pedantic, clippy::style)]
 
-use std::{array, fs::read_dir, path::PathBuf};
+use std::{array, cmp::Reverse, collections::HashMap, fs::read_dir, path::PathBuf};
 
 use clap::Parser;
 use evaluation::Evaluation;
-use rand::rngs::ThreadRng;
+use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use rayon::prelude::*;
 use takzero::{
-    fast_tak::Game,
+    fast_tak::{
+        takparse::{Move, Tps},
+        Game,
+    },
     network::{net4::Net4, Network},
     search::{
         env::{Environment, Terminal},
@@ -25,8 +28,10 @@ type Net = Net4;
 
 const DEVICE: Device = Device::Cuda(0);
 
+const BATCH_SIZE: usize = 32;
 const SAMPLED: usize = 8;
 const SIMULATIONS: u32 = 256;
+
 const OPENINGS: usize = N * N * (N * N - 1);
 
 #[derive(Parser, Debug)]
@@ -34,9 +39,12 @@ struct Args {
     /// Path to models
     #[arg(long)]
     model_path: PathBuf,
-    /// Path to starting model
+    /// Seed for match-ups
+    #[arg(long, default_value_t = 42)]
+    seed: u64,
+    /// Number of games to play
     #[arg(long)]
-    starting_model: PathBuf,
+    games: u32,
 }
 
 fn main() {
@@ -44,108 +52,145 @@ fn main() {
     log::info!("Begin.");
 
     let args = Args::parse();
-    let mut best_so_far_path = args.starting_model.clone();
-    let mut best_so_far = Net::load(&best_so_far_path, DEVICE).unwrap();
+    let mut rng = StdRng::seed_from_u64(args.seed);
 
     let mut paths: Vec<_> = read_dir(args.model_path)
         .unwrap()
         .map(|entry| entry.unwrap().path())
-        .filter(|path| path != &best_so_far_path)
         .collect();
     paths.sort();
 
-    for path in paths {
-        if !path.is_file() {
-            log::warn!("Skipping {path:?} because it is not a file");
+    let match_ups: Vec<_> = (0..args.games)
+        .map(|_| {
+            let mut iter = paths.choose_multiple(&mut rng, 2);
+            (iter.next().unwrap(), iter.next().unwrap())
+        })
+        .collect();
+
+    let mut results: HashMap<(String, String), Evaluation> = HashMap::new();
+    for (path_a, path_b) in match_ups {
+        let Ok(a) = Net::load(path_a, DEVICE) else {
+            log::warn!("Cannot load {}", path_a.display());
             continue;
-        }
-        if path == args.starting_model {
-            log::info!("Skipping {path:?} because it is the same as the starting");
+        };
+        let Ok(b) = Net::load(path_b, DEVICE) else {
+            log::warn!("Cannot load {}", path_b.display());
             continue;
-        }
+        };
+        let name_a = path_a.file_name().unwrap().to_string_lossy().to_string();
+        let name_b = path_b.file_name().unwrap().to_string_lossy().to_string();
 
-        log::info!("Evaluation {best_so_far_path:?} vs. {path:?}");
-        let subject = Net::load(&path, DEVICE).unwrap();
+        let games: [Env; BATCH_SIZE] =
+            array::from_fn(|_| get_opening(rng.gen::<usize>() % OPENINGS));
 
-        let result = compete(&best_so_far, &subject);
-        log::info!("{result:?} win rate: {:.2}", 100. * result.win_rate());
+        log::info!("{name_a} vs. {name_b}");
+        let a_as_white = compete(&a, &b, &games);
+        log::info!("{a_as_white:?}");
+        *results.entry((name_a.clone(), name_b.clone())).or_default() += a_as_white;
 
-        if result.wins > result.losses {
-            best_so_far = subject;
-            best_so_far_path = path;
-        }
+        log::info!("{name_b} vs. {name_a}");
+        let b_as_white = compete(&b, &a, &games);
+        log::info!("{b_as_white:?}");
+        *results.entry((name_b, name_a)).or_default() += b_as_white;
+    }
+
+    log::info!("Done!");
+    for ((a, b), result) in results {
+        log::info!("{a} {b} {result:?} {}", result.win_rate());
     }
 }
 
-fn compete(reference: &Net, subject: &Net) -> Evaluation {
+/// Pit two networks against each other in the given games. Evaluation is from
+/// the perspective of white.
+fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
     let mut evaluation = Evaluation::default();
 
-    let mut actions: [_; OPENINGS] = array::from_fn(|_| Vec::new());
-    let mut trajectories: [_; OPENINGS] = array::from_fn(|_| Vec::new());
+    let mut games = games.to_owned();
+    let mut white_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
+    let mut black_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
 
-    for order in [[subject, reference], [reference, subject]] {
-        let mut games: [_; OPENINGS] = array::from_fn(get_opening);
-        let mut subject_nodes: [_; OPENINGS] = array::from_fn(|_| Node::default());
-        let mut reference_nodes: [_; OPENINGS] = array::from_fn(|_| Node::default());
+    let mut actions: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
+    let mut trajectories: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
 
-        // Play until all games are finished.
-        let mut done = [false; OPENINGS];
-        while !done.iter().all(|x| *x) {
-            for agent in order {
-                let subject_playing = std::ptr::eq(agent, subject);
+    let mut game_replays: Vec<(Tps, Vec<Move>)> = games
+        .iter()
+        .cloned()
+        .map(|game| (game.into(), Vec::new()))
+        .collect();
 
-                let top_actions = gumbel_sequential_halving(
-                    if subject_playing {
-                        &mut subject_nodes
-                    } else {
-                        &mut reference_nodes
-                    },
-                    &games,
-                    agent,
-                    SAMPLED,
-                    SIMULATIONS,
-                    &mut actions,
-                    &mut trajectories,
-                    None::<&mut ThreadRng>,
-                );
+    'outer: loop {
+        for (agent, is_white) in [(white, true), (black, false)] {
+            if games.is_empty() {
+                break 'outer;
+            }
 
-                evaluation += top_actions
-                    .into_par_iter()
-                    .zip(games.par_iter_mut())
-                    .zip(subject_nodes.par_iter_mut())
-                    .zip(reference_nodes.par_iter_mut())
-                    .zip(done.par_iter_mut())
-                    .filter(|(_, done)| !**done)
-                    .filter_map(|((((action, game), subject_node), reference_node), done)| {
+            let top_actions = gumbel_sequential_halving(
+                if is_white {
+                    &mut white_nodes
+                } else {
+                    &mut black_nodes
+                },
+                &games,
+                agent,
+                SAMPLED,
+                SIMULATIONS,
+                &mut actions,
+                &mut trajectories,
+                None::<&mut ThreadRng>,
+            );
+
+            let (mut done_indices, terminals): (Vec<_>, Vec<_>) = top_actions
+                .into_par_iter()
+                .zip(games.par_iter_mut())
+                .zip(white_nodes.par_iter_mut())
+                .zip(black_nodes.par_iter_mut())
+                .zip(game_replays.par_iter_mut())
+                .enumerate()
+                .filter_map(
+                    |(i, ((((action, game), white_node), black_node), replay))| {
                         game.step(action);
+                        replay.1.push(action);
 
                         if let Some(terminal) = game.terminal() {
-                            *done = true;
-                            *game = Env::default();
-                            *subject_node = Node::default();
-                            *reference_node = Node::default();
-                            Some(terminal)
+                            Some((i, terminal))
                         } else {
-                            subject_node.descend(&action);
-                            reference_node.descend(&action);
+                            white_node.descend(&action);
+                            black_node.descend(&action);
                             None
                         }
-                    })
-                    // Mapping is flipped because we look at the terminal AFTER a move was made.
-                    .map(|terminal| match (terminal, subject_playing) {
-                        // If the position is a loss for the current player and beta just made a
-                        // move, it's win.
-                        (Terminal::Loss, true) | (Terminal::Win, false) => Evaluation::win(),
-                        // If the position is a win for the current player and beta just made a move
-                        // it's a loss.
-                        (Terminal::Win, true) | (Terminal::Loss, false) => Evaluation::loss(),
-                        (Terminal::Draw, _) => Evaluation::draw(),
-                    })
-                    .sum::<Evaluation>();
+                    },
+                )
+                .unzip();
+
+            done_indices.sort_by_key(|i| Reverse(*i));
+            actions.truncate(actions.len() - done_indices.len());
+            trajectories.truncate(trajectories.len() - done_indices.len());
+            for index in done_indices {
+                games.swap_remove(index);
+                white_nodes.swap_remove(index);
+                black_nodes.swap_remove(index);
+                let (tps, moves) = game_replays.swap_remove(index);
+                log::debug!(
+                    "{tps} {}",
+                    moves
+                        .into_iter()
+                        .map(|m| format!("{m} "))
+                        .collect::<String>(),
+                );
+            }
+
+            for terminal in terminals {
+                // This may seem opposite of what is should be.
+                // That is because we are looking at the terminal after a move was made, so a
+                // loss for the "current player" is actually a win for the one who just played
+                match (terminal, is_white) {
+                    (Terminal::Loss, true) | (Terminal::Win, false) => evaluation.wins += 1,
+                    (Terminal::Win, true) | (Terminal::Loss, false) => evaluation.losses += 1,
+                    (Terminal::Draw, _) => evaluation.draws += 1,
+                }
             }
         }
     }
-
     evaluation
 }
 

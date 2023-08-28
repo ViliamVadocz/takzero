@@ -25,30 +25,9 @@ impl Sum for Evaluation {
 }
 
 impl Evaluation {
-    pub fn win_rate(&self) -> f32 {
+    pub fn win_rate(&self) -> f64 {
         // TODO: Think about whether we should ignore draws or not.
-        #![allow(clippy::cast_precision_loss)]
-        self.wins as f32 / (self.wins + self.draws + self.losses) as f32
-    }
-
-    pub fn win() -> Self {
-        Self {
-            wins: 1,
-            ..Default::default()
-        }
-    }
-
-    pub fn loss() -> Self {
-        Self {
-            losses: 1,
-            ..Default::default()
-        }
-    }
-
-    pub fn draw() -> Self {
-        Self {
-            draws: 1,
-            ..Default::default()
-        }
+        (f64::from(self.wins) + f64::from(self.draws) / 2.0)
+            / f64::from(self.wins + self.draws + self.losses)
     }
 }

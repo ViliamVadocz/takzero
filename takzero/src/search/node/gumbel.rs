@@ -107,6 +107,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     trajectories: &mut [Vec<usize>],
     rng: Option<&mut R>,
 ) -> Vec<E::Action> {
+    debug_assert!(!nodes.is_empty());
     debug_assert_eq!(nodes.len(), envs.len());
     debug_assert_eq!(nodes.len(), actions.len());
     debug_assert_eq!(nodes.len(), trajectories.len());
