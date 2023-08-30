@@ -1,6 +1,6 @@
 #![warn(clippy::pedantic, clippy::style)]
 
-use std::{array, cmp::Reverse, collections::HashMap, fs::read_dir, path::PathBuf};
+use std::{array, cmp::Reverse, collections::HashMap, fmt::Write, fs::read_dir, path::PathBuf};
 
 use clap::Parser;
 use evaluation::Evaluation;
@@ -172,10 +172,10 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                 let (tps, moves) = game_replays.swap_remove(index);
                 log::debug!(
                     "{tps} {}",
-                    moves
-                        .into_iter()
-                        .map(|m| format!("{m} "))
-                        .collect::<String>(),
+                    moves.into_iter().fold(String::new(), |mut s, m| {
+                        let _ = write!(s, "{m} ");
+                        s
+                    })
                 );
             }
 
