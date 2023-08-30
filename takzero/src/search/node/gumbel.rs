@@ -1,5 +1,6 @@
 use std::{cmp::Reverse, ops::Div};
 
+use ordered_float::NotNan;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Gumbel};
@@ -147,7 +148,12 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
         // Sort and sample.
         .map(|node| {
             node.children.sort_unstable_by_key(|(_, child)| {
-                Reverse(child.evaluation.negate().map(|_| child.policy))
+                Reverse(
+                    child
+                        .evaluation
+                        .negate()
+                        .map(|_| NotNan::new(child.policy).expect("policy should not be NaN")),
+                )
             });
             let len = sampled.min(node.children.len());
             &mut node.children[..len]

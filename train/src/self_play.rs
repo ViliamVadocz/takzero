@@ -38,7 +38,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     device: Device,
     seed: u64,
     beta_net: &BetaNet,
-    mut tx: Sender<Replay<E>>,
+    tx: &Sender<Replay<E>>,
 ) {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let chacha_seed = rng.gen();
@@ -102,7 +102,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             &mut replays_batch,
             &mut actions,
             &mut trajectories,
-            &mut tx,
+            tx,
         );
 
         //  Get the latest network
@@ -131,7 +131,7 @@ fn self_play<E: Environment, A: Agent<E>>(
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
 
-    tx: &mut Sender<Replay<E>>,
+    tx: &Sender<Replay<E>>,
 ) {
     envs.iter_mut()
         .zip(actions.iter_mut())
@@ -255,7 +255,12 @@ mod tests {
 
         let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Game<3, 0>>>();
 
-        run::<_, Net3>(Device::cuda_if_available(), rng.gen(), &beta_net, replay_tx);
+        run::<_, Net3>(
+            Device::cuda_if_available(),
+            rng.gen(),
+            &beta_net,
+            &replay_tx,
+        );
         while let Ok(replay) = replay_rx.recv() {
             println!("{replay}");
         }

@@ -73,11 +73,9 @@ impl Eval {
     ///
     /// Panics if the return value of the function is NaN.
     #[must_use]
-    pub fn map<F: Fn(f32) -> f32>(self, f: F) -> Self {
+    pub fn map<F: Fn(NotNan<f32>) -> NotNan<f32>>(self, f: F) -> Self {
         match self {
-            Self::Value(x) => {
-                Self::Value(NotNan::new(f(x.into())).expect("value should not be NaN"))
-            }
+            Self::Value(x) => Self::Value(f(x)),
             eval => eval,
         }
     }
@@ -110,32 +108,11 @@ impl From<Terminal> for Eval {
     }
 }
 
-pub const CONTEMPT: f32 = -0.05;
+pub const CONTEMPT: NotNan<f32> = unsafe { NotNan::new_unchecked(-0.05) };
 
 impl PartialOrd for Eval {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match self {
-            Self::Value(left) => match other {
-                Self::Value(right) => left.partial_cmp(right),
-                Self::Win(_) => Some(Ordering::Less),
-                Self::Draw(_) => left.into_inner().partial_cmp(&CONTEMPT),
-                Self::Loss(_) => Some(Ordering::Greater),
-            },
-            Self::Win(left) => match other {
-                Self::Win(right) => right.partial_cmp(left),
-                _ => Some(Ordering::Greater),
-            },
-            Self::Draw(left) => match other {
-                Self::Value(right) => CONTEMPT.partial_cmp(right),
-                Self::Win(_) => Some(Ordering::Less),
-                Self::Draw(right) => left.partial_cmp(right),
-                Self::Loss(_) => Some(Ordering::Greater),
-            },
-            Self::Loss(left) => match other {
-                Self::Loss(right) => left.partial_cmp(right),
-                _ => Some(Ordering::Less),
-            },
-        }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -143,7 +120,28 @@ impl Eq for Eval {}
 
 impl Ord for Eval {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
+        match self {
+            Self::Value(left) => match other {
+                Self::Value(right) => left.cmp(right),
+                Self::Win(_) => Ordering::Less,
+                Self::Draw(_) => left.cmp(&CONTEMPT),
+                Self::Loss(_) => Ordering::Greater,
+            },
+            Self::Win(left) => match other {
+                Self::Win(right) => right.cmp(left),
+                _ => Ordering::Greater,
+            },
+            Self::Draw(left) => match other {
+                Self::Value(right) => CONTEMPT.cmp(right),
+                Self::Win(_) => Ordering::Less,
+                Self::Draw(right) => left.cmp(right),
+                Self::Loss(_) => Ordering::Greater,
+            },
+            Self::Loss(left) => match other {
+                Self::Loss(right) => left.cmp(right),
+                _ => Ordering::Less,
+            },
+        }
     }
 }
 
@@ -155,7 +153,7 @@ mod tests {
     fn eval_order() {
         let mut evals = [
             Eval::new_value(1.0).unwrap(),
-            Eval::new_value(CONTEMPT + 0.1).unwrap(),
+            Eval::Value(CONTEMPT + 0.1),
             Eval::new_value(-1.0).unwrap(),
             Eval::Win(5),
             Eval::Win(10),
@@ -171,7 +169,7 @@ mod tests {
             Eval::new_value(-1.0).unwrap(),
             Eval::Draw(5),
             Eval::Draw(10),
-            Eval::new_value(CONTEMPT + 0.1).unwrap(),
+            Eval::Value(CONTEMPT + 0.1),
             Eval::new_value(1.0).unwrap(),
             Eval::Win(10),
             Eval::Win(5),

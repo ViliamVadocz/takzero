@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 fast-tak = "0.4.0"
-float-ord = "0.3.2"
 ordered-float = "3.7.0"
 rayon = "1.7.0"
 rand = "0.8.5"
