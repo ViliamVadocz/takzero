@@ -1,5 +1,7 @@
 use std::{
-    io::Write,
+    env,
+    io::{self, Write},
+    path::Path,
     process::{Command, Stdio},
 };
 
@@ -11,8 +13,6 @@ use charming::{
     HtmlRenderer,
 };
 
-const RESULTS_PATH: &str = "match_results.csv";
-
 #[derive(Debug, Clone, Copy)]
 struct Match {
     white: u32,
@@ -22,9 +22,40 @@ struct Match {
     draws: u32,
 }
 
+const STEPS_PER_MODEL: u32 = 100;
+
 fn main() {
-    let contents = std::fs::read_to_string(RESULTS_PATH).unwrap();
-    let matches: Vec<_> = contents
+    let mut chart = Chart::new()
+        .title(
+            Title::new()
+                .text("Elo gain during training (4x4)")
+                .left("center")
+                .top(0),
+        )
+        .x_axis(Axis::new().name("training steps"))
+        .y_axis(Axis::new().name("estimated Elo"));
+
+    for path in env::args().skip(1) {
+        let matches = get_matches(path);
+        let players = get_unique_players(&matches);
+        let player_elo = get_bayes_elo(players, matches).unwrap();
+        chart = chart.series(
+            Scatter::new().data(
+                player_elo
+                    .into_iter()
+                    .map(|(p, e)| vec![p as f64, e as f64])
+                    .collect(),
+            ),
+        );
+    }
+
+    let mut renderer = HtmlRenderer::new("graph", 1000, 600).theme(Theme::Infographic);
+    renderer.save(&chart, "graph.html").unwrap();
+}
+
+fn get_matches(path: impl AsRef<Path>) -> Vec<Match> {
+    let contents = std::fs::read_to_string(path).expect("path should be valid and readable");
+    contents
         .lines()
         .map(|line| {
             let data = line
@@ -32,7 +63,7 @@ fn main() {
                 .map(str::trim)
                 .map(str::parse)
                 .collect::<Result<Vec<u32>, _>>()
-                .unwrap();
+                .expect("the file should contain comma separated integers");
             Match {
                 white: data[0],
                 black: data[1],
@@ -41,48 +72,59 @@ fn main() {
                 draws: data[4],
             }
         })
-        .collect();
+        .collect()
+}
+
+fn get_unique_players(matches: &[Match]) -> Vec<u32> {
     let mut players: Vec<_> = matches
         .iter()
         .flat_map(|m| [m.white, m.black].into_iter())
         .collect();
     players.sort();
     players.dedup();
-    assert!(players.iter().enumerate().all(|(i, p)| p / 100 == i as u32));
+    assert!(
+        players
+            .iter()
+            .enumerate()
+            .all(|(i, p)| p / STEPS_PER_MODEL == i as u32),
+        "the rest of the code assumes there are no gaps in players"
+    );
+    players
+}
 
+fn get_bayes_elo(players: Vec<u32>, matches: Vec<Match>) -> Result<Vec<(u32, i32)>, io::Error> {
     // https://www.remi-coulom.fr/Bayesian-Elo/
     let mut bayeselo = Command::new(".\\graph\\bayeselo.exe")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
+        .spawn()?;
 
-    let stdin = bayeselo.stdin.as_mut().unwrap();
-    writeln!(stdin, "prompt off").unwrap();
+    let stdin = bayeselo.stdin.as_mut().expect("stdin should be piped");
+    writeln!(stdin, "prompt off")?;
     for player in players {
-        writeln!(stdin, "addplayer {player}_steps").unwrap();
+        writeln!(stdin, "addplayer {player}_steps")?;
     }
     for m in matches {
-        let white = m.white / 100;
-        let black = m.black / 100;
+        let white = m.white / STEPS_PER_MODEL;
+        let black = m.black / STEPS_PER_MODEL;
         for _win in 0..m.white_wins {
-            writeln!(stdin, "addresult {white} {black} 2").unwrap();
+            writeln!(stdin, "addresult {white} {black} 2")?;
         }
         for _loss in 0..m.black_wins {
-            writeln!(stdin, "addresult {white} {black} 0").unwrap();
+            writeln!(stdin, "addresult {white} {black} 0")?;
         }
         for _draw in 0..m.draws {
-            writeln!(stdin, "addresult {white} {black} 1").unwrap();
+            writeln!(stdin, "addresult {white} {black} 1")?;
         }
     }
 
-    writeln!(stdin, "elo").unwrap(); // enter elo interface
-    writeln!(stdin, "mm").unwrap(); // compute maximum-likelyhood elo
-    writeln!(stdin, "ratings").unwrap(); // print out ratings
-    writeln!(stdin, "x").unwrap(); // leave elo interface
-    writeln!(stdin, "x").unwrap(); // close application
+    writeln!(stdin, "elo")?; // enter elo interface
+    writeln!(stdin, "mm")?; // compute maximum-likelyhood elo
+    writeln!(stdin, "ratings")?; // print out ratings
+    writeln!(stdin, "x")?; // leave elo interface
+    writeln!(stdin, "x")?; // close application
 
-    let out = bayeselo.wait_with_output().unwrap();
+    let out = bayeselo.wait_with_output()?;
     let mut player_elo: Vec<_> = String::from_utf8(out.stdout)
         .unwrap()
         .lines()
@@ -100,24 +142,5 @@ fn main() {
     let min = player_elo.iter().map(|v| v.1).min().unwrap();
     player_elo.iter_mut().for_each(|v| v.1 -= min);
 
-    let chart = Chart::new()
-        .title(
-            Title::new()
-                .text("Elo gain during training (4x4)")
-                .left("center")
-                .top(0),
-        )
-        .x_axis(Axis::new().name("training steps"))
-        .y_axis(Axis::new().name("estimated Elo"))
-        .series(
-            Scatter::new().data(
-                player_elo
-                    .into_iter()
-                    .map(|(p, e)| vec![p as f64, e as f64])
-                    .collect(),
-            ),
-        );
-
-    let mut renderer = HtmlRenderer::new("graph", 1000, 600).theme(Theme::Infographic);
-    renderer.save(&chart, "graph.html").unwrap();
+    Ok(player_elo)
 }
