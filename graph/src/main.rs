@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    io::Write,
+    process::{Command, Stdio},
+};
 
 use charming::{
     component::{Axis, Title},
@@ -7,55 +10,21 @@ use charming::{
     Chart,
     HtmlRenderer,
 };
-use rand::seq::SliceRandom;
 
 const RESULTS_PATH: &str = "match_results.csv";
-const DEFAULT_ELO: f64 = 1000.0;
-const K: f64 = 40.0;
-const DIFF_DIVIDER: f64 = 400.0;
 
 #[derive(Debug, Clone, Copy)]
 struct Match {
     white: u32,
     black: u32,
-    white_wins: f64,
-    black_wins: f64,
-    draws: f64,
-}
-
-fn expected_outcome(elo_a: f64, elo_b: f64) -> f64 {
-    let diff = elo_b - elo_a;
-    1.0 / (1.0 + 10.0f64.powf(diff / DIFF_DIVIDER))
-}
-
-fn update_elo(elo: f64, outcome: f64, expected_outcome: f64) -> f64 {
-    elo + K * (outcome - expected_outcome)
-}
-
-fn calculate_elo(
-    elo_ratings: &mut HashMap<u32, f64>,
-    Match {
-        white,
-        black,
-        white_wins,
-        black_wins,
-        draws,
-    }: Match,
-) {
-    let white_elo = *elo_ratings.get(&white).unwrap_or(&DEFAULT_ELO);
-    let black_elo = *elo_ratings.get(&black).unwrap_or(&DEFAULT_ELO);
-    let total_games = white_wins + black_wins + draws;
-    let white_outcome = (white_wins + 0.5 * draws) / total_games;
-    let black_outcome = (black_wins + 0.5 * draws) / total_games;
-    let white_expected = expected_outcome(white_elo, black_elo);
-    let black_expected = expected_outcome(black_elo, white_elo);
-    elo_ratings.insert(white, update_elo(white_elo, white_outcome, white_expected));
-    elo_ratings.insert(black, update_elo(black_elo, black_outcome, black_expected));
+    white_wins: u32,
+    black_wins: u32,
+    draws: u32,
 }
 
 fn main() {
     let contents = std::fs::read_to_string(RESULTS_PATH).unwrap();
-    let mut matches: Vec<_> = contents
+    let matches: Vec<_> = contents
         .lines()
         .map(|line| {
             let data = line
@@ -64,25 +33,72 @@ fn main() {
                 .map(str::parse)
                 .collect::<Result<Vec<u32>, _>>()
                 .unwrap();
-            let white = data[0];
-            let black = data[1];
-            let white_wins = data[2] as f64;
-            let black_wins = data[3] as f64;
-            let draws = data[4] as f64;
             Match {
-                white,
-                black,
-                white_wins,
-                black_wins,
-                draws,
+                white: data[0],
+                black: data[1],
+                white_wins: data[2],
+                black_wins: data[3],
+                draws: data[4],
             }
         })
         .collect();
-    matches.shuffle(&mut rand::thread_rng());
-    let mut elo_ratings: HashMap<_, _> = matches.iter().map(|m| (m.white, DEFAULT_ELO)).collect();
-    for m in matches {
-        calculate_elo(&mut elo_ratings, m);
+    let mut players: Vec<_> = matches
+        .iter()
+        .flat_map(|m| [m.white, m.black].into_iter())
+        .collect();
+    players.sort();
+    players.dedup();
+    assert!(players.iter().enumerate().all(|(i, p)| p / 100 == i as u32));
+
+    // https://www.remi-coulom.fr/Bayesian-Elo/
+    let mut bayeselo = Command::new(".\\graph\\bayeselo.exe")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let stdin = bayeselo.stdin.as_mut().unwrap();
+    writeln!(stdin, "prompt off").unwrap();
+    for player in players {
+        writeln!(stdin, "addplayer {player}_steps").unwrap();
     }
+    for m in matches {
+        let white = m.white / 100;
+        let black = m.black / 100;
+        for _win in 0..m.white_wins {
+            writeln!(stdin, "addresult {white} {black} 2").unwrap();
+        }
+        for _loss in 0..m.black_wins {
+            writeln!(stdin, "addresult {white} {black} 0").unwrap();
+        }
+        for _draw in 0..m.draws {
+            writeln!(stdin, "addresult {white} {black} 1").unwrap();
+        }
+    }
+
+    writeln!(stdin, "elo").unwrap(); // enter elo interface
+    writeln!(stdin, "mm").unwrap(); // compute maximum-likelyhood elo
+    writeln!(stdin, "ratings").unwrap(); // print out ratings
+    writeln!(stdin, "x").unwrap(); // leave elo interface
+    writeln!(stdin, "x").unwrap(); // close application
+
+    let out = bayeselo.wait_with_output().unwrap();
+    let mut player_elo: Vec<_> = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .skip_while(|line| !line.starts_with("Rank"))
+        .skip(1)
+        .map(|line| -> Option<_> {
+            let mut split = line.split_ascii_whitespace().skip(1);
+            let player: u32 = split.next()?.split_once('_')?.0.parse().ok()?;
+            let elo: i32 = split.next()?.parse().ok()?;
+            Some((player, elo))
+        })
+        .collect::<Option<_>>()
+        .unwrap();
+
+    let min = player_elo.iter().map(|v| v.1).min().unwrap();
+    player_elo.iter_mut().for_each(|v| v.1 -= min);
 
     let chart = Chart::new()
         .title(
@@ -95,9 +111,9 @@ fn main() {
         .y_axis(Axis::new().name("estimated Elo"))
         .series(
             Scatter::new().data(
-                elo_ratings
+                player_elo
                     .into_iter()
-                    .map(|(i, elo)| vec![i as f64, elo])
+                    .map(|(p, e)| vec![p as f64, e as f64])
                     .collect(),
             ),
         );
