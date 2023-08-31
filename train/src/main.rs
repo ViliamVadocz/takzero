@@ -50,7 +50,7 @@ type BetaNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);
 
 const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
 const REANALYZE_DEVICE: Device = Device::Cuda(1);
-const TRAINING_DEVICE: Device = Device::Cuda(3);
+const TRAINING_DEVICE: Device = Device::Cuda(2);
 
 fn main() {
     run::<Net>();
@@ -80,6 +80,7 @@ fn run<NET: Network + Agent<Env>>() {
     let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Env>>();
     let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
 
+    // TODO: Launch multiple self-play and reanalyze threads?
     log::info!("Begin.");
     std::thread::scope(|s| {
         s.spawn(|| {
