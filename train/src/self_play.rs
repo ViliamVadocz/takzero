@@ -30,7 +30,7 @@ use tch::Device;
 
 use crate::{target::Replay, BetaNet, MAXIMUM_REPLAY_BUFFER_SIZE, STEP};
 
-const BATCH_SIZE: usize = 64;
+const BATCH_SIZE: usize = 256;
 
 const SAMPLED: usize = 16;
 const SIMULATIONS: u32 = 512;
@@ -51,6 +51,8 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 ) where
     Replay<E>: fmt::Display,
 {
+    log::debug!("started self-play thread, primary={primary}");
+
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let chacha_seed = rng.gen();
 
@@ -104,6 +106,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
                 .flatten()
                 .collect::<Vec<_>>(),
         );
+        log::debug!("generated random data on primary self-play thread");
     }
 
     loop {
@@ -131,7 +134,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         if maybe_new_net_index > net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
-            log::info!("Updating self-play model to beta{net_index}");
+            log::info!("updating self-play model to beta{net_index}");
 
             // While doing this, also save the replay buffer
             if primary {
@@ -151,6 +154,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
                         .expect("replay file path should be valid and writable");
                     file.write_all(s.as_bytes()).unwrap();
                 });
+                log::debug!("saved replays to file");
             }
         }
 

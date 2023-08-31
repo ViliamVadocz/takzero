@@ -82,7 +82,7 @@ fn run<NET: Network + Agent<Env>>() {
 
     let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
 
-    let replay_queue = RwLock::new(VecDeque::with_capacity(MAXIMUM_REPLAY_BUFFER_SIZE));
+    let replay_queue = RwLock::new(VecDeque::with_capacity(MAXIMUM_REPLAY_BUFFER_SIZE + 1000));
 
     log::info!("Begin.");
     std::thread::scope(|s| {

@@ -26,7 +26,7 @@ use crate::{
     STEP,
 };
 
-const BATCH_SIZE: usize = 64;
+const BATCH_SIZE: usize = 256;
 
 const SAMPLED: usize = 8;
 const SIMULATIONS: u32 = 256;
@@ -48,6 +48,8 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 ) where
     Replay<E>: Augment,
 {
+    log::debug!("started reanalyze thread");
+
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = NET::new(device, None);
@@ -74,6 +76,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             .into_iter()
             .map(|replay| replay.augment(&mut rng))
             .collect();
+        log::debug!("sampled replays");
         let targets = reanalyze(
             &net,
             replays,
@@ -85,13 +88,14 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         );
 
         tx.send(targets).unwrap();
+        log::debug!("reanalyzed and sent replays");
 
         //  Get the latest network
         let maybe_new_net_index = beta_net.0.load(Ordering::Relaxed);
         if maybe_new_net_index > net_index {
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
-            log::info!("Updating reanalyze to model beta{net_index}");
+            log::info!("updating reanalyze to model beta{net_index}");
         }
 
         if cfg!(test) {

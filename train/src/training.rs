@@ -22,7 +22,7 @@ use crate::{file_name, target::Target, BetaNet};
 
 const WEIGHT_DECAY: f64 = 1e-4;
 const LEARNING_RATE: f64 = 5e-5;
-const BATCHES_PER_STEP: i64 = 32;
+const BATCHES_PER_STEP: i64 = 8;
 const STEPS_BETWEEN_PUBLISH: u64 = 5;
 const PUBLISHES_BETWEEN_SAVE: u64 = 20;
 
@@ -39,6 +39,8 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
 ) where
     Reserves<N>: Default,
 {
+    log::debug!("started training thread");
+
     let mut alpha_net = NET::new(device, None);
     alpha_net
         .vs_mut()
@@ -97,7 +99,7 @@ pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HAL
         // Do multiple backwards batches before making a step.
         batches += 1;
         if batches % BATCHES_PER_STEP == 0 {
-            log::info!("Taking step, accumulated_loss = {accumulated_total_loss:?}");
+            log::info!("taking step, accumulated_loss = {accumulated_total_loss:?}");
             opt.backward_step(&(accumulated_total_loss / BATCHES_PER_STEP));
             accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
             training_steps += 1;
