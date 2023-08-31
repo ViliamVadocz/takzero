@@ -24,7 +24,7 @@ const WEIGHT_DECAY: f64 = 1e-4;
 const LEARNING_RATE: f64 = 5e-5;
 const BATCHES_PER_STEP: i64 = 8;
 const STEPS_BETWEEN_PUBLISH: u64 = 10;
-const PUBLISHES_BETWEEN_SAVE: u64 = 10;
+const PUBLISHES_BETWEEN_SAVE: u64 = 25;
 
 // TODO: Consider learning rate scheduler: https://pytorch.org/docs/stable/optim.html
 
