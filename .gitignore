@@ -1,6 +1,12 @@
+# Rust
 target/
 Cargo.lock
+# Python env
 .env/
+# VSCode
 .vscode/
+
 *.db
-data/
+*.exe
+
+_data/
