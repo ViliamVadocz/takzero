@@ -2,6 +2,7 @@
 // #![warn(clippy::unwrap_used)]
 
 use std::{
+    collections::VecDeque,
     path::PathBuf,
     sync::{atomic::AtomicUsize, RwLock},
 };
@@ -13,7 +14,7 @@ use takzero::{
     network::{net5::Net5, Network},
     search::agent::Agent,
 };
-use target::{Replay, Target};
+use target::Target;
 use tch::{nn::VarStore, Device};
 
 mod reanalyze;
@@ -52,6 +53,8 @@ const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
 const REANALYZE_DEVICE: Device = Device::Cuda(1);
 const TRAINING_DEVICE: Device = Device::Cuda(2);
 
+const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 1_000_000;
+
 fn main() {
     run::<Net>();
 }
@@ -71,35 +74,92 @@ fn run<NET: Network + Agent<Env>>() {
     env_logger::init();
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-    let seeds: [u64; 2] = rng.gen();
+    let seeds: [u64; 6] = rng.gen();
 
     let mut net = NET::new(Device::Cpu, Some(rng.gen()));
     net.save(args.model_path.join(file_name(0))).unwrap();
     let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
-    let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Env>>();
     let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
 
-    // TODO: Launch multiple self-play and reanalyze threads?
+    let replay_queue = RwLock::new(VecDeque::with_capacity(MAXIMUM_REPLAY_BUFFER_SIZE));
+
     log::info!("Begin.");
     std::thread::scope(|s| {
+        // Self-play threads.
         s.spawn(|| {
             tch::no_grad(|| {
-                self_play::run::<_, Net>(SELF_PLAY_DEVICE, seeds[0], &beta_net, &replay_tx);
+                self_play::run::<_, Net>(
+                    SELF_PLAY_DEVICE,
+                    seeds[0],
+                    &beta_net,
+                    &replay_queue,
+                    &args.replay_path,
+                    true,
+                );
+            });
+        });
+        s.spawn(|| {
+            tch::no_grad(|| {
+                self_play::run::<_, Net>(
+                    SELF_PLAY_DEVICE,
+                    seeds[1],
+                    &beta_net,
+                    &replay_queue,
+                    &args.replay_path,
+                    false,
+                );
+            });
+        });
+        s.spawn(|| {
+            tch::no_grad(|| {
+                self_play::run::<_, Net>(
+                    SELF_PLAY_DEVICE,
+                    seeds[2],
+                    &beta_net,
+                    &replay_queue,
+                    &args.replay_path,
+                    false,
+                );
+            });
+        });
+
+        // Reanalyze threads.
+        s.spawn(|| {
+            tch::no_grad(|| {
+                reanalyze::run::<_, Net>(
+                    REANALYZE_DEVICE,
+                    seeds[3],
+                    &beta_net,
+                    &batch_tx,
+                    &replay_queue,
+                );
             });
         });
         s.spawn(|| {
             tch::no_grad(|| {
                 reanalyze::run::<_, Net>(
                     REANALYZE_DEVICE,
-                    seeds[1],
+                    seeds[4],
                     &beta_net,
-                    replay_rx,
-                    batch_tx,
-                    &args.replay_path,
+                    &batch_tx,
+                    &replay_queue,
                 );
             });
         });
+        s.spawn(|| {
+            tch::no_grad(|| {
+                reanalyze::run::<_, Net>(
+                    REANALYZE_DEVICE,
+                    seeds[5],
+                    &beta_net,
+                    &batch_tx,
+                    &replay_queue,
+                );
+            });
+        });
+
+        // Training thread.
         s.spawn(|| {
             tch::with_grad(|| {
                 training::run::<N, HALF_KOMI, Net>(

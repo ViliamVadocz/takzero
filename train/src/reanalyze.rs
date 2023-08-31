@@ -1,14 +1,10 @@
 use std::{
     array,
     collections::VecDeque,
-    fmt,
-    fs::OpenOptions,
-    io::Write,
-    path::Path,
-    sync::atomic::Ordering,
+    sync::{atomic::Ordering, RwLock},
 };
 
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::Sender;
 use rand::{seq::IteratorRandom, Rng, SeedableRng};
 use rayon::prelude::*;
 use takzero::{
@@ -31,10 +27,9 @@ use crate::{
 };
 
 const BATCH_SIZE: usize = 64;
-const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 500_000;
 
 const SAMPLED: usize = 8;
-const SIMULATIONS: u32 = 128;
+const SIMULATIONS: u32 = 256;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
 
@@ -48,11 +43,10 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     device: Device,
     seed: u64,
     beta_net: &BetaNet,
-    rx: Receiver<Replay<E>>,
-    tx: Sender<Vec<Target<E>>>,
-    replay_path: &Path,
+    tx: &Sender<Vec<Target<E>>>,
+    replay_queue: &RwLock<VecDeque<Replay<E>>>,
 ) where
-    Replay<E>: Augment + fmt::Display,
+    Replay<E>: Augment,
 {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
@@ -60,31 +54,23 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
     let mut net_index = beta_net.0.load(Ordering::Relaxed);
     net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
 
-    let mut replay_queue = VecDeque::with_capacity(MAXIMUM_REPLAY_BUFFER_SIZE);
-
     let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| E::default());
     let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
 
     loop {
-        // Receive until the replay channel is empty.
-        // FIXME: If the self-play thread generates replays too fast
-        // this can loop without generating any new batches
-        while let Ok(replay) = rx.try_recv() {
-            if replay_queue.len() == MAXIMUM_REPLAY_BUFFER_SIZE {
-                replay_queue.pop_front();
-            }
-            replay_queue.push_back(replay);
-        }
-        if replay_queue.len() < BATCH_SIZE {
+        if replay_queue.read().unwrap().len() < BATCH_SIZE {
             std::thread::yield_now();
             continue;
         }
 
         // TODO: Prioritized sampling
-        let replays = replay_queue.iter().choose_multiple(&mut rng, BATCH_SIZE);
-        let replays = replays
+        let replays = replay_queue
+            .read()
+            .unwrap()
+            .iter()
+            .choose_multiple(&mut rng, BATCH_SIZE)
             .into_iter()
             .map(|replay| replay.augment(&mut rng))
             .collect();
@@ -106,19 +92,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
             log::info!("Updating reanalyze to model beta{net_index}");
-
-            // Save replays
-            let s: String = replay_queue.iter().map(ToString::to_string).collect();
-            let path = replay_path.join("replays.txt"); // same filename each time?
-            rayon::spawn(move || {
-                let mut file = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(path)
-                    .expect("replay file path should be valid and writable");
-                file.write_all(s.as_bytes()).unwrap();
-            });
         }
 
         if cfg!(test) {
@@ -237,7 +210,7 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
 #[cfg(test)]
 mod tests {
     use std::{
-        path::PathBuf,
+        collections::VecDeque,
         sync::{atomic::AtomicUsize, RwLock},
     };
 
@@ -282,43 +255,27 @@ mod tests {
         let mut net = Net3::new(Device::Cpu, Some(rng.gen()));
         let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
-        let (replay_tx, replay_rx) = crossbeam::channel::unbounded::<Replay<Game<3, 0>>>();
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Game<3, 0>>>>();
 
-        replay_tx
-            .send(replay_from("x3/x3/x3 1 1", vec![
-                "a3", "a1", "b1", "b3", "c1",
-            ]))
-            .unwrap();
-        replay_tx
-            .send(replay_from("2,1,1/2,x2/x3 1 3", vec![
-                "a1", "b1", "b2", "b1<",
-            ]))
-            .unwrap();
-        replay_tx
-            .send(replay_from("2,1,1/2,x2/1,x2 2 3", vec!["b1", "b2", "b1<"]))
-            .unwrap();
-        replay_tx
-            .send(replay_from("x2,1/2,x,1/2,x2 1 3", vec![
+        let replay_queue = RwLock::new(VecDeque::from([
+            replay_from("x3/x3/x3 1 1", vec!["a3", "a1", "b1", "b3", "c1"]),
+            replay_from("2,1,1/2,x2/x3 1 3", vec!["a1", "b1", "b2", "b1<"]),
+            replay_from("2,1,1/2,x2/1,x2 2 3", vec!["b1", "b2", "b1<"]),
+            replay_from("x2,1/2,x,1/2,x2 1 3", vec![
                 "Sb3", "Sc1", "b3>", "c1+", "b3",
-            ]))
-            .unwrap();
-        replay_tx
-            .send(replay_from("2,1,x/2,2,x/1,x,1 1 4", vec!["c2", "b1"]))
-            .unwrap();
-        replay_tx
-            .send(replay_from("x,1,x/112,1,x/1,2S,2 1 6", vec![
+            ]),
+            replay_from("2,1,x/2,2,x/1,x,1 1 4", vec!["c2", "b1"]),
+            replay_from("x,1,x/112,1,x/1,2S,2 1 6", vec![
                 "a3", "b1+", "a1+", "2b2<", "b2",
-            ]))
-            .unwrap();
+            ]),
+        ]));
 
         run::<_, Net3>(
             Device::cuda_if_available(),
             rng.gen(),
             &beta_net,
-            replay_rx,
-            batch_tx,
-            &PathBuf::default(),
+            &batch_tx,
+            &replay_queue,
         );
 
         let batch = batch_rx.recv().unwrap();
