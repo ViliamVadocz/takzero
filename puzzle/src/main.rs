@@ -19,9 +19,12 @@ use tch::Device;
 
 #[derive(Parser, Debug)]
 struct Args {
-    /// Path to store models
+    /// Path where models are stored
     #[arg(long)]
     model_path: PathBuf,
+    /// Path to puzzle database
+    #[arg(long)]
+    puzzle_db_path: PathBuf,
 }
 
 const N: usize = 4;
@@ -48,7 +51,7 @@ fn main() {
             continue;
         };
         log::info!("Benchmarking {}", path.display());
-        let connection = sqlite::open("puzzle/games.db").unwrap();
+        let connection = sqlite::open(&args.puzzle_db_path).unwrap();
         run_benchmark::<N, HALF_KOMI, Net>(&connection, 3, None, &net);
         run_benchmark::<N, HALF_KOMI, Net>(&connection, 5, None, &net);
     }
