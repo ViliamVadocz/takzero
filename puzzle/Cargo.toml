@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fast-tak = "0.3.2"
 takzero = { path = "../takzero" }
-mimalloc = { version = "0.1.37", default-features = false }
 sqlite = "0.31.0"
 rayon = "1.7.0"
+tch = "0.13.0"
+rand = "0.8.5"
+clap = { version = "4.4.0", features = ["derive"] }
+log = "0.4.20"
+env_logger = "0.10.0"

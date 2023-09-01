@@ -1,37 +1,64 @@
-use std::cmp::Ordering;
+use std::{array, cmp::Ordering, fs::read_dir, path::PathBuf};
 
-use fast_tak::{
-    takparse::{Direction, Move, MoveKind, Piece, Square},
-    Game,
-    Reserves,
-};
-use mimalloc::MiMalloc;
+use clap::Parser;
 use rayon::prelude::*;
 use sqlite::{Connection, Value};
-use takzero::search::{agent::dummy::Dummy, eval::Eval, mcts::Node};
+use takzero::{
+    fast_tak::{
+        takparse::{Direction, Move, MoveKind, Piece, Square},
+        Game,
+        Reserves,
+    },
+    network::{net4::Net4, Network},
+    search::{
+        agent::Agent,
+        node::{gumbel::gumbel_sequential_halving, Node},
+    },
+};
+use tch::Device;
 
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
-
-fn main() {
-    const VISITS_PER_PUZZLE: usize = 10_000;
-
-    let mut connection = sqlite::open("puzzle/games.db").unwrap();
-    run_benchmark::<4, 0>(&mut connection, 3, VISITS_PER_PUZZLE, None);
-    run_benchmark::<4, 0>(&mut connection, 5, VISITS_PER_PUZZLE, None);
-    run_benchmark::<5, 0>(&mut connection, 3, VISITS_PER_PUZZLE, Some(10_000));
-    run_benchmark::<5, 0>(&mut connection, 5, VISITS_PER_PUZZLE, Some(10_000));
-    run_benchmark::<6, 0>(&mut connection, 3, VISITS_PER_PUZZLE, Some(5_000));
-    run_benchmark::<6, 0>(&mut connection, 5, VISITS_PER_PUZZLE, Some(5_000));
-    run_benchmark::<7, 0>(&mut connection, 3, VISITS_PER_PUZZLE, None);
-    run_benchmark::<7, 0>(&mut connection, 5, VISITS_PER_PUZZLE, None);
+#[derive(Parser, Debug)]
+struct Args {
+    /// Path to store models
+    #[arg(long)]
+    model_path: PathBuf,
 }
 
-fn run_benchmark<const N: usize, const HALF_KOMI: i8>(
-    connection: &mut Connection,
+const N: usize = 4;
+const HALF_KOMI: i8 = 0;
+type Net = Net4;
+const BATCH_SIZE: usize = 256;
+const SAMPLED: usize = usize::MAX;
+const SIMULATIONS: u32 = 1024;
+
+fn main() {
+    env_logger::init();
+    log::info!("Begin.");
+
+    let args = Args::parse();
+    let mut paths: Vec<_> = read_dir(args.model_path)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    paths.sort();
+
+    for path in paths {
+        let Ok(net) = Net4::load(&path, Device::Cuda(0)) else {
+            log::warn!("Cannot load {}", path.display());
+            continue;
+        };
+        log::info!("Benchmarking {}", path.display());
+        let connection = sqlite::open("puzzle/games.db").unwrap();
+        run_benchmark::<N, HALF_KOMI, Net>(&connection, 3, None, &net);
+        run_benchmark::<N, HALF_KOMI, Net>(&connection, 5, None, &net);
+    }
+}
+
+fn run_benchmark<const N: usize, const HALF_KOMI: i8, A: Agent<Game<N, HALF_KOMI>>>(
+    connection: &Connection,
     depth: i64,
-    visits: usize,
     limit: Option<i64>,
+    agent: &A,
 ) where
     Reserves<N>: Default,
 {
@@ -57,7 +84,7 @@ fn run_benchmark<const N: usize, const HALF_KOMI: i8>(
         .into_iter()
         .map(|row| {
             row.map(|row| {
-                let id = row.read("id");
+                let id: i64 = row.read("id");
                 let notation: &str = row.read("notation");
                 let plies_to_undo = row.read("plies_to_undo");
                 let tinue: &str = row.read("tinue");
@@ -68,47 +95,43 @@ fn run_benchmark<const N: usize, const HALF_KOMI: i8>(
         .unwrap();
     let row_num = rows.len();
 
-    let wins = rows
+    // Parse puzzles.
+    let puzzles: Vec<Game<N, HALF_KOMI>> = rows
         .into_par_iter()
-        .filter(|(game_id, notation, plies_to_undo, tinue)| {
-            solve_puzzle::<N, HALF_KOMI>(*game_id, notation, *plies_to_undo, tinue, visits)
+        .map(|(_game_id, notation, plies_to_undo, _tinue)| {
+            let mut moves: Vec<_> = notation.split(',').map(parse_playtak_move).collect();
+            for _ in 0..plies_to_undo {
+                moves.pop();
+            }
+            Game::from_moves(&moves).unwrap()
         })
-        .count();
+        .collect();
 
-    println!("{N}x{N}, depth: {depth}");
-    println!("{wins: >5} / {row_num: >5}");
-}
-
-fn solve_puzzle<const N: usize, const HALF_KOMI: i8>(
-    game_id: i64,
-    notation: &str,
-    plies_to_remove: i64,
-    _tinue: &str,
-    visits: usize,
-) -> bool
-where
-    Reserves<N>: Default,
-{
-    let mut moves: Vec<_> = notation.split(',').map(parse_playtak_move).collect();
-    for _ in 0..plies_to_remove {
-        moves.pop();
+    // Attempt to solve puzzles.
+    let mut wins = 0;
+    for envs in puzzles.chunks(BATCH_SIZE) {
+        let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
+        let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+        let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+        let _top_actions = gumbel_sequential_halving(
+            &mut nodes[..envs.len()],
+            envs,
+            agent,
+            SAMPLED,
+            SIMULATIONS,
+            &mut actions[..envs.len()],
+            &mut trajectories[..envs.len()],
+            None::<&mut rand::rngs::ThreadRng>,
+        );
+        let local_wins = nodes
+            .iter()
+            .take(envs.len())
+            .filter(|env| env.evaluation.is_win())
+            .count();
+        wins += local_wins;
     }
-    let game: Game<N, HALF_KOMI> = match Game::from_moves(&moves) {
-        Ok(game) => game,
-        Err(e) => {
-            eprintln!("error: {e}, id: {game_id}");
-            return false;
-        }
-    };
 
-    let mut root = Node::default();
-    let mut actions = Vec::new();
-    (0..visits).any(|_| {
-        matches!(
-            root.simulate(game.clone(), &mut actions, &Dummy),
-            Eval::Win(_)
-        )
-    })
+    log::info!("depth {depth}: {wins: >5} / {row_num: >5}");
 }
 
 fn parse_playtak_move(s: &str) -> Move {
