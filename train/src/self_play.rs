@@ -35,7 +35,7 @@ const BATCH_SIZE: usize = 256;
 const SAMPLED: usize = 16;
 const SIMULATIONS: u32 = 512;
 
-const STEPS_BEFORE_CHECKING_NETWORK: usize = 400; // TODO: Think more about this number
+const STEPS_BEFORE_CHECKING_NETWORK: usize = 100;
 
 const RANDOM_GAMES: u32 = 8;
 const WEIGHTED_RANDOM_PLIES: u16 = 30;
@@ -238,6 +238,7 @@ fn self_play<E: Environment, A: Agent<E>>(
             });
 
         // Refresh finished environments and nodes.
+        let mut lock = replay_queue.write().unwrap();
         replays_batch
             .iter_mut()
             .zip(nodes.iter_mut())
@@ -251,16 +252,17 @@ fn self_play<E: Environment, A: Agent<E>>(
                 })
             })
             .flatten()
-            .for_each(|replay| replay_queue.write().unwrap().push_front(replay));
+            .for_each(|replay| lock.push_front(replay));
     }
 
     // Salvage replays from unfinished games.
+    let mut lock = replay_queue.write().unwrap();
     for replays in replays_batch {
         let len = replays.len().saturating_sub(STEP);
         replays
             .drain(..)
             .take(len)
-            .for_each(|replay| replay_queue.write().unwrap().push_front(replay));
+            .for_each(|replay| lock.push_front(replay));
     }
 }
 
