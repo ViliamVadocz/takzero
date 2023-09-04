@@ -1,66 +1,57 @@
-use std::{
-    array,
-    collections::VecDeque,
-    fmt,
-    fs::OpenOptions,
-    io::Write,
-    path::Path,
-    sync::{atomic::Ordering, RwLock},
-};
+use std::{array, fs::OpenOptions, io::Write, path::Path, sync::atomic::Ordering};
 
 use arrayvec::ArrayVec;
-use rand::{
-    distributions::WeightedIndex,
-    prelude::Distribution,
-    seq::IteratorRandom,
-    Rng,
-    SeedableRng,
-};
+use rand::{distributions::WeightedIndex, prelude::Distribution, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 use takzero::{
     network::Network,
     search::{
-        agent::Agent,
         env::Environment,
         node::{gumbel::gumbel_sequential_halving, Node},
     },
 };
 use tch::Device;
 
-use crate::{target::Replay, BetaNet, MAXIMUM_REPLAY_BUFFER_SIZE, STEP};
+use crate::{
+    new_opening,
+    target::Replay,
+    BetaNet,
+    Env,
+    Net,
+    ReplayBuffer,
+    MAXIMUM_REPLAY_BUFFER_SIZE,
+    STEP,
+};
 
 const BATCH_SIZE: usize = 256;
 
-const SAMPLED: usize = 16;
+const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 512;
 
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 100;
 
-const RANDOM_GAMES: u32 = 8;
 const WEIGHTED_RANDOM_PLIES: u16 = 30;
 
 /// Populate the replay buffer with new state-action pairs from self-play.
-pub fn run<E: Environment, NET: Network + Agent<E>>(
+pub fn run(
     device: Device,
     seed: u64,
     beta_net: &BetaNet,
-    replay_queue: &RwLock<VecDeque<Replay<E>>>,
+    replay_buffer: &ReplayBuffer,
     replay_path: &Path,
     primary: bool,
-) where
-    Replay<E>: fmt::Display,
-{
+) {
     log::debug!("started self-play thread, primary={primary}");
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let chacha_seed = rng.gen();
 
-    let mut net = NET::new(device, None);
+    let mut net = Net::new(device, None);
     let mut net_index = beta_net.0.load(Ordering::Relaxed);
     net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
 
-    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| E::default());
+    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Env::default());
     let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
     let mut replays_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
@@ -70,44 +61,6 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
         rng.set_stream(i as u64);
         rng
     });
-
-    // Initialize replay buffer with random moves.
-    if primary {
-        replay_queue.write().unwrap().extend(
-            envs.par_iter_mut()
-                .zip(&mut replays_batch)
-                .zip(&mut actions)
-                .zip(&mut rngs)
-                .map(|(((env, replays), actions), rng)| {
-                    let mut replays_buffer = Vec::new();
-                    for _ in 0..RANDOM_GAMES {
-                        while env.terminal().is_none() {
-                            // Choose random action.
-                            env.populate_actions(actions);
-                            let action = actions.drain(..).choose(rng).unwrap();
-                            // Push start of fresh replay.
-                            replays.push(Replay {
-                                env: env.clone(),
-                                actions: ArrayVec::default(),
-                            });
-                            // Update existing replays.
-                            let from = replays.len().saturating_sub(STEP);
-                            for replay in &mut replays[from..] {
-                                replay.actions.push(action.clone());
-                            }
-                            // Take a step in the environment.
-                            env.step(action);
-                        }
-                        replays_buffer.append(replays);
-                        *env = E::default();
-                    }
-                    replays_buffer.into_par_iter()
-                })
-                .flatten()
-                .collect::<Vec<_>>(),
-        );
-        log::debug!("generated random data on primary self-play thread");
-    }
 
     loop {
         self_play(
@@ -119,11 +72,11 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
             &mut replays_batch,
             &mut actions,
             &mut trajectories,
-            replay_queue,
+            replay_buffer,
         );
 
-        // Truncate replay queue if it gets too long.
-        let mut lock = replay_queue.write().unwrap();
+        // Truncate replay buffer if it gets too long.
+        let mut lock = replay_buffer.write().unwrap();
         if lock.len() > MAXIMUM_REPLAY_BUFFER_SIZE {
             lock.truncate(MAXIMUM_REPLAY_BUFFER_SIZE);
         }
@@ -138,7 +91,7 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 
             // While doing this, also save the replay buffer
             if primary {
-                let s: String = replay_queue
+                let s: String = replay_buffer
                     .read()
                     .unwrap()
                     .iter()
@@ -165,18 +118,18 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn self_play<E: Environment, A: Agent<E>>(
+fn self_play(
     rng: &mut impl Rng,
     rngs: &mut [ChaCha8Rng],
-    agent: &A,
+    agent: &Net,
 
-    envs: &mut [E],
-    nodes: &mut [Node<E>],
-    replays_batch: &mut [Vec<Replay<E>>],
-    actions: &mut [Vec<E::Action>],
+    envs: &mut [Env],
+    nodes: &mut [Node<Env>],
+    replays_batch: &mut [Vec<Replay<Env>>],
+    actions: &mut [Vec<<Env as Environment>::Action>],
     trajectories: &mut [Vec<usize>],
 
-    replay_queue: &RwLock<VecDeque<Replay<E>>>,
+    replay_buffer: &ReplayBuffer,
 ) {
     envs.iter_mut()
         .zip(actions.iter_mut())
@@ -206,7 +159,7 @@ fn self_play<E: Environment, A: Agent<E>>(
                 let weighted_index =
                     WeightedIndex::new(node.children.iter().map(|(_, child)| child.visit_count))
                         .unwrap();
-                *top_action = node.children[weighted_index.sample(rng)].0.clone();
+                *top_action = node.children[weighted_index.sample(rng)].0;
             });
 
         // Update replays.
@@ -223,7 +176,7 @@ fn self_play<E: Environment, A: Agent<E>>(
                 // Update existing replays.
                 let from = replays.len().saturating_sub(STEP);
                 for replay in &mut replays[from..] {
-                    replay.actions.push(action.clone());
+                    replay.actions.push(*action);
                 }
             });
 
@@ -238,7 +191,7 @@ fn self_play<E: Environment, A: Agent<E>>(
             });
 
         // Refresh finished environments and nodes.
-        let mut lock = replay_queue.write().unwrap();
+        let mut lock = replay_buffer.write().unwrap();
         replays_batch
             .iter_mut()
             .zip(nodes.iter_mut())
@@ -256,7 +209,7 @@ fn self_play<E: Environment, A: Agent<E>>(
     }
 
     // Salvage replays from unfinished games.
-    let mut lock = replay_queue.write().unwrap();
+    let mut lock = replay_buffer.write().unwrap();
     for replays in replays_batch {
         let len = replays.len().saturating_sub(STEP);
         replays
@@ -266,27 +219,19 @@ fn self_play<E: Environment, A: Agent<E>>(
     }
 }
 
-fn new_opening<E: Environment>(env: &mut E, actions: &mut Vec<E::Action>, rng: &mut impl Rng) {
-    *env = E::default();
-    for _ in 0..2 {
-        env.populate_actions(actions);
-        env.step(actions.drain(..).choose(rng).unwrap());
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
         collections::VecDeque,
         path::PathBuf,
-        sync::{atomic::AtomicUsize, RwLock},
+        sync::{atomic::AtomicUsize, Arc, RwLock},
     };
 
     use rand::{Rng, SeedableRng};
-    use takzero::network::{net3::Net3, Network};
+    use takzero::network::Network;
     use tch::Device;
 
-    use crate::{self_play::run, BetaNet};
+    use crate::{self_play::run, BetaNet, Net};
 
     // NOTE TO SELF:
     // Decrease constants above to actually see results before you die.
@@ -296,21 +241,21 @@ mod tests {
 
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
-        let mut net = Net3::new(Device::Cpu, Some(rng.gen()));
+        let mut net = Net::new(Device::Cpu, Some(rng.gen()));
         let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
-        let replay_queue = RwLock::new(VecDeque::new());
+        let replay_buffer = Arc::new(RwLock::new(VecDeque::new()));
 
-        run::<_, Net3>(
+        run(
             Device::cuda_if_available(),
             rng.gen(),
             &beta_net,
-            &replay_queue,
+            &replay_buffer,
             &PathBuf::default(),
             true,
         );
 
-        for replay in &*replay_queue.read().unwrap() {
+        for replay in &*replay_buffer.read().unwrap() {
             println!("{replay}");
         }
     }

@@ -15,7 +15,7 @@ use thiserror::Error;
 
 use crate::STEP;
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Replay<E: Environment> {
     pub env: E,                             // s_t
     pub actions: ArrayVec<E::Action, STEP>, // a_t:t+n
@@ -82,6 +82,7 @@ where
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (tps, actions) = s
+            .trim()
             .split_once(';')
             .ok_or(ParseReplayError::MissingDelimiter)?;
         let tps: Tps = tps.parse()?;
@@ -93,5 +94,46 @@ where
             env: tps.into(),
             actions,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rand::{
+        seq::{IteratorRandom, SliceRandom},
+        SeedableRng,
+    };
+    use takzero::search::env::Environment;
+
+    use super::Replay;
+    use crate::{Env, STEP};
+
+    #[test]
+    fn replay_consistency() {
+        const SEED: u64 = 123;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
+        let mut env = Env::default();
+        let mut actions = Vec::new();
+        while env.terminal().is_none() {
+            env.populate_actions(&mut actions);
+            let replay = Replay {
+                env: {
+                    let mut c = env.clone();
+                    c.reversible_plies = 0;
+                    c
+                },
+                actions: actions.choose_multiple(&mut rng, STEP).copied().collect(),
+            };
+            let string = replay.to_string();
+            println!("{string}");
+
+            let recovered: Replay<Env> = string.parse().unwrap();
+            let string_again = recovered.to_string();
+
+            assert_eq!(replay, recovered);
+            assert_eq!(string, string_again);
+
+            env.step(actions.drain(..).choose(&mut rng).unwrap());
+        }
     }
 }

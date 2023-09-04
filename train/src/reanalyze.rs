@@ -1,8 +1,4 @@
-use std::{
-    array,
-    collections::VecDeque,
-    sync::{atomic::Ordering, RwLock},
-};
+use std::{array, sync::atomic::Ordering};
 
 use crossbeam::channel::Sender;
 use rand::{seq::IteratorRandom, Rng, SeedableRng};
@@ -23,52 +19,52 @@ use tch::Device;
 use crate::{
     target::{Augment, Replay, Target},
     BetaNet,
+    Env,
+    Net,
+    ReplayBuffer,
     STEP,
 };
 
 const BATCH_SIZE: usize = 256;
 
-const SAMPLED: usize = 8;
+const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 256;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
 
 // TODO: Less n-step for older replays
-// TODO: Clean up a little bit
+// TODO: Prioritized sampling
 
 /// Collect new state-action replays from self-play
 /// and generate batches for training.
 #[allow(clippy::needless_pass_by_value)]
-pub fn run<E: Environment, NET: Network + Agent<E>>(
+pub fn run(
     device: Device,
     seed: u64,
     beta_net: &BetaNet,
-    tx: &Sender<Vec<Target<E>>>,
-    replay_queue: &RwLock<VecDeque<Replay<E>>>,
-) where
-    Replay<E>: Augment,
-{
+    tx: &Sender<Vec<Target<Env>>>,
+    replay_buffer: &ReplayBuffer,
+) {
     log::debug!("started reanalyze thread");
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
-    let mut net = NET::new(device, None);
+    let mut net = Net::new(device, None);
     let mut net_index = beta_net.0.load(Ordering::Relaxed);
     net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
 
-    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| E::default());
+    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Env::default());
     let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
 
     loop {
-        if replay_queue.read().unwrap().len() < BATCH_SIZE {
+        if replay_buffer.read().unwrap().len() < BATCH_SIZE {
             std::thread::yield_now();
             continue;
         }
 
-        // TODO: Prioritized sampling
-        let replays = replay_queue
+        let replays = replay_buffer
             .read()
             .unwrap()
             .iter()
@@ -105,16 +101,16 @@ pub fn run<E: Environment, NET: Network + Agent<E>>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn reanalyze<E: Environment, NET: Network + Agent<E>>(
-    net: &NET,
-    replays: Vec<Replay<E>>,
+fn reanalyze(
+    net: &Net,
+    replays: Vec<Replay<Env>>,
     rng: &mut impl Rng,
 
-    envs: &mut [E],
-    nodes: &mut [Node<E>],
-    actions: &mut [Vec<E::Action>],
+    envs: &mut [Env],
+    nodes: &mut [Node<Env>],
+    actions: &mut [Vec<<Env as Environment>::Action>],
     trajectories: &mut [Vec<usize>],
-) -> Vec<Target<E>> {
+) -> Vec<Target<Env>> {
     debug_assert_eq!(replays.len(), BATCH_SIZE);
 
     envs.par_iter_mut()
@@ -125,7 +121,7 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
         .for_each(|node| *node = Node::default());
 
     // Perform search at the root to get an improved policy.
-    let _top_actions: Vec<<E as Environment>::Action> = gumbel_sequential_halving(
+    let _top_actions: Vec<<Env as Environment>::Action> = gumbel_sequential_halving(
         nodes,
         envs,
         net,
@@ -144,7 +140,7 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
             policy: node
                 .improved_policy()
                 .zip(node.children.iter())
-                .map(|(p, (a, _))| (a.clone(), p))
+                .map(|(p, (a, _))| (*a, p))
                 .collect(),
             value: f32::NAN, // Value still needs to be filled.
         })
@@ -171,7 +167,7 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
                 }
                 // Take a step in the search tree and the environment.
                 node.descend(action);
-                env.step(action.clone());
+                env.step(*action);
                 // If the state is terminal we can use the terminal reward.
                 if let Some(terminal) = env.terminal() {
                     return Some(-DISCOUNT_FACTOR.powi(1 + i as i32) * f32::from(terminal));
@@ -215,7 +211,7 @@ fn reanalyze<E: Environment, NET: Network + Agent<E>>(
 mod tests {
     use std::{
         collections::VecDeque,
-        sync::{atomic::AtomicUsize, RwLock},
+        sync::{atomic::AtomicUsize, Arc, RwLock},
     };
 
     use rand::{Rng, SeedableRng};
@@ -229,6 +225,7 @@ mod tests {
         reanalyze::run,
         target::{Replay, Target},
         BetaNet,
+        Env,
     };
 
     fn replay_from<const N: usize, const HALF_KOMI: i8>(
@@ -259,9 +256,10 @@ mod tests {
         let mut net = Net3::new(Device::Cpu, Some(rng.gen()));
         let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
-        let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Game<3, 0>>>>();
+        let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
 
-        let replay_queue = RwLock::new(VecDeque::from([
+        // Replays assume 3x3, change constants in main.rs when testing
+        let replay_buffer = Arc::new(RwLock::new(VecDeque::from([
             replay_from("x3/x3/x3 1 1", vec!["a3", "a1", "b1", "b3", "c1"]),
             replay_from("2,1,1/2,x2/x3 1 3", vec!["a1", "b1", "b2", "b1<"]),
             replay_from("2,1,1/2,x2/1,x2 2 3", vec!["b1", "b2", "b1<"]),
@@ -272,14 +270,14 @@ mod tests {
             replay_from("x,1,x/112,1,x/1,2S,2 1 6", vec![
                 "a3", "b1+", "a1+", "2b2<", "b2",
             ]),
-        ]));
+        ])));
 
-        run::<_, Net3>(
+        run(
             Device::cuda_if_available(),
             rng.gen(),
             &beta_net,
             &batch_tx,
-            &replay_queue,
+            &replay_buffer,
         );
 
         let batch = batch_rx.recv().unwrap();

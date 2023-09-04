@@ -2,13 +2,9 @@ use std::{path::Path, sync::atomic::Ordering};
 
 use crossbeam::channel::Receiver;
 use rayon::prelude::*;
-use takzero::{
-    fast_tak::{Game, Reserves},
-    network::{
-        repr::{game_to_tensor, move_mask, output_size, policy_tensor},
-        Network,
-    },
-    search::agent::Agent,
+use takzero::network::{
+    repr::{game_to_tensor, move_mask, output_size, policy_tensor},
+    Network,
 };
 use tch::{
     nn::{Adam, OptimizerConfig},
@@ -18,7 +14,7 @@ use tch::{
     Tensor,
 };
 
-use crate::{file_name, target::Target, BetaNet};
+use crate::{file_name, target::Target, BetaNet, Env, Net, N};
 
 const WEIGHT_DECAY: f64 = 1e-4;
 const LEARNING_RATE: f64 = 5e-5;
@@ -31,17 +27,10 @@ const PUBLISHES_BETWEEN_SAVE: u64 = 20;
 /// Improve the network by training on batches from the re-analyze thread.
 /// Save checkpoints and distribute the newest model.
 #[allow(clippy::needless_pass_by_value)]
-pub fn run<const N: usize, const HALF_KOMI: i8, NET: Network + Agent<Game<N, HALF_KOMI>>>(
-    device: Device,
-    beta_net: &BetaNet,
-    rx: Receiver<Vec<Target<Game<N, HALF_KOMI>>>>,
-    model_path: &Path,
-) where
-    Reserves<N>: Default,
-{
+pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, model_path: &Path) {
     log::debug!("started training thread");
 
-    let mut alpha_net = NET::new(device, None);
+    let mut alpha_net = Net::new(device, None);
     alpha_net
         .vs_mut()
         .copy(&beta_net.1.read().unwrap())
@@ -129,14 +118,11 @@ mod tests {
     };
 
     use rand::{Rng, SeedableRng};
-    use takzero::{
-        fast_tak::Game,
-        network::{net3::Net3, Network},
-    };
+    use takzero::{fast_tak::Game, network::Network};
     use tch::Device;
 
     use super::run;
-    use crate::{target::Target, BetaNet};
+    use crate::{target::Target, BetaNet, Net};
 
     #[test]
     fn training_works() {
@@ -144,7 +130,7 @@ mod tests {
 
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
-        let mut net = Net3::new(Device::Cpu, Some(rng.gen()));
+        let mut net = Net::new(Device::Cpu, Some(rng.gen()));
         let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
@@ -168,7 +154,7 @@ mod tests {
             .unwrap();
         drop(batch_tx);
 
-        run::<3, 0, Net3>(
+        run(
             Device::cuda_if_available(),
             &beta_net,
             batch_rx,
