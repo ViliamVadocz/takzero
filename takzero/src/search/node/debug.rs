@@ -1,5 +1,7 @@
 use std::fmt;
 
+use ordered_float::OrderedFloat;
+
 use super::{super::env::Environment, Node};
 
 impl<E: Environment> fmt::Debug for Node<E> {
@@ -20,8 +22,10 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "{self:?}")?;
-        for (mov, node) in &*self.children {
-            writeln!(f, "{mov}\t{node:?}")?;
+        let mut children: Vec<_> = self.improved_policy().zip(self.children.iter()).collect();
+        children.sort_by_key(|(p, _)| OrderedFloat(*p));
+        for (improved_policy, (mov, node)) in children {
+            writeln!(f, "{mov}\t{improved_policy:.6}\t{node:?}")?;
         }
         Ok(())
     }

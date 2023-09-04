@@ -1,9 +1,7 @@
 use ordered_float::NotNan;
 
-#[cfg(test)]
-use super::super::agent::Agent;
 use super::{
-    super::{env::Environment, eval::Eval},
+    super::{env::Environment, eval::Eval, agent::Agent},
     Node,
 };
 
@@ -122,8 +120,8 @@ impl<E: Environment> Node<E> {
         }
     }
 
-    #[cfg(test)]
-    fn simulate_simple<A: Agent<E>>(&mut self, agent: &A, env: E) -> Eval {
+    #[allow(clippy::missing_panics_doc)]
+    pub fn simulate_simple<A: Agent<E>>(&mut self, agent: &A, env: E) -> Eval {
         let mut trajectory = Vec::new();
         match self.forward(&mut trajectory, env) {
             Forward::Known(eval) => self.backward_known_eval(trajectory.into_iter(), eval),
