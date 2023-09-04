@@ -1,7 +1,6 @@
 use std::{path::Path, sync::atomic::Ordering};
 
 use crossbeam::channel::Receiver;
-use rayon::prelude::*;
 use takzero::network::{
     repr::{game_to_tensor, move_mask, output_size, policy_tensor},
     Network,
@@ -17,10 +16,10 @@ use tch::{
 use crate::{file_name, target::Target, BetaNet, Env, Net, N};
 
 const WEIGHT_DECAY: f64 = 1e-4;
-const LEARNING_RATE: f64 = 5e-5;
+const LEARNING_RATE: f64 = 1e-4;
 const BATCHES_PER_STEP: i64 = 8;
-const STEPS_BETWEEN_PUBLISH: u64 = 5;
-const PUBLISHES_BETWEEN_SAVE: u64 = 20;
+const STEPS_BETWEEN_PUBLISH: u64 = 1;
+const PUBLISHES_BETWEEN_SAVE: u64 = 1000;
 
 // TODO: Consider learning rate scheduler: https://pytorch.org/docs/stable/optim.html
 
@@ -51,7 +50,7 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
         let batch_size = batch.len();
 
         let (input_and_value_targets, policy_target_and_masks): (Vec<_>, Vec<_>) = batch
-            .into_par_iter()
+            .into_iter()
             .map(|target| {
                 let input = game_to_tensor(&target.env, device);
                 let policy = policy_tensor::<N>(&target.policy, device);

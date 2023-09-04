@@ -3,7 +3,6 @@ use std::{array, fs::OpenOptions, io::Write, path::Path, sync::atomic::Ordering}
 use arrayvec::ArrayVec;
 use rand::{distributions::WeightedIndex, prelude::Distribution, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use rayon::prelude::*;
 use takzero::{
     network::Network,
     search::{
@@ -24,7 +23,7 @@ use crate::{
     STEP,
 };
 
-const BATCH_SIZE: usize = 256;
+const BATCH_SIZE: usize = 512;
 
 const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 512;
@@ -98,7 +97,7 @@ pub fn run(
                     .map(ToString::to_string)
                     .collect();
                 let path = replay_path.join("replays.txt");
-                rayon::spawn(move || {
+                std::thread::spawn(move || {
                     let mut file = OpenOptions::new()
                         .write(true)
                         .create(true)
@@ -134,9 +133,7 @@ fn self_play(
     envs.iter_mut()
         .zip(actions.iter_mut())
         .for_each(|(env, actions)| new_opening(env, actions, rng));
-    nodes
-        .par_iter_mut()
-        .for_each(|node| *node = Node::default());
+    nodes.iter_mut().for_each(|node| *node = Node::default());
 
     for _ in 0..STEPS_BEFORE_CHECKING_NETWORK {
         let mut top_actions = gumbel_sequential_halving(
@@ -150,9 +147,9 @@ fn self_play(
             Some(rng),
         );
         // For openings, sample actions according to visits instead.
-        envs.par_iter()
-            .zip(rngs.par_iter_mut())
-            .zip(nodes.par_iter_mut())
+        envs.iter()
+            .zip(rngs.iter_mut())
+            .zip(nodes.iter_mut())
             .zip(&mut top_actions)
             .filter(|(((env, _), _), _)| env.steps() < WEIGHTED_RANDOM_PLIES)
             .for_each(|(((_, rng), node), top_action)| {
@@ -164,8 +161,8 @@ fn self_play(
 
         // Update replays.
         replays_batch
-            .par_iter_mut()
-            .zip(envs.par_iter())
+            .iter_mut()
+            .zip(envs.iter())
             .zip(&top_actions)
             .for_each(|((replays, env), action)| {
                 // Push start of fresh replay.
@@ -182,8 +179,8 @@ fn self_play(
 
         // Take a step in environments and nodes.
         nodes
-            .par_iter_mut()
-            .zip(envs.par_iter_mut())
+            .iter_mut()
+            .zip(envs.iter_mut())
             .zip(top_actions)
             .for_each(|((node, env), action)| {
                 node.descend(&action);

@@ -71,9 +71,9 @@ const SELF_PLAY_DEVICE: Device = Device::Cuda(1);
 const REANALYZE_DEVICE_1: Device = Device::Cuda(2);
 const REANALYZE_DEVICE_2: Device = Device::Cuda(3);
 
-const SELF_PLAY_THREADS: usize = 4;
-const REANALYZE_THREADS_1: usize = 12;
-const REANALYZE_THREADS_2: usize = 12;
+const SELF_PLAY_THREADS: usize = 8;
+const REANALYZE_THREADS_1: usize = 16;
+const REANALYZE_THREADS_2: usize = 16;
 const REANALYZE_THREADS: usize = REANALYZE_THREADS_1 + REANALYZE_THREADS_2;
 
 const MINIMUM_REPLAY_BUFFER_SIZE: usize = 10_000;
@@ -104,7 +104,8 @@ fn main() {
     env_logger::init();
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-    let seeds: [u64; SELF_PLAY_THREADS + REANALYZE_THREADS] = rng.gen();
+    let self_play_seeds: [u64; SELF_PLAY_THREADS] = rng.gen();
+    let reanalyze_seeds: [u64; REANALYZE_THREADS] = rng.gen();
 
     let mut net = args.resume.as_ref().map_or_else(
         || Net::new(Device::Cpu, Some(rng.gen())),
@@ -133,7 +134,11 @@ fn main() {
     log::info!("Begin.");
     std::thread::scope(|s| {
         // Self-play threads.
-        for (i, seed) in seeds.iter().take(SELF_PLAY_THREADS).enumerate() {
+        for (i, seed) in self_play_seeds
+            .into_iter()
+            .take(SELF_PLAY_THREADS)
+            .enumerate()
+        {
             let beta_net = &beta_net;
             let replay_path = &args.replay_path;
             let replay_buffer = &replay_buffer;
@@ -141,7 +146,7 @@ fn main() {
                 tch::no_grad(|| {
                     self_play::run(
                         SELF_PLAY_DEVICE,
-                        *seed,
+                        seed,
                         beta_net,
                         replay_buffer,
                         replay_path,
@@ -152,9 +157,8 @@ fn main() {
         }
 
         // Reanalyze threads.
-        for (i, seed) in seeds
-            .iter()
-            .skip(SELF_PLAY_THREADS)
+        for (i, seed) in reanalyze_seeds
+            .into_iter()
             .take(REANALYZE_THREADS)
             .enumerate()
         {
@@ -168,7 +172,7 @@ fn main() {
             };
             s.spawn(move || {
                 tch::no_grad(|| {
-                    reanalyze::run(device, *seed, beta_net, batch_tx, replay_buffer);
+                    reanalyze::run(device, seed, beta_net, batch_tx, replay_buffer);
                 });
             });
         }

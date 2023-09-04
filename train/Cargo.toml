@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 takzero = { path = "../takzero" }
-rayon = "1.7.0"
 crossbeam = "0.8.2"
 clap = { version = "4.4.0", features = ["derive"] }
 arrayvec = "0.7.4"

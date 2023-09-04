@@ -2,7 +2,6 @@ use std::{array, sync::atomic::Ordering};
 
 use crossbeam::channel::Sender;
 use rand::{seq::IteratorRandom, Rng, SeedableRng};
-use rayon::prelude::*;
 use takzero::{
     network::Network,
     search::{
@@ -25,7 +24,7 @@ use crate::{
     STEP,
 };
 
-const BATCH_SIZE: usize = 256;
+const BATCH_SIZE: usize = 512;
 
 const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 256;
@@ -113,12 +112,10 @@ fn reanalyze(
 ) -> Vec<Target<Env>> {
     debug_assert_eq!(replays.len(), BATCH_SIZE);
 
-    envs.par_iter_mut()
+    envs.iter_mut()
         .zip(&replays)
         .for_each(|(env, replay)| *env = replay.env.clone());
-    nodes
-        .par_iter_mut()
-        .for_each(|node| *node = Node::default());
+    nodes.iter_mut().for_each(|node| *node = Node::default());
 
     // Perform search at the root to get an improved policy.
     let _top_actions: Vec<<Env as Environment>::Action> = gumbel_sequential_halving(
@@ -133,8 +130,8 @@ fn reanalyze(
     );
     // Begin constructing targets from the environment and improved policy.
     let mut targets: Vec<_> = nodes
-        .par_iter()
-        .zip(envs.par_iter())
+        .iter()
+        .zip(envs.iter())
         .map(|(node, env)| Target {
             env: env.clone(),
             policy: node
@@ -149,10 +146,10 @@ fn reanalyze(
     // Step through the actions in the replay.
     // If we have solved a state or reach a terminal we immediately use that value.
     let (indices, batch): (Vec<_>, Vec<_>) = nodes
-        .par_iter_mut()
+        .iter_mut()
         .zip(envs)
         .zip(&mut targets)
-        .zip(actions.par_iter_mut())
+        .zip(actions.iter_mut())
         .zip(replays)
         .enumerate()
         .filter_map(|(index, ((((node, env), target), actions), replay))| {
@@ -187,11 +184,7 @@ fn reanalyze(
     let (batch_envs, batch_actions): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
     let output = net.policy_value(&batch_envs, &batch_actions);
     // Apply the output values onto the targets to finish them.
-    let borrows: Vec<_> =
-        filter_by_unique_ascending_indices(targets.iter_mut().zip(actions.iter_mut()), indices)
-            .collect();
-    borrows
-        .into_par_iter()
+    filter_by_unique_ascending_indices(targets.iter_mut().zip(actions.iter_mut()), indices)
         .zip(output)
         .zip(batch_actions)
         .for_each(|(((target, old_actions), (_, value)), mut actions)| {
