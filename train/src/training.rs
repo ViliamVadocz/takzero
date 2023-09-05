@@ -17,9 +17,9 @@ use crate::{file_name, target::Target, BetaNet, Env, Net, N};
 
 const WEIGHT_DECAY: f64 = 1e-4;
 const LEARNING_RATE: f64 = 1e-4;
-const BATCHES_PER_STEP: i64 = 8;
+const BATCHES_PER_STEP: i64 = 2;
 const STEPS_BETWEEN_PUBLISH: u64 = 1;
-const PUBLISHES_BETWEEN_SAVE: u64 = 1000;
+const PUBLISHES_BETWEEN_SAVE: u64 = 250;
 
 // TODO: Consider learning rate scheduler: https://pytorch.org/docs/stable/optim.html
 

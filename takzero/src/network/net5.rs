@@ -27,7 +27,7 @@ pub struct Net5 {
 
 impl Network for Net5 {
     fn new(device: Device, seed: Option<i64>) -> Self {
-        const FILTERS: i64 = 256;
+        const FILTERS: i64 = 128;
         const CORE_RES_BLOCKS: u32 = 10;
 
         if let Some(seed) = seed {

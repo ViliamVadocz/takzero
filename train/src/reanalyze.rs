@@ -26,8 +26,8 @@ use crate::{
 
 const BATCH_SIZE: usize = 512;
 
-const SAMPLED: usize = 32;
-const SIMULATIONS: u32 = 256;
+const SAMPLED: usize = 8;
+const SIMULATIONS: u32 = 128;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
 
