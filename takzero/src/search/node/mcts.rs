@@ -28,7 +28,7 @@ impl<E: Environment> Node<E> {
         };
     }
 
-    fn propagate_child_eval(&mut self, child_eval: Eval) -> Eval {
+    fn propagate_child_eval(&mut self, child_eval: Eval) -> Eval { // TODO: Propagate uncertainty
         let evaluations = self.children.iter().map(|(_, node)| node.evaluation);
         match child_eval {
             // This move made the opponent lose, so this position is a win.
@@ -56,7 +56,7 @@ impl<E: Environment> Node<E> {
     /// Run the forward part of MCTS.
     /// One of `backward_known_eval` and `backward_network_eval`
     /// must be called afterwards.
-    pub fn forward(&mut self, trajectory: &mut Vec<usize>, mut env: E) -> Forward<E> {
+    pub fn forward(&mut self, trajectory: &mut Vec<usize>, mut env: E, beta: f32) -> Forward<E> {
         debug_assert!(trajectory.is_empty());
         let mut node = self;
 
@@ -73,7 +73,7 @@ impl<E: Environment> Node<E> {
                 break Forward::NeedsNetwork(env);
             }
 
-            let index = node.select_with_improved_policy();
+            let index = node.select_with_improved_policy(beta);
             trajectory.push(index);
             let (action, child) = &mut node.children[index];
             env.step(action.clone());
@@ -103,6 +103,7 @@ impl<E: Environment> Node<E> {
         mut trajectory: impl Iterator<Item = usize>,
         policy: impl Iterator<Item = (E::Action, f32)>,
         value: f32,
+        // TODO: Uncertainty??
     ) -> Eval {
         if let Some(index) = trajectory.next() {
             let child_eval = self.children[index]
@@ -121,14 +122,14 @@ impl<E: Environment> Node<E> {
     }
 
     #[allow(clippy::missing_panics_doc)]
-    pub fn simulate_simple<A: Agent<E>>(&mut self, agent: &A, env: E) -> Eval {
+    pub fn simulate_simple<A: Agent<E>>(&mut self, agent: &A, env: E, beta: f32) -> Eval {
         let mut trajectory = Vec::new();
-        match self.forward(&mut trajectory, env) {
+        match self.forward(&mut trajectory, env, beta) {
             Forward::Known(eval) => self.backward_known_eval(trajectory.into_iter(), eval),
             Forward::NeedsNetwork(env) => {
                 let mut actions = [Vec::new()];
                 env.populate_actions(&mut actions[0]);
-                let (policy, value) = agent.policy_value(&[env], &actions).pop().unwrap();
+                let (policy, value, variance, local_uncertainty) = agent.policy_value_uncertainty(&[env], &actions).pop().unwrap();
                 self.backward_network_eval(
                     trajectory.into_iter(),
                     actions

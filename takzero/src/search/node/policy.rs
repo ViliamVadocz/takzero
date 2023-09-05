@@ -17,7 +17,7 @@ impl<E: Environment> Node<E> {
     /// # Panics
     ///
     /// Panics if the evaluation is NaN.
-    pub fn improved_policy(&self) -> impl Iterator<Item = f32> + '_ {
+    pub fn improved_policy(&self, beta: f32) -> impl Iterator<Item = f32> + '_ {
         let most_visited_count = self.most_visited_count();
         let p = self.children.iter().map(move |(_, node)| -> NotNan<f32> {
             let completed_value: NotNan<f32> = NotNan::new(
@@ -29,7 +29,7 @@ impl<E: Environment> Node<E> {
                 .into(),
             )
             .expect("completed value should not be NaN");
-            sigma(completed_value, most_visited_count) + node.policy
+            sigma(completed_value + beta * node.variance, most_visited_count) + node.policy
         });
 
         // Softmax
@@ -41,8 +41,8 @@ impl<E: Environment> Node<E> {
 
     /// Get index of child which maximizes the improved policy.
     #[allow(clippy::missing_panics_doc)]
-    pub fn select_with_improved_policy(&mut self) -> usize {
-        self.improved_policy()
+    pub fn select_with_improved_policy(&mut self, beta: f32) -> usize {
+        self.improved_policy(beta)
             .zip(self.children.iter())
             .enumerate()
             // Prune only losing moves to preserve optimality.

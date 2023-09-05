@@ -6,11 +6,11 @@ pub trait Agent<E: Environment> {
     type Policy: Index<E::Action, Output = f32> + Send + Sync;
 
     // Always batched.
-    fn policy_value(
+    fn policy_value_uncertainty(
         &self,
         env_batch: &[E],
         actions_batch: &[Vec<E::Action>],
-    ) -> Vec<(Self::Policy, f32)>;
+    ) -> Vec<(Self::Policy, f32, f32, f32)>;
 }
 
 pub mod dummy {
@@ -23,15 +23,15 @@ pub mod dummy {
     impl<E: Environment> Agent<E> for Dummy {
         type Policy = Policy;
 
-        fn policy_value(
+        fn policy_value_uncertainty(
             &self,
             env_batch: &[E],
-            actions_batch: &[Vec<E::Action>],
-        ) -> Vec<(Self::Policy, f32)> {
+            actions_batch: &[Vec<<E as Environment>::Action>],
+        ) -> Vec<(Self::Policy, f32, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
             actions_batch
                 .iter()
-                .map(|actions| (Policy(1.0 / actions.len() as f32), 0.0))
+                .map(|actions| (Policy(1.0 / actions.len() as f32), 0.0, 0.0, 0.0))
                 .collect()
         }
     }
