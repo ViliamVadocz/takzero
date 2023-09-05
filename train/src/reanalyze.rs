@@ -1,6 +1,6 @@
 use std::{array, sync::atomic::Ordering};
 
-use crossbeam::channel::Sender;
+use crossbeam::channel::{Sender, TrySendError};
 use rand::{seq::IteratorRandom, Rng, SeedableRng};
 use takzero::{
     network::Network,
@@ -26,7 +26,7 @@ use crate::{
 
 const BATCH_SIZE: usize = 512;
 
-const SAMPLED: usize = 8;
+const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 128;
 
 const DISCOUNT_FACTOR: f32 = 0.99;
@@ -82,7 +82,14 @@ pub fn run(
             &mut trajectories,
         );
 
-        tx.send(targets).unwrap();
+        match tx.try_send(targets) {
+            Ok(()) => {}
+            Err(TrySendError::Full(targets)) => {
+                log::warn!("target channel was full");
+                tx.send(targets).unwrap();
+            }
+            Err(TrySendError::Disconnected(_)) => return,
+        }
         log::debug!("reanalyzed and sent replays");
 
         //  Get the latest network

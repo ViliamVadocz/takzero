@@ -114,7 +114,7 @@ fn main() {
     net.save(args.model_path.join(file_name(0))).unwrap();
     let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
-    let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
+    let (batch_tx, batch_rx) = crossbeam::channel::bounded::<Vec<Target<Env>>>(64);
 
     let replay_buffer: ReplayBuffer =
         RwLock::new(VecDeque::with_capacity(MAXIMUM_REPLAY_BUFFER_SIZE + 1000));

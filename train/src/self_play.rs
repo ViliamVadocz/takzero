@@ -23,12 +23,13 @@ use crate::{
     STEP,
 };
 
-const BATCH_SIZE: usize = 512;
+const BATCH_SIZE: usize = 64;
 
 const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 512;
 
-const STEPS_BEFORE_CHECKING_NETWORK: usize = 100;
+// This number should be large enough that there are also late-game positions.
+const STEPS_BEFORE_CHECKING_NETWORK: usize = 500;
 
 const WEIGHTED_RANDOM_PLIES: u16 = 30;
 
@@ -82,6 +83,7 @@ pub fn run(
         drop(lock);
 
         //  Get the latest network
+        log::info!("checking if there is a new model for self-play");
         let maybe_new_net_index = beta_net.0.load(Ordering::Relaxed);
         if maybe_new_net_index > net_index {
             net_index = maybe_new_net_index;
