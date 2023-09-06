@@ -9,6 +9,7 @@ use takzero::{
         env::Environment,
         node::{
             gumbel::{filter_by_unique_ascending_indices, gumbel_sequential_halving},
+            mcts::DISCOUNT_FACTOR,
             Node,
         },
     },
@@ -28,8 +29,6 @@ const BATCH_SIZE: usize = 512;
 
 const SAMPLED: usize = 32;
 const SIMULATIONS: u32 = 128;
-
-const DISCOUNT_FACTOR: f32 = 0.99;
 
 // TODO: Less n-step for older replays
 // TODO: Prioritized sampling

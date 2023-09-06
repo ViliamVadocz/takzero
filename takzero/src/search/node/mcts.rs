@@ -5,6 +5,8 @@ use super::{
     Node,
 };
 
+pub const DISCOUNT_FACTOR: f32 = 0.99;
+
 /// Return value from [`Node::forward`] indicating if the evaluation is known
 /// or if it needs to be propagated.
 #[must_use]
@@ -48,7 +50,7 @@ impl<E: Environment> Node<E> {
             _ => {
                 let negated = child_eval.negate().into();
                 self.update_mean_value(negated);
-                Eval::new_value(negated).unwrap()
+                Eval::new_value(negated * DISCOUNT_FACTOR).unwrap()
             }
         }
     }
