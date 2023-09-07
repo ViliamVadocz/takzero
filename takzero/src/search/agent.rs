@@ -10,7 +10,7 @@ pub trait Agent<E: Environment> {
         &self,
         env_batch: &[E],
         actions_batch: &[Vec<E::Action>],
-    ) -> Vec<(Self::Policy, f32, f32, f32)>;
+    ) -> Vec<(Self::Policy, f32, f32)>;
 }
 
 pub mod dummy {
@@ -27,11 +27,11 @@ pub mod dummy {
             &self,
             env_batch: &[E],
             actions_batch: &[Vec<<E as Environment>::Action>],
-        ) -> Vec<(Self::Policy, f32, f32, f32)> {
+        ) -> Vec<(Self::Policy, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
             actions_batch
                 .iter()
-                .map(|actions| (Policy(1.0 / actions.len() as f32), 0.0, 0.0, 0.0))
+                .map(|actions| (Policy(1.0 / actions.len() as f32), 0.0, 0.0))
                 .collect()
         }
     }
