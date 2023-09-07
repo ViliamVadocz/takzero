@@ -208,7 +208,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                     child
                         .evaluation
                         .negate()
-                        .map(|q| sigma(q, fake_visit_count) + child.policy),
+                        .map(|q| sigma(q, child.variance, beta, fake_visit_count) + child.policy),
                 )
             });
             let len = search_set.len().div(2).max(1);
