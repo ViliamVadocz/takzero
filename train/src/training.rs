@@ -67,7 +67,7 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
         // Get network output.
         let input = Tensor::cat(&inputs, 0);
         let mask = Tensor::cat(&masks, 0);
-        let (policy, values) = alpha_net.forward_t(&input, true);
+        let (policy, values, ube_uncertainty) = alpha_net.forward_t(&input, true);
         #[allow(clippy::cast_possible_wrap)]
         let policy = policy
             .masked_fill(&mask, f64::from(f32::MIN))

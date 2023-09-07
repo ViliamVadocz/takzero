@@ -5,13 +5,12 @@ use rand::{seq::IteratorRandom, Rng, SeedableRng};
 use takzero::{
     network::Network,
     search::{
-        agent::Agent,
         env::Environment,
         node::{
             gumbel::{filter_by_unique_ascending_indices, gumbel_sequential_halving},
-            mcts::DISCOUNT_FACTOR,
             Node,
         },
+        DISCOUNT_FACTOR,
     },
 };
 use tch::Device;
@@ -130,6 +129,7 @@ fn reanalyze(
         net,
         SAMPLED,
         SIMULATIONS,
+        beta,
         actions,
         trajectories,
         Some(rng),
@@ -141,7 +141,7 @@ fn reanalyze(
         .map(|(node, env)| Target {
             env: env.clone(),
             policy: node
-                .improved_policy()
+                .improved_policy(beta)
                 .zip(node.children.iter())
                 .map(|(p, (a, _))| (*a, p))
                 .collect(),

@@ -17,7 +17,7 @@ use rand::prelude::*;
 use takzero::{
     fast_tak::Game,
     network::{net5::Net5, Network},
-    search::{agent::Agent, env::Environment},
+    search::{agent::Agent, env::Environment, STEP},
 };
 use target::{Augment, Replay, Target};
 use tch::{nn::VarStore, Device};
@@ -57,9 +57,6 @@ const _: () = assert_env::<Env>();
 type Net = Net5;
 #[rustfmt::skip] #[allow(dead_code)] const fn assert_net<NET: Network + Agent<Env>>() {}
 const _: () = assert_net::<Net>();
-
-// Steps for TD-learning.
-const STEP: usize = 5;
 
 // RW-lock to the variable store for the beta network.
 type BetaNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);

@@ -144,6 +144,7 @@ fn self_play(
             agent,
             SAMPLED,
             SIMULATIONS,
+            beta,
             actions,
             trajectories,
             Some(rng),
