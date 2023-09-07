@@ -19,6 +19,7 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
     nodes: &mut [Node<E>],
     envs: &[E],
     agent: &A,
+    beta: f32,
 
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
@@ -33,7 +34,7 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
         .zip(trajectories.par_iter_mut())
         .enumerate()
         .filter_map(|(index, (((node, env), actions), trajectory))| {
-            match node.forward(trajectory, env.clone()) {
+            match node.forward(trajectory, env.clone(), beta) {
                 Forward::Known(eval) => {
                     // If the result is known just propagate it now.
                     node.backward_known_eval(trajectory.drain(..), eval);
@@ -48,7 +49,7 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
         })
         .unzip();
     let (batch_envs, batch_actions): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
-    let output = agent.policy_value(&batch_envs, &batch_actions);
+    let output = agent.policy_value_uncertainty(&batch_envs, &batch_actions);
 
     let borrows: Vec<_> = filter_by_unique_ascending_indices(
         nodes.iter_mut().zip(actions).zip(trajectories.iter_mut()),
@@ -60,11 +61,12 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
         .zip(output)
         .zip(batch_actions)
         .for_each(
-            |((((node, old_actions), trajectory), (policy, value)), mut actions)| {
+            |((((node, old_actions), trajectory), (policy, value, uncertainty)), mut actions)| {
                 node.backward_network_eval(
                     trajectory.drain(..),
                     actions.drain(..).map(|a| (a.clone(), policy[a])),
                     value,
+                    uncertainty,
                 );
                 // Restore old actions.
                 let _ = std::mem::replace(old_actions, actions);
@@ -103,6 +105,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     agent: &A,
     sampled: usize,
     simulations: u32,
+    beta: f32,
 
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
@@ -117,7 +120,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     debug_assert!(envs.iter().all(|env| env.terminal().is_none()));
 
     // Run one simulation on all nodes.
-    batched_simulate(nodes, envs, agent, actions, trajectories);
+    batched_simulate(nodes, envs, agent, beta, actions, trajectories);
 
     let before_policy_batch: Vec<Vec<_>> = nodes
         .iter()
@@ -186,7 +189,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                     (child, clone)
                 })
                 .unzip();
-            batched_simulate(&mut nodes, &envs, agent, actions, trajectories);
+            batched_simulate(&mut nodes, &envs, agent, beta, actions, trajectories);
             // Restore children.
             search_sets
                 .par_iter_mut()
@@ -289,6 +292,7 @@ mod tests {
         const SAMPLED: usize = 100;
         const SIMULATIONS: u32 = 100;
         const SEED: u64 = 42;
+        const BETA: f32 = 0.0;
 
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
@@ -301,6 +305,7 @@ mod tests {
             &Dummy,
             SAMPLED,
             SIMULATIONS,
+            BETA,
             &mut [vec![]],
             &mut [vec![]],
             Some(&mut rng),
@@ -317,6 +322,7 @@ mod tests {
         const SAMPLED: usize = 100;
         const SIMULATIONS: u32 = 1024;
         const SEED: u64 = 123;
+        const BETA: f32 = 0.0;
 
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
@@ -329,6 +335,7 @@ mod tests {
             &Dummy,
             SAMPLED,
             SIMULATIONS,
+            BETA,
             &mut [vec![]],
             &mut [vec![]],
             Some(&mut rng),
@@ -346,6 +353,7 @@ mod tests {
         const SAMPLED: usize = 8;
         const SIMULATIONS: u32 = 128;
         const SEED: u64 = 9099;
+        const BETA: f32 = 0.0;
 
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
         let mut games: [Game<3, 0>; BATCH_SIZE] = array::from_fn(|_| Game::default());
@@ -360,6 +368,7 @@ mod tests {
                 &Dummy,
                 SAMPLED,
                 SIMULATIONS,
+                BETA,
                 &mut actions,
                 &mut trajectories,
                 Some(&mut rng),

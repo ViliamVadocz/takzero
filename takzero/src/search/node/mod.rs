@@ -9,7 +9,7 @@ pub struct Node<E: Environment> {
     pub evaluation: Eval, // V(s_t) or Q(s_prev, a)
     pub visit_count: u32, // N(s_prev, a)
     pub policy: f32,      // P(s_prev, a)
-    pub variance: f32,    // V[V(s_t)] ??
+    pub variance: f32,    // clip(max(UBE(s_t), geo_sum_discount * RND(s_t)))
     pub children: Box<[(E::Action, Self)]>,
 }
 
