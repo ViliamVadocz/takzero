@@ -22,13 +22,13 @@ struct Match {
     draws: u32,
 }
 
-const STEPS_PER_MODEL: u32 = 100;
+const STEPS_PER_MODEL: u32 = 2000;
 
 fn main() {
     let mut chart = Chart::new()
         .title(
             Title::new()
-                .text("Elo gain during training (4x4)")
+                .text("Elo gain during training (5x5)")
                 .left("center")
                 .top(0),
         )
