@@ -25,9 +25,6 @@ struct Args {
     /// Path to puzzle database
     #[arg(long)]
     puzzle_db_path: PathBuf,
-    /// Seed
-    #[arg(long, default_value_t = 42)]
-    seed: i64,
 }
 
 const N: usize = 5;
@@ -55,15 +52,14 @@ fn main() {
         };
         log::info!("Benchmarking {}", path.display());
         let connection = sqlite::open(&args.puzzle_db_path).unwrap();
-        run_benchmark::<N, HALF_KOMI, Net>(&connection, 3, args.seed, Some(10_000), &net);
-        run_benchmark::<N, HALF_KOMI, Net>(&connection, 5, args.seed, Some(10_000), &net);
+        run_benchmark::<N, HALF_KOMI, Net>(&connection, 3, Some(10_000), &net);
+        run_benchmark::<N, HALF_KOMI, Net>(&connection, 5, Some(10_000), &net);
     }
 }
 
 fn run_benchmark<const N: usize, const HALF_KOMI: i8, A: Agent<Game<N, HALF_KOMI>>>(
     connection: &Connection,
     depth: i64,
-    seed: i64,
     limit: Option<i64>,
     agent: &A,
 ) where
@@ -75,7 +71,7 @@ fn run_benchmark<const N: usize, const HALF_KOMI: i8, A: Agent<Game<N, HALF_KOMI
         AND g.komi = :komi
         AND t.tinue_depth = :depth
         AND g.id NOT IN (149657, 149584, 395154)
-    ORDER BY RANDOM(:seed)
+    ORDER BY t.id DESC
     LIMIT :limit";
     let mut statement = connection.prepare(query).unwrap();
     statement
@@ -83,7 +79,6 @@ fn run_benchmark<const N: usize, const HALF_KOMI: i8, A: Agent<Game<N, HALF_KOMI
             (":size", i64::try_from(N).unwrap().into()),
             (":komi", 0.into() /* i64::from(HALF_KOMI / 2).into() */),
             (":depth", depth.into()),
-            (":seed", seed.into()),
             (":limit", limit.unwrap_or(i64::MAX).into()),
         ])
         .unwrap();
