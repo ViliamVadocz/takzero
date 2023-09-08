@@ -28,9 +28,9 @@ type Net = Net5;
 
 const DEVICE: Device = Device::Cuda(0);
 
-const BATCH_SIZE: usize = 32;
+const BATCH_SIZE: usize = 64;
 const SAMPLED: usize = 8;
-const SIMULATIONS: u32 = 256;
+const SIMULATIONS: u32 = 1024;
 
 const OPENINGS: usize = N * N * (N * N - 1);
 
