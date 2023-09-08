@@ -75,7 +75,7 @@ fn run_benchmark<const N: usize, const HALF_KOMI: i8, A: Agent<Game<N, HALF_KOMI
         AND g.komi = :komi
         AND t.tinue_depth = :depth
         AND g.id NOT IN (149657, 149584, 395154)
-    ORDER BY RAND(:seed)
+    ORDER BY RANDOM(:seed)
     LIMIT :limit";
     let mut statement = connection.prepare(query).unwrap();
     statement
