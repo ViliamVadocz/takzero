@@ -16,6 +16,7 @@ pub enum Forward<E: Environment> {
 }
 
 impl<E: Environment> Node<E> {
+    #[inline]
     fn update_mean_value(&mut self, value: f32) {
         if let Eval::Value(mean_value) = &mut self.evaluation {
             *mean_value = NotNan::new(
@@ -114,11 +115,10 @@ impl<E: Environment> Node<E> {
         } else {
             // Finish leaf initialization.
             self.children = policy.map(|(a, p)| (a, Self::from_policy(p))).collect();
-            self.evaluation = Eval::new_value(value).unwrap_or_else(|_| {
+            self.propagate_child_eval(Eval::new_value(value).unwrap_or_else(|_| {
                 log::warn!("value NaN");
                 Eval::default()
-            });
-            self.evaluation
+            })) 
         }
     }
 
