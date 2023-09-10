@@ -25,6 +25,7 @@ pub struct Target<E: Environment> {
     pub env: E,                          // s_t
     pub policy: Box<[(E::Action, f32)]>, // \pi'(s_t)
     pub value: f32,                      // discounted N-step value
+    pub ube: f32,                        // sum of RND + discounted N-step UBE
 }
 
 pub trait Augment {

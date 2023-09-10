@@ -16,7 +16,7 @@ use super::{
 };
 use crate::{
     network::repr::move_mask,
-    search::{agent::Agent, GEOMETRIC_SUM_DISCOUNT},
+    search::{agent::Agent, SERIES_DISCOUNT},
 };
 
 const N: usize = 5;
@@ -253,7 +253,7 @@ impl Agent<Env> for Net5 {
         // Uncertainty.
         let rnd_uncertainties = self.forward_rnd(&xs, false);
         let uncertainties: Vec<_> = ube_uncertainties
-            .maximum(&(GEOMETRIC_SUM_DISCOUNT * rnd_uncertainties))
+            .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
             .clip(0.0, 1.0)
             .try_into()
             .unwrap();

@@ -60,7 +60,7 @@ const _: () = assert_net::<Net>();
 
 // RW-lock to the variable store for the beta network.
 type BetaNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);
-// Reference counted RW-lock to the replay buffer.
+// RW-lock to the replay buffer.
 type ReplayBuffer = RwLock<VecDeque<Replay<Env>>>;
 
 const TRAINING_DEVICE: Device = Device::Cuda(0);
@@ -68,7 +68,6 @@ const SELF_PLAY_DEVICE: Device = Device::Cuda(1);
 const REANALYZE_DEVICE_1: Device = Device::Cuda(2);
 const REANALYZE_DEVICE_2: Device = Device::Cuda(3);
 
-const SELF_PLAY_THREADS: usize = 8;
 const REANALYZE_THREADS_1: usize = 16;
 const REANALYZE_THREADS_2: usize = 16;
 const REANALYZE_THREADS: usize = REANALYZE_THREADS_1 + REANALYZE_THREADS_2;
@@ -101,7 +100,7 @@ fn main() {
     env_logger::init();
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(args.seed);
-    let self_play_seeds: [u64; SELF_PLAY_THREADS] = rng.gen();
+    let self_play_seed: u64 = rng.gen();
     let reanalyze_seeds: [u64; REANALYZE_THREADS] = rng.gen();
 
     let mut net = args.resume.as_ref().map_or_else(
@@ -131,27 +130,17 @@ fn main() {
     log::info!("Begin.");
     std::thread::scope(|s| {
         // Self-play threads.
-        for (i, seed) in self_play_seeds
-            .into_iter()
-            .take(SELF_PLAY_THREADS)
-            .enumerate()
-        {
-            let beta_net = &beta_net;
-            let replay_path = &args.replay_path;
-            let replay_buffer = &replay_buffer;
-            s.spawn(move || {
-                tch::no_grad(|| {
-                    self_play::run(
-                        SELF_PLAY_DEVICE,
-                        seed,
-                        beta_net,
-                        replay_buffer,
-                        replay_path,
-                        i == 0,
-                    );
-                });
+        s.spawn(|| {
+            tch::no_grad(|| {
+                self_play::run(
+                    SELF_PLAY_DEVICE,
+                    self_play_seed,
+                    &beta_net,
+                    &replay_buffer,
+                    &args.replay_path,
+                );
             });
-        }
+        });
 
         // Reanalyze threads.
         for (i, seed) in reanalyze_seeds

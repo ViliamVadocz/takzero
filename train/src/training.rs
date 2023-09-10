@@ -49,20 +49,21 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
     while let Ok(batch) = rx.recv() {
         let batch_size = batch.len();
 
-        let (input_and_value_targets, policy_target_and_masks): (Vec<_>, Vec<_>) = batch
-            .into_iter()
-            .map(|target| {
-                let input = game_to_tensor(&target.env, device);
-                let policy = policy_tensor::<N>(&target.policy, device);
-                let mask = move_mask::<N>(
-                    &target.policy.iter().map(|(m, _)| *m).collect::<Vec<_>>(),
-                    device,
-                );
-                ((input, target.value), (policy, mask))
-            })
-            .unzip();
-        let (inputs, value_targets): (Vec<_>, Vec<_>) = input_and_value_targets.into_iter().unzip();
-        let (policy_targets, masks): (Vec<_>, Vec<_>) = policy_target_and_masks.into_iter().unzip();
+        let mut inputs = Vec::with_capacity(batch_size);
+        let mut value_targets = Vec::with_capacity(batch_size);
+        let mut ube_targets = Vec::with_capacity(batch_size);
+        let mut policy_targets = Vec::with_capacity(batch_size);
+        let mut masks = Vec::with_capacity(batch_size);
+        for target in batch {
+            inputs.push(game_to_tensor(&target.env, device));
+            value_targets.push(target.value);
+            ube_targets.push(target.ube);
+            policy_targets.push(policy_tensor::<N>(&target.policy, device));
+            masks.push(move_mask::<N>(
+                &target.policy.iter().map(|(m, _)| *m).collect::<Vec<_>>(),
+                device,
+            ));
+        }
 
         // Get network output.
         let input = Tensor::cat(&inputs, 0);
@@ -77,11 +78,13 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
         // Get the target.
         let p = Tensor::stack(&policy_targets, 0).view(policy.size().as_slice());
         let z = Tensor::from_slice(&value_targets).unsqueeze(1).to(device);
+        let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to(device);
 
         // Calculate loss.
         let loss_p = policy.kl_div(&p, Reduction::Sum, false) / i64::try_from(batch_size).unwrap();
         let loss_z = (z - values).square().mean(Kind::Float);
-        log::info!("p={loss_p:?}\t z={loss_z:?}");
+        let loss_u = (u - ube_uncertainty).square().mean(Kind::Float);
+        log::info!("p={loss_p:?}\t z={loss_z:?}\t u={loss_u:?}"); // FIXME: This forces synchronization!
         accumulated_total_loss += loss_z + loss_p;
 
         // Do multiple backwards batches before making a step.
@@ -142,12 +145,14 @@ mod tests {
                     policy: vec![("a1".parse().unwrap(), 0.2), ("a2".parse().unwrap(), 0.8)]
                         .into_boxed_slice(),
                     value: -0.4,
+                    ube: 1.0,
                 },
                 Target {
                     env: Game::default(),
                     policy: vec![("a3".parse().unwrap(), 0.4), ("a4".parse().unwrap(), 0.6)]
                         .into_boxed_slice(),
                     value: 0.3,
+                    ube: 0.05,
                 },
             ])
             .unwrap();

@@ -1,4 +1,11 @@
-use std::{array, fs::OpenOptions, io::Write, path::Path, sync::atomic::Ordering};
+use std::{
+    array,
+    collections::VecDeque,
+    fs::OpenOptions,
+    io::Write,
+    path::Path,
+    sync::atomic::Ordering,
+};
 
 use arrayvec::ArrayVec;
 use rand::{distributions::WeightedIndex, prelude::Distribution, Rng, SeedableRng};
@@ -40,9 +47,8 @@ pub fn run(
     beta_net: &BetaNet,
     replay_buffer: &ReplayBuffer,
     replay_path: &Path,
-    primary: bool,
 ) {
-    log::debug!("started self-play thread, primary={primary}");
+    log::debug!("started self-play thread");
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let chacha_seed = rng.gen();
@@ -62,25 +68,33 @@ pub fn run(
         rng
     });
 
+    let mut temp_replay_buffer = VecDeque::new();
+
     loop {
+        const BETA: f32 = 0.0; // TODO
         self_play(
             &mut rng,
             &mut rngs,
             &net,
+            BETA,
             &mut envs,
             &mut nodes,
             &mut replays_batch,
             &mut actions,
             &mut trajectories,
-            replay_buffer,
+            &mut temp_replay_buffer,
         );
 
-        // Truncate replay buffer if it gets too long.
+        log::debug!("waiting to write into replay buffer");
         let mut lock = replay_buffer.write().unwrap();
+        log::debug!("replay buffer write lock acquired");
+        lock.append(&mut temp_replay_buffer);
+        // Truncate replay buffer if it gets too long.
         if lock.len() > MAXIMUM_REPLAY_BUFFER_SIZE {
             lock.truncate(MAXIMUM_REPLAY_BUFFER_SIZE);
         }
         drop(lock);
+        log::debug!("finished editing replay buffer");
 
         //  Get the latest network
         log::info!("checking if there is a new model for self-play");
@@ -91,25 +105,23 @@ pub fn run(
             log::info!("updating self-play model to beta{net_index}");
 
             // While doing this, also save the replay buffer
-            if primary {
-                let s: String = replay_buffer
-                    .read()
-                    .unwrap()
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect();
-                let path = replay_path.join("replays.txt");
-                std::thread::spawn(move || {
-                    let mut file = OpenOptions::new()
-                        .write(true)
-                        .create(true)
-                        .truncate(true)
-                        .open(path)
-                        .expect("replay file path should be valid and writable");
-                    file.write_all(s.as_bytes()).unwrap();
-                });
-                log::debug!("saved replays to file");
-            }
+            let s: String = replay_buffer
+                .read()
+                .unwrap()
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            let path = replay_path.join("replays.txt");
+            std::thread::spawn(move || {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(path)
+                    .expect("replay file path should be valid and writable");
+                file.write_all(s.as_bytes()).unwrap();
+            });
+            log::debug!("saved replays to file");
         }
 
         if cfg!(test) {
@@ -123,6 +135,7 @@ fn self_play(
     rng: &mut impl Rng,
     rngs: &mut [ChaCha8Rng],
     agent: &Net,
+    beta: f32,
 
     envs: &mut [Env],
     nodes: &mut [Node<Env>],
@@ -130,7 +143,7 @@ fn self_play(
     actions: &mut [Vec<<Env as Environment>::Action>],
     trajectories: &mut [Vec<usize>],
 
-    replay_buffer: &ReplayBuffer,
+    temp_replay_buffer: &mut VecDeque<Replay<Env>>,
 ) {
     envs.iter_mut()
         .zip(actions.iter_mut())
@@ -191,7 +204,6 @@ fn self_play(
             });
 
         // Refresh finished environments and nodes.
-        let mut lock = replay_buffer.write().unwrap();
         replays_batch
             .iter_mut()
             .zip(nodes.iter_mut())
@@ -205,17 +217,16 @@ fn self_play(
                 })
             })
             .flatten()
-            .for_each(|replay| lock.push_front(replay));
+            .for_each(|replay| temp_replay_buffer.push_front(replay));
     }
 
     // Salvage replays from unfinished games.
-    let mut lock = replay_buffer.write().unwrap();
     for replays in replays_batch {
         let len = replays.len().saturating_sub(STEP);
         replays
             .drain(..)
             .take(len)
-            .for_each(|replay| lock.push_front(replay));
+            .for_each(|replay| temp_replay_buffer.push_front(replay));
     }
 }
 
@@ -224,7 +235,7 @@ mod tests {
     use std::{
         collections::VecDeque,
         path::PathBuf,
-        sync::{atomic::AtomicUsize, Arc, RwLock},
+        sync::{atomic::AtomicUsize, RwLock},
     };
 
     use rand::{Rng, SeedableRng};
@@ -244,7 +255,7 @@ mod tests {
         let mut net = Net::new(Device::Cpu, Some(rng.gen()));
         let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
-        let replay_buffer = Arc::new(RwLock::new(VecDeque::new()));
+        let replay_buffer = RwLock::new(VecDeque::new());
 
         run(
             Device::cuda_if_available(),
@@ -252,7 +263,6 @@ mod tests {
             &beta_net,
             &replay_buffer,
             &PathBuf::default(),
-            true,
         );
 
         for replay in &*replay_buffer.read().unwrap() {

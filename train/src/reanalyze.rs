@@ -3,8 +3,9 @@ use std::{array, sync::atomic::Ordering};
 use crossbeam::channel::{Sender, TrySendError};
 use rand::{seq::IteratorRandom, Rng, SeedableRng};
 use takzero::{
-    network::Network,
+    network::{repr::game_to_tensor, Network},
     search::{
+        agent::Agent,
         env::Environment,
         node::{
             gumbel::{filter_by_unique_ascending_indices, gumbel_sequential_halving},
@@ -13,7 +14,7 @@ use takzero::{
         DISCOUNT_FACTOR,
     },
 };
-use tch::Device;
+use tch::{Device, Tensor};
 
 use crate::{
     target::{Augment, Replay, Target},
@@ -61,7 +62,9 @@ pub fn run(
             continue;
         }
 
-        let replays = replay_buffer
+        log::debug!("sampling batch");
+        // FIXME: choose_multiple is O(n).
+        let replays: Vec<_> = replay_buffer
             .read()
             .unwrap()
             .iter()
@@ -72,8 +75,9 @@ pub fn run(
         log::debug!("sampled replays");
         let targets = reanalyze(
             &net,
-            replays,
+            &replays,
             &mut rng,
+            device,
             &mut envs,
             &mut nodes,
             &mut actions,
@@ -104,11 +108,13 @@ pub fn run(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+// FIXME: Refactor
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn reanalyze(
     net: &Net,
-    replays: Vec<Replay<Env>>,
+    replays: &[Replay<Env>],
     rng: &mut impl Rng,
+    device: Device,
 
     envs: &mut [Env],
     nodes: &mut [Node<Env>],
@@ -116,9 +122,10 @@ fn reanalyze(
     trajectories: &mut [Vec<usize>],
 ) -> Vec<Target<Env>> {
     debug_assert_eq!(replays.len(), BATCH_SIZE);
+    let beta = 0.0;
 
     envs.iter_mut()
-        .zip(&replays)
+        .zip(replays)
         .for_each(|(env, replay)| *env = replay.env.clone());
     nodes.iter_mut().for_each(|node| *node = Node::default());
 
@@ -146,61 +153,90 @@ fn reanalyze(
                 .map(|(p, (a, _))| (*a, p))
                 .collect(),
             value: f32::NAN, // Value still needs to be filled.
+            ube: 0.0,        // Will be updated.
         })
         .collect();
 
-    // Step through the actions in the replay.
-    // If we have solved a state or reach a terminal we immediately use that value.
-    let (indices, batch): (Vec<_>, Vec<_>) = nodes
-        .iter_mut()
-        .zip(envs)
-        .zip(&mut targets)
-        .zip(actions.iter_mut())
-        .zip(replays)
-        .enumerate()
-        .filter_map(|(index, ((((node, env), target), actions), replay))| {
-            let mut flip = false;
-            #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
-            if let Some(value) = replay.actions.iter().enumerate().find_map(|(i, action)| {
+    for step in 0..STEP {
+        let sign = if step % 2 == 0 { 1.0 } else { -1.0 };
+        let raw_rnd: Vec<f32> = net
+            .forward_rnd(
+                &Tensor::stack(
+                    &envs
+                        .iter()
+                        .map(|env| game_to_tensor(env, device))
+                        .collect::<Vec<_>>(),
+                    0,
+                ),
+                false,
+            )
+            .try_into()
+            .unwrap();
+
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        nodes
+            .iter_mut()
+            .zip(envs.iter_mut())
+            .zip(replays)
+            .zip(raw_rnd)
+            .zip(&mut targets)
+            .filter(|(_, target)| target.value.is_nan())
+            .for_each(|((((node, env), replay), raw_rnd), target)| {
+                // Accumulate discounted RND.
+                target.ube += DISCOUNT_FACTOR.powi(2 * step as i32) * raw_rnd;
+
                 // If the node is solved, we can use that value.
                 if let Some(ply) = node.evaluation.ply() {
-                    return Some(
-                        DISCOUNT_FACTOR.powi(i as i32 + ply as i32) * f32::from(node.evaluation),
-                    );
+                    target.value = sign
+                        * DISCOUNT_FACTOR.powi(step as i32 + ply as i32)
+                        * f32::from(node.evaluation);
+                    return;
                 }
                 // Take a step in the search tree and the environment.
-                node.descend(action);
-                env.step(*action);
-                // If the state is terminal we can use the terminal reward.
+                let action = replay.actions[step];
+                node.descend(&action);
+                env.step(action);
+
+                // If the state is terminal, use the terminal reward.
                 if let Some(terminal) = env.terminal() {
-                    return Some(-DISCOUNT_FACTOR.powi(1 + i as i32) * f32::from(terminal));
+                    target.value =
+                        -sign * DISCOUNT_FACTOR.powi(1 + step as i32) * f32::from(terminal);
                 }
-                // Keep track of perspective.
-                flip = !flip;
-                None
-            }) {
-                target.value = if flip { -1.0 } else { 1.0 } * value;
-                None
-            } else {
-                env.populate_actions(actions);
-                Some((index, (std::mem::take(env), std::mem::take(actions))))
-            }
-        })
+            });
+    }
+
+    // Collect environments which still need to be evaluated.
+    let (indices, batch): (Vec<_>, Vec<_>) = envs
+        .iter()
+        .zip(actions.iter_mut())
+        .enumerate()
+        .zip(&targets)
+        .filter(|(_, target)| target.value.is_nan())
+        .map(|((index, (env, actions)), _)| (index, (env.clone(), std::mem::take(actions))))
         .unzip();
     let (batch_envs, batch_actions): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
-    let output = net.policy_value(&batch_envs, &batch_actions);
-    // Apply the output values onto the targets to finish them.
+    let output = net.policy_value_uncertainty(&batch_envs, &batch_actions);
+
+    // Apply the output values and uncertainties onto the targets to finish them.
     filter_by_unique_ascending_indices(targets.iter_mut().zip(actions.iter_mut()), indices)
         .zip(output)
         .zip(batch_actions)
-        .for_each(|(((target, old_actions), (_, value)), mut actions)| {
-            target.value = DISCOUNT_FACTOR.powi(i32::try_from(STEP).unwrap())
-                * value
-                * if STEP % 2 == 0 { 1.0 } else { -1.0 };
-            // Restore actions.
-            actions.clear();
-            let _ = std::mem::replace(old_actions, actions);
-        });
+        .for_each(
+            |(((target, old_actions), (_, value, uncertainty)), mut actions)| {
+                target.value = DISCOUNT_FACTOR.powi(i32::try_from(STEP).unwrap())
+                    * value
+                    * if STEP % 2 == 0 { 1.0 } else { -1.0 };
+                target.ube += DISCOUNT_FACTOR.powi(2 * i32::try_from(STEP).unwrap()) * uncertainty;
+                // Restore actions.
+                actions.clear();
+                let _ = std::mem::replace(old_actions, actions);
+            },
+        );
+
+    // Clip ube target between 0.0 and 1.0
+    for target in &mut targets {
+        target.ube = target.ube.clamp(0.0, 1.0);
+    }
 
     assert!(targets.iter().all(|target| target.value.is_finite()));
     targets
@@ -216,7 +252,7 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use takzero::{
         fast_tak::{takparse::Tps, Game, Reserves},
-        network::{net3::Net3, Network},
+        network::{net5::Net5, Network},
     };
     use tch::Device;
 
@@ -252,7 +288,7 @@ mod tests {
 
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
-        let mut net = Net3::new(Device::Cpu, Some(rng.gen()));
+        let mut net = Net5::new(Device::Cpu, Some(rng.gen()));
         let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
