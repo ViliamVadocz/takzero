@@ -9,11 +9,8 @@ use takzero::{
         Game,
         Reserves,
     },
-    network::{net4::Net4, Network},
-    search::{
-        agent::Agent,
-        node::{gumbel::gumbel_sequential_halving, Node},
-    },
+    network::{net5::Net5, Network},
+    search::node::{gumbel::gumbel_sequential_halving, Node},
 };
 use tch::Device;
 
@@ -27,12 +24,13 @@ struct Args {
     puzzle_db_path: PathBuf,
 }
 
-const N: usize = 4;
-const HALF_KOMI: i8 = 0;
-type Net = Net4;
+const N: usize = 5;
+const HALF_KOMI: i8 = 4;
+type Net = Net5;
 const BATCH_SIZE: usize = 256;
 const SAMPLED: usize = usize::MAX;
 const SIMULATIONS: u32 = 1024;
+const BETA: f32 = 0.0;
 
 fn main() {
     env_logger::init();
@@ -46,23 +44,19 @@ fn main() {
     paths.sort();
 
     for path in paths {
-        let Ok(net) = Net4::load(&path, Device::Cuda(0)) else {
+        let Ok(net) = Net::load(&path, Device::Cuda(0)) else {
             log::warn!("Cannot load {}", path.display());
             continue;
         };
         log::info!("Benchmarking {}", path.display());
         let connection = sqlite::open(&args.puzzle_db_path).unwrap();
-        run_benchmark::<N, HALF_KOMI, Net>(&connection, 3, None, &net);
-        run_benchmark::<N, HALF_KOMI, Net>(&connection, 5, None, &net);
+        run_benchmark(&connection, 3, None, &net);
+        run_benchmark(&connection, 5, None, &net);
     }
 }
 
-fn run_benchmark<const N: usize, const HALF_KOMI: i8, A: Agent<Game<N, HALF_KOMI>>>(
-    connection: &Connection,
-    depth: i64,
-    limit: Option<i64>,
-    agent: &A,
-) where
+fn run_benchmark(connection: &Connection, depth: i64, limit: Option<i64>, agent: &Net)
+where
     Reserves<N>: Default,
 {
     let query = "SELECT * FROM tinues t
@@ -77,7 +71,7 @@ fn run_benchmark<const N: usize, const HALF_KOMI: i8, A: Agent<Game<N, HALF_KOMI
     statement
         .bind::<&[(_, Value)]>(&[
             (":size", i64::try_from(N).unwrap().into()),
-            (":komi", i64::from(HALF_KOMI / 2).into()),
+            (":komi", 0.into() /* i64::from(HALF_KOMI / 2).into() */),
             (":depth", depth.into()),
             (":limit", limit.unwrap_or(i64::MAX).into()),
         ])
@@ -122,6 +116,7 @@ fn run_benchmark<const N: usize, const HALF_KOMI: i8, A: Agent<Game<N, HALF_KOMI
             agent,
             SAMPLED,
             SIMULATIONS,
+            BETA,
             &mut actions[..envs.len()],
             &mut trajectories[..envs.len()],
             None::<&mut rand::rngs::ThreadRng>,
