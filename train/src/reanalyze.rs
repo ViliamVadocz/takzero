@@ -130,6 +130,7 @@ fn reanalyze(
     nodes.iter_mut().for_each(|node| *node = Node::default());
 
     // Perform search at the root to get an improved policy.
+    log::debug!("gumbel sequential halving");
     let _top_actions: Vec<<Env as Environment>::Action> = gumbel_sequential_halving(
         nodes,
         envs,
@@ -158,10 +159,11 @@ fn reanalyze(
         .collect();
 
     for step in 0..STEP {
+        log::debug!("reanalyze step");
         let sign = if step % 2 == 0 { 1.0 } else { -1.0 };
         let raw_rnd: Vec<f32> = net
             .forward_rnd(
-                &Tensor::stack(
+                &Tensor::cat(
                     &envs
                         .iter()
                         .map(|env| game_to_tensor(env, device))
@@ -170,6 +172,7 @@ fn reanalyze(
                 ),
                 false,
             )
+            .view([-1])
             .try_into()
             .unwrap();
 

@@ -77,8 +77,8 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
 
         // Get the target.
         let p = Tensor::stack(&policy_targets, 0).view(policy.size().as_slice());
-        let z = Tensor::from_slice(&value_targets).unsqueeze(1).to(device);
-        let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to(device);
+        let z = Tensor::from_slice(&value_targets).unsqueeze(1).to_device_(device, Kind::Float, true, false);
+        let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to_device_(device, Kind::Float, true, false);
 
         // Calculate loss.
         let loss_p = policy.kl_div(&p, Reduction::Sum, false) / i64::try_from(batch_size).unwrap();
@@ -94,7 +94,7 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
         // Do multiple backwards batches before making a step.
         batches += 1;
         if batches % BATCHES_PER_STEP == 0 {
-            log::info!("taking step, accumulated_loss = {accumulated_total_loss:?}");
+            log::info!("taking step, accumulated_loss = {accumulated_total_loss:?}"); // FIXME: Forces synchronization
             opt.backward_step(&(accumulated_total_loss / BATCHES_PER_STEP));
             accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
             training_steps += 1;

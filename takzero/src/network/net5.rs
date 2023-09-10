@@ -255,6 +255,7 @@ impl Agent<Env> for Net5 {
         let uncertainties: Vec<_> = ube_uncertainties
             .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
             .clip(0.0, 1.0)
+            .view([-1])
             .try_into()
             .unwrap();
 
