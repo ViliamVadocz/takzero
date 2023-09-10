@@ -31,6 +31,7 @@ const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 32;
 const SAMPLED: usize = 8;
 const SIMULATIONS: u32 = 256;
+const BETA: f32 = 0.0;
 
 const OPENINGS: usize = N * N * (N * N - 1);
 
@@ -134,6 +135,7 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                 agent,
                 SAMPLED,
                 SIMULATIONS,
+                BETA,
                 &mut actions,
                 &mut trajectories,
                 None::<&mut ThreadRng>,

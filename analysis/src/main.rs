@@ -13,6 +13,7 @@ type Env = Game<N, HALF_KOMI>;
 type Net = Net5;
 
 const DEVICE: Device = Device::Cuda(0);
+const BETA: f32 = 0.0;
 
 fn main() {
     let net = Net::load(".\\_data\\5x5\\0\\models\\002000_steps.ot", DEVICE).unwrap();
@@ -38,7 +39,7 @@ fn main() {
         } else {
             println!("simulating");
             for _ in 0..128 {
-                node.simulate_simple(&net, env.clone());
+                node.simulate_simple(&net, env.clone(), BETA);
             }
             println!("{node}");
         }
