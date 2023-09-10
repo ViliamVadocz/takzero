@@ -2,7 +2,7 @@ use std::ops::Index;
 
 use fast_tak::{takparse::Move, Game};
 use tch::{
-    nn::{self, Module, ModuleT},
+    nn::{self, ModuleT},
     Device,
     Kind,
     Reduction,
@@ -16,10 +16,16 @@ use super::{
 };
 use crate::{
     network::repr::move_mask,
-    search::{agent::Agent, DISCOUNT_FACTOR, GEOMETRIC_SUM_DISCOUNT},
+    search::{agent::Agent, GEOMETRIC_SUM_DISCOUNT},
 };
 
 const N: usize = 5;
+// core
+const FILTERS: i64 = 128;
+const CORE_RES_BLOCKS: u32 = 10;
+// rnd
+const BEFORE_LINEAR: i64 = N as i64 * N as i64 * FILTERS;
+const LINEAR_SIZE: i64 = 1024;
 
 #[derive(Debug)]
 pub struct Net5 {
@@ -33,159 +39,140 @@ pub struct Net5 {
 
 #[derive(Debug)]
 struct Rnd {
-    target: nn::Sequential,
+    target: nn::SequentialT,
     learning: nn::SequentialT,
+}
+
+fn core(path: &nn::Path) -> nn::SequentialT {
+    let mut core = nn::seq_t()
+        .add(nn::conv2d(
+            path,
+            input_channels::<N>() as i64,
+            FILTERS,
+            3,
+            nn::ConvConfig {
+                stride: 1,
+                padding: 1,
+                ..Default::default()
+            },
+        ))
+        .add(nn::batch_norm2d(
+            path,
+            FILTERS,
+            nn::BatchNormConfig::default(),
+        ))
+        .add_fn(Tensor::relu);
+    for _ in 0..CORE_RES_BLOCKS {
+        core = core.add(ResidualBlock::new(path, FILTERS, FILTERS));
+    }
+    core
+}
+
+fn policy_head(path: &nn::Path) -> nn::SequentialT {
+    nn::seq_t()
+        .add(ResidualBlock::new(path, FILTERS, FILTERS))
+        .add(nn::conv2d(
+            path,
+            FILTERS,
+            output_channels::<N>() as i64,
+            3,
+            nn::ConvConfig {
+                stride: 1,
+                padding: 1,
+                ..Default::default()
+            },
+        ))
+}
+
+fn value_head(path: &nn::Path) -> nn::SequentialT {
+    nn::seq_t()
+        .add(ResidualBlock::new(path, FILTERS, FILTERS))
+        .add(nn::conv2d(path, FILTERS, 1, 1, nn::ConvConfig {
+            stride: 1,
+            ..Default::default()
+        }))
+        .add_fn(Tensor::relu)
+        .add_fn(|x| x.view([-1, (N * N) as i64]))
+        .add(nn::linear(
+            path,
+            (N * N) as i64,
+            1,
+            nn::LinearConfig::default(),
+        ))
+        .add_fn(Tensor::tanh)
+}
+
+fn ube_head(path: &nn::Path) -> nn::SequentialT {
+    nn::seq_t()
+        .add(ResidualBlock::new(path, FILTERS, FILTERS))
+        .add(nn::conv2d(path, FILTERS, 1, 1, nn::ConvConfig {
+            stride: 1,
+            ..Default::default()
+        }))
+        .add_fn(Tensor::relu)
+        .add_fn(|x| x.view([-1, (N * N) as i64]))
+        .add(nn::linear(
+            path,
+            (N * N) as i64,
+            1,
+            nn::LinearConfig::default(),
+        ))
+        .add_fn(Tensor::square)
+}
+
+fn rnd(path: &nn::Path) -> nn::SequentialT {
+    nn::seq_t()
+        .add(nn::conv2d(
+            path,
+            input_channels::<N>() as i64,
+            FILTERS,
+            3,
+            nn::ConvConfig {
+                stride: 1,
+                padding: 1,
+                ..Default::default()
+            },
+        ))
+        .add_fn(Tensor::relu)
+        .add(nn::conv2d(path, FILTERS, FILTERS, 3, nn::ConvConfig {
+            stride: 1,
+            padding: 1,
+            ..Default::default()
+        }))
+        .add_fn(|x| x.view([-1, BEFORE_LINEAR]))
+        .add_fn(Tensor::relu)
+        .add(nn::linear(
+            path,
+            BEFORE_LINEAR,
+            LINEAR_SIZE,
+            nn::LinearConfig::default(),
+        ))
+        .add_fn(Tensor::relu)
+        .add(nn::linear(
+            path,
+            LINEAR_SIZE,
+            LINEAR_SIZE,
+            nn::LinearConfig::default(),
+        ))
 }
 
 impl Network for Net5 {
     fn new(device: Device, seed: Option<i64>) -> Self {
-        const FILTERS: i64 = 128;
-        const CORE_RES_BLOCKS: u32 = 10;
-
         if let Some(seed) = seed {
             tch::manual_seed(seed);
         }
 
         let vs = nn::VarStore::new(device);
         let root = vs.root();
-        let mut core = nn::seq_t()
-            .add(nn::conv2d(
-                &root,
-                input_channels::<N>() as i64,
-                FILTERS,
-                3,
-                nn::ConvConfig {
-                    stride: 1,
-                    padding: 1,
-                    ..Default::default()
-                },
-            ))
-            .add(nn::batch_norm2d(
-                &root,
-                FILTERS,
-                nn::BatchNormConfig::default(),
-            ))
-            .add_fn(Tensor::relu);
-        for _ in 0..CORE_RES_BLOCKS {
-            core = core.add(ResidualBlock::new(&root, FILTERS, FILTERS));
-        }
 
-        let policy_head = nn::seq_t()
-            .add(ResidualBlock::new(&root, FILTERS, FILTERS))
-            .add(nn::conv2d(
-                &root,
-                FILTERS,
-                output_channels::<N>() as i64,
-                3,
-                nn::ConvConfig {
-                    stride: 1,
-                    padding: 1,
-                    ..Default::default()
-                },
-            ));
-
-        let value_head = nn::seq_t()
-            .add(ResidualBlock::new(&root, FILTERS, FILTERS))
-            .add(nn::conv2d(&root, FILTERS, 1, 1, nn::ConvConfig {
-                stride: 1,
-                ..Default::default()
-            }))
-            .add_fn(Tensor::relu)
-            .add_fn(|x| x.view([-1, (N * N) as i64]))
-            .add(nn::linear(
-                &root,
-                (N * N) as i64,
-                1,
-                nn::LinearConfig::default(),
-            ))
-            .add_fn(Tensor::tanh);
-
-        let ube_head = nn::seq_t()
-            .add(ResidualBlock::new(&root, FILTERS, FILTERS))
-            .add(nn::conv2d(&root, FILTERS, 1, 1, nn::ConvConfig {
-                stride: 1,
-                ..Default::default()
-            }))
-            .add_fn(Tensor::relu)
-            .add_fn(|x| x.view([-1, (N * N) as i64]))
-            .add(nn::linear(
-                &root,
-                (N * N) as i64,
-                1,
-                nn::LinearConfig::default(),
-            ))
-            .add_fn(Tensor::square);
-
-        const BEFORE_LINEAR: i64 = N as i64 * N as i64 * FILTERS;
-        const LINEAR_SIZE: i64 = 1024;
-        let rnd_path = root / "rnd";
+        let core = core(&(&root / "core"));
+        let policy_head = policy_head(&(&root / "policy"));
+        let value_head = value_head(&(&root / "value"));
+        let ube_head = ube_head(&(&root / "ube"));
+        let rnd_path = &root / "rnd";
         let rnd = Rnd {
-            target: nn::seq()
-                .add(nn::conv2d(
-                    &rnd_path,
-                    input_channels::<N>() as i64,
-                    FILTERS,
-                    3,
-                    nn::ConvConfig {
-                        stride: 1,
-                        padding: 1,
-                        ..Default::default()
-                    },
-                ))
-                .add_fn(Tensor::relu)
-                .add(nn::conv2d(&rnd_path, FILTERS, FILTERS, 3, nn::ConvConfig {
-                    stride: 1,
-                    padding: 1,
-                    ..Default::default()
-                }))
-                .add_fn(|x| x.view([-1, BEFORE_LINEAR]))
-                .add_fn(Tensor::relu)
-                .add(nn::linear(
-                    &rnd_path,
-                    BEFORE_LINEAR,
-                    LINEAR_SIZE,
-                    Default::default(),
-                ))
-                .add_fn(Tensor::relu)
-                .add(nn::linear(
-                    &rnd_path,
-                    LINEAR_SIZE,
-                    LINEAR_SIZE,
-                    Default::default(),
-                )),
-            learning: nn::seq_t()
-                .add(nn::conv2d(
-                    &rnd_path,
-                    input_channels::<N>() as i64,
-                    FILTERS,
-                    3,
-                    nn::ConvConfig {
-                        stride: 1,
-                        padding: 1,
-                        ..Default::default()
-                    },
-                ))
-                .add_fn(Tensor::relu)
-                .add(nn::conv2d(&rnd_path, FILTERS, FILTERS, 3, nn::ConvConfig {
-                    stride: 1,
-                    padding: 1,
-                    ..Default::default()
-                }))
-                .add_fn(|x| x.view([-1, BEFORE_LINEAR]))
-                .add_fn(Tensor::relu)
-                .add(nn::linear(
-                    &rnd_path,
-                    BEFORE_LINEAR,
-                    LINEAR_SIZE,
-                    Default::default(),
-                ))
-                .add_fn(Tensor::relu)
-                .add(nn::linear(
-                    &rnd_path,
-                    LINEAR_SIZE,
-                    LINEAR_SIZE,
-                    Default::default(),
-                )),
+            learning: rnd(&rnd_path),
+            target: rnd(&rnd_path),
         };
 
         Self {
@@ -212,6 +199,13 @@ impl Network for Net5 {
             self.policy_head.forward_t(&s, train),
             self.value_head.forward_t(&s, train),
             self.ube_head.forward_t(&s, train),
+        )
+    }
+
+    fn forward_rnd(&self, xs: &Tensor, train: bool) -> Tensor {
+        self.rnd.learning.forward_t(xs, train).mse_loss(
+            &self.rnd.target.forward_t(xs, false).detach(),
+            Reduction::None,
         )
     }
 }
@@ -256,13 +250,8 @@ impl Agent<Env> for Net5 {
             .unwrap();
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
-        // RND
-        let rnd_uncertainties = self
-            .rnd
-            .learning
-            .forward_t(&xs, false)
-            .mse_loss(&self.rnd.target.forward(&xs), Reduction::None);
-
+        // Uncertainty.
+        let rnd_uncertainties = self.forward_rnd(&xs, false);
         let uncertainties: Vec<_> = ube_uncertainties
             .maximum(&(GEOMETRIC_SUM_DISCOUNT * rnd_uncertainties))
             .clip(0.0, 1.0)

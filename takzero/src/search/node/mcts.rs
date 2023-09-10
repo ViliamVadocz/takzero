@@ -32,7 +32,7 @@ impl<E: Environment> Node<E> {
     
     #[inline]
     fn update_variance(&mut self, uncertainty: f32) {
-        self.variance = (self.variance * (self.visit_count - 1) as f32 + uncertainty) / self.visit_count as f32;
+        self.variance = self.variance.mul_add((self.visit_count - 1) as f32, uncertainty) / self.visit_count as f32;
     }
 
     fn propagate_child_eval(&mut self, child_eval: Eval, child_uncertainty: f32) -> (Eval, f32) {
