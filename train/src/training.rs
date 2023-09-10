@@ -87,6 +87,10 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
         log::info!("p={loss_p:?}\t z={loss_z:?}\t u={loss_u:?}"); // FIXME: This forces synchronization!
         accumulated_total_loss += loss_z + loss_p;
 
+        // RND
+        let loss_rnd = alpha_net.forward_rnd(&input, true).mean(Kind::Float);
+        accumulated_total_loss += loss_rnd;
+
         // Do multiple backwards batches before making a step.
         batches += 1;
         if batches % BATCHES_PER_STEP == 0 {
