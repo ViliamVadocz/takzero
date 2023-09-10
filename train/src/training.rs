@@ -124,7 +124,8 @@ mod tests {
     };
 
     use rand::{Rng, SeedableRng};
-    use takzero::{fast_tak::Game, network::Network};
+    use fast_tak::Game;
+    use takzero::network::Network;
     use tch::Device;
 
     use super::run;

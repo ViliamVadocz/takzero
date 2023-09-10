@@ -4,13 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-takzero = { path = "../takzero" }
-crossbeam = "0.8.2"
-clap = { version = "4.4.0", features = ["derive"] }
-arrayvec = "0.7.4"
-thiserror = "1.0.47"
-rand = "0.8.5"
-rand_chacha = "0.3.1"
-tch = "0.13.0"
-log = "0.4.20"
-env_logger = "0.10.0"
+arrayvec.workspace = true
+clap.workspace = true
+crossbeam.workspace = true
+env_logger.workspace = true
+fast-tak.workspace = true
+log.workspace = true
+rand_chacha.workspace = true
+rand.workspace = true
+takzero.workspace = true
+tch.workspace = true
+thiserror.workspace = true

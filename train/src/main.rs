@@ -13,9 +13,9 @@ use std::{
 
 use arrayvec::ArrayVec;
 use clap::Parser;
+use fast_tak::Game;
 use rand::prelude::*;
 use takzero::{
-    fast_tak::Game,
     network::{net5::Net5, Network},
     search::{agent::Agent, env::Environment, STEP},
 };

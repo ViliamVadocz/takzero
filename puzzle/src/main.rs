@@ -1,14 +1,14 @@
 use std::{array, cmp::Ordering, fs::read_dir, path::PathBuf};
 
 use clap::Parser;
+use fast_tak::{
+    takparse::{Direction, Move, MoveKind, Piece, Square},
+    Game,
+    Reserves,
+};
 use rayon::prelude::*;
 use sqlite::{Connection, Value};
 use takzero::{
-    fast_tak::{
-        takparse::{Direction, Move, MoveKind, Piece, Square},
-        Game,
-        Reserves,
-    },
     network::{net5::Net5, Network},
     search::node::{gumbel::gumbel_sequential_halving, Node},
 };

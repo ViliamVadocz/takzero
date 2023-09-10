@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fast-tak = "0.4.0"
+fast-tak.workspace = true
+log.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+rand_distr.workspace = true
+rayon.workspace = true
+tch.workspace = true
 ordered-float = "3.7.0"
-rayon = "1.7.0"
-rand = "0.8.5"
-rand_distr = "0.4.3"
-rand_chacha = "0.3.1"
-tch = "0.13.0"
-log = "0.4.20"

@@ -1,7 +1,7 @@
 use std::io::{BufRead, Write};
 
+use fast_tak::{takparse::Move, Game};
 use takzero::{
-    fast_tak::{takparse::Move, Game},
     network::{net5::Net5, Network},
     search::node::Node,
 };

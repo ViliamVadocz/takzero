@@ -1,16 +1,14 @@
 use std::{fmt, str::FromStr};
 
 use arrayvec::ArrayVec;
-use rand::prelude::*;
-use takzero::{
-    fast_tak::{
-        takparse::{ParseMoveError, ParseTpsError, Tps},
-        Game,
-        Reserves,
-        Symmetry,
-    },
-    search::env::Environment,
+use fast_tak::{
+    takparse::{ParseMoveError, ParseTpsError, Tps},
+    Game,
+    Reserves,
+    Symmetry,
 };
+use rand::prelude::*;
+use takzero::search::env::Environment;
 use thiserror::Error;
 
 use crate::STEP;

@@ -4,13 +4,13 @@ use std::{array, cmp::Reverse, collections::HashMap, fmt::Write, fs::read_dir, p
 
 use clap::Parser;
 use evaluation::Evaluation;
+use fast_tak::{
+    takparse::{Move, Tps},
+    Game,
+};
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use rayon::prelude::*;
 use takzero::{
-    fast_tak::{
-        takparse::{Move, Tps},
-        Game,
-    },
     network::{net5::Net5, Network},
     search::{
         env::{Environment, Terminal},

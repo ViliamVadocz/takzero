@@ -249,11 +249,9 @@ mod tests {
         sync::{atomic::AtomicUsize, Arc, RwLock},
     };
 
+    use fast_tak::{takparse::Tps, Game, Reserves};
     use rand::{Rng, SeedableRng};
-    use takzero::{
-        fast_tak::{takparse::Tps, Game, Reserves},
-        network::{net5::Net5, Network},
-    };
+    use takzero::network::{net5::Net5, Network};
     use tch::Device;
 
     use crate::{
