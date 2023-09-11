@@ -1,5 +1,13 @@
 [workspace]
-members = ["takzero", "train", "puzzle", "evaluation", "graph", "analysis"]
+members = [
+    "takzero",
+    "train",
+    "puzzle",
+    "evaluation",
+    "graph",
+    "analysis",
+    "rnd_experiment",
+]
 resolver = "2"
 
 [profile.release]
