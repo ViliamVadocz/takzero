@@ -16,19 +16,11 @@ use takzero::{
         env::Environment,
         node::{gumbel::gumbel_sequential_halving, Node},
     },
+    target::Replay,
 };
 use tch::Device;
 
-use crate::{
-    new_opening,
-    target::Replay,
-    BetaNet,
-    Env,
-    Net,
-    ReplayBuffer,
-    MAXIMUM_REPLAY_BUFFER_SIZE,
-    STEP,
-};
+use crate::{new_opening, BetaNet, Env, Net, ReplayBuffer, MAXIMUM_REPLAY_BUFFER_SIZE, STEP};
 
 const BATCH_SIZE: usize = 64;
 

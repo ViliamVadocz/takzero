@@ -13,17 +13,11 @@ use takzero::{
         },
         DISCOUNT_FACTOR,
     },
+    target::{Augment, Replay, Target},
 };
 use tch::{Device, Tensor};
 
-use crate::{
-    target::{Augment, Replay, Target},
-    BetaNet,
-    Env,
-    Net,
-    ReplayBuffer,
-    STEP,
-};
+use crate::{BetaNet, Env, Net, ReplayBuffer, STEP};
 
 const BATCH_SIZE: usize = 512;
 
@@ -254,15 +248,13 @@ mod tests {
 
     use fast_tak::{takparse::Tps, Game, Reserves};
     use rand::{Rng, SeedableRng};
-    use takzero::network::{net5::Net5, Network};
+    use takzero::{
+        network::{net5::Net5, Network},
+        target::{Replay, Target},
+    };
     use tch::Device;
 
-    use crate::{
-        reanalyze::run,
-        target::{Replay, Target},
-        BetaNet,
-        Env,
-    };
+    use crate::{reanalyze::run, BetaNet, Env};
 
     fn replay_from<const N: usize, const HALF_KOMI: i8>(
         tps: &str,

@@ -18,13 +18,12 @@ use rand::prelude::*;
 use takzero::{
     network::{net5::Net5, Network},
     search::{agent::Agent, env::Environment, STEP},
+    target::{Augment, Replay, Target},
 };
-use target::{Augment, Replay, Target};
 use tch::{nn::VarStore, Device};
 
 mod reanalyze;
 mod self_play;
-mod target;
 mod training;
 
 #[derive(Parser, Debug)]

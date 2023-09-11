@@ -1,9 +1,12 @@
 use std::{path::Path, sync::atomic::Ordering};
 
 use crossbeam::channel::Receiver;
-use takzero::network::{
-    repr::{game_to_tensor, move_mask, output_size, policy_tensor},
-    Network,
+use takzero::{
+    network::{
+        repr::{game_to_tensor, move_mask, output_size, policy_tensor},
+        Network,
+    },
+    target::Target,
 };
 use tch::{
     nn::{Adam, OptimizerConfig},
@@ -13,7 +16,7 @@ use tch::{
     Tensor,
 };
 
-use crate::{file_name, target::Target, BetaNet, Env, Net, N};
+use crate::{file_name, BetaNet, Env, Net, N};
 
 const WEIGHT_DECAY: f64 = 1e-4;
 const LEARNING_RATE: f64 = 1e-4;
@@ -77,8 +80,18 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
 
         // Get the target.
         let p = Tensor::stack(&policy_targets, 0).view(policy.size().as_slice());
-        let z = Tensor::from_slice(&value_targets).unsqueeze(1).to_device_(device, Kind::Float, true, false);
-        let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to_device_(device, Kind::Float, true, false);
+        let z = Tensor::from_slice(&value_targets).unsqueeze(1).to_device_(
+            device,
+            Kind::Float,
+            true,
+            false,
+        );
+        let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to_device_(
+            device,
+            Kind::Float,
+            true,
+            false,
+        );
 
         // Calculate loss.
         let loss_p = policy.kl_div(&p, Reduction::Sum, false) / i64::try_from(batch_size).unwrap();
@@ -123,13 +136,13 @@ mod tests {
         sync::{atomic::AtomicUsize, RwLock},
     };
 
-    use rand::{Rng, SeedableRng};
     use fast_tak::Game;
-    use takzero::network::Network;
+    use rand::{Rng, SeedableRng};
+    use takzero::{network::Network, target::Target};
     use tch::Device;
 
     use super::run;
-    use crate::{target::Target, BetaNet, Net};
+    use crate::{BetaNet, Net};
 
     #[test]
     fn training_works() {

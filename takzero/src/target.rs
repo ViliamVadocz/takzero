@@ -8,10 +8,9 @@ use fast_tak::{
     Symmetry,
 };
 use rand::prelude::*;
-use takzero::search::env::Environment;
 use thiserror::Error;
 
-use crate::STEP;
+use crate::search::{env::Environment, STEP};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Replay<E: Environment> {
@@ -27,6 +26,7 @@ pub struct Target<E: Environment> {
 }
 
 pub trait Augment {
+    #[must_use]
     fn augment(&self, rng: &mut impl Rng) -> Self;
 }
 
@@ -98,20 +98,20 @@ where
 
 #[cfg(test)]
 mod tests {
+    use fast_tak::Game;
     use rand::{
         seq::{IteratorRandom, SliceRandom},
         SeedableRng,
     };
-    use takzero::search::env::Environment;
 
     use super::Replay;
-    use crate::{Env, STEP};
+    use crate::search::{env::Environment, STEP};
 
     #[test]
     fn replay_consistency() {
         const SEED: u64 = 123;
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
-        let mut env = Env::default();
+        let mut env: Game<5, 4> = Game::default();
         let mut actions = Vec::new();
         while env.terminal().is_none() {
             env.populate_actions(&mut actions);
@@ -126,7 +126,7 @@ mod tests {
             let string = replay.to_string();
             println!("{string}");
 
-            let recovered: Replay<Env> = string.parse().unwrap();
+            let recovered: Replay<_> = string.parse().unwrap();
             let string_again = recovered.to_string();
 
             assert_eq!(replay, recovered);

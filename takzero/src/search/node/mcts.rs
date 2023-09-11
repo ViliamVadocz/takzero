@@ -1,8 +1,7 @@
 use ordered_float::NotNan;
 
-
 use super::{
-    super::{DISCOUNT_FACTOR, env::Environment, eval::Eval, agent::Agent},
+    super::{agent::Agent, env::Environment, eval::Eval, DISCOUNT_FACTOR},
     Node,
 };
 
@@ -29,10 +28,13 @@ impl<E: Environment> Node<E> {
             unreachable!("updating the mean value doesn't make sense if the result is known");
         };
     }
-    
+
     #[inline]
     fn update_variance(&mut self, uncertainty: f32) {
-        self.variance = self.variance.mul_add((self.visit_count - 1) as f32, uncertainty) / self.visit_count as f32;
+        self.variance = self
+            .variance
+            .mul_add((self.visit_count - 1) as f32, uncertainty)
+            / self.visit_count as f32;
     }
 
     fn propagate_child_eval(&mut self, child_eval: Eval, child_uncertainty: f32) -> (Eval, f32) {
@@ -58,7 +60,10 @@ impl<E: Environment> Node<E> {
                 let negated = child_eval.negate().into();
                 self.update_mean_value(negated);
                 self.update_variance(child_uncertainty);
-                (Eval::new_value(negated * DISCOUNT_FACTOR).unwrap(), child_uncertainty * DISCOUNT_FACTOR * DISCOUNT_FACTOR)
+                (
+                    Eval::new_value(negated * DISCOUNT_FACTOR).unwrap(),
+                    child_uncertainty * DISCOUNT_FACTOR * DISCOUNT_FACTOR,
+                )
             }
         }
     }
@@ -98,7 +103,8 @@ impl<E: Environment> Node<E> {
         eval: Eval,
     ) -> (Eval, f32) {
         if let Some(index) = trajectory.next() {
-            let (child_eval, child_uncertainty) = self.children[index].1.backward_known_eval(trajectory, eval);
+            let (child_eval, child_uncertainty) =
+                self.children[index].1.backward_known_eval(trajectory, eval);
             self.propagate_child_eval(child_eval, child_uncertainty)
         } else {
             // Leaf reached, time to propagate upwards.
@@ -116,17 +122,23 @@ impl<E: Environment> Node<E> {
         uncertainty: f32,
     ) -> (Eval, f32) {
         if let Some(index) = trajectory.next() {
-            let (child_eval, child_uncertainty) = self.children[index]
-                .1
-                .backward_network_eval(trajectory, policy, value, uncertainty);
+            let (child_eval, child_uncertainty) = self.children[index].1.backward_network_eval(
+                trajectory,
+                policy,
+                value,
+                uncertainty,
+            );
             self.propagate_child_eval(child_eval, child_uncertainty)
         } else {
             // Finish leaf initialization.
             self.children = policy.map(|(a, p)| (a, Self::from_policy(p))).collect();
-            self.propagate_child_eval(Eval::new_value(value).unwrap_or_else(|_| {
-                log::warn!("value NaN");
-                Eval::default()
-            }), uncertainty) 
+            self.propagate_child_eval(
+                Eval::new_value(value).unwrap_or_else(|_| {
+                    log::warn!("value NaN");
+                    Eval::default()
+                }),
+                uncertainty,
+            )
         }
     }
 
@@ -138,7 +150,10 @@ impl<E: Environment> Node<E> {
             Forward::NeedsNetwork(env) => {
                 let mut actions = [Vec::new()];
                 env.populate_actions(&mut actions[0]);
-                let (policy, value, uncertainty) = agent.policy_value_uncertainty(&[env], &actions).pop().unwrap();
+                let (policy, value, uncertainty) = agent
+                    .policy_value_uncertainty(&[env], &actions)
+                    .pop()
+                    .unwrap();
                 self.backward_network_eval(
                     trajectory.into_iter(),
                     actions
@@ -148,7 +163,7 @@ impl<E: Environment> Node<E> {
                         .into_iter()
                         .map(|a| (a.clone(), policy[a])),
                     value,
-                    uncertainty
+                    uncertainty,
                 )
             }
         }
@@ -173,7 +188,12 @@ mod tests {
         let mut root = Node::default();
 
         (0..MAX_VISITS)
-            .find(|_| matches!(root.simulate_simple(&Dummy, game.clone(), 1.0), (Eval::Win(_), _)))
+            .find(|_| {
+                matches!(
+                    root.simulate_simple(&Dummy, game.clone(), 1.0),
+                    (Eval::Win(_), _)
+                )
+            })
             .expect("This position is solvable with MAX_VISITS.");
 
         println!("{root}");
@@ -196,7 +216,12 @@ mod tests {
         let mut root = Node::default();
 
         (0..MAX_VISITS)
-            .find(|_| matches!(root.simulate_simple(&Dummy, game.clone(), 1.0), (Eval::Win(_), _)))
+            .find(|_| {
+                matches!(
+                    root.simulate_simple(&Dummy, game.clone(), 1.0),
+                    (Eval::Win(_), _)
+                )
+            })
             .expect("This position is solvable with MAX_VISITS.");
 
         println!("{root}");
