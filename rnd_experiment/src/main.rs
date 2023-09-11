@@ -12,10 +12,14 @@ use charming::{
     HtmlRenderer,
 };
 use fast_tak::Game;
-use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+use rand::{
+    rngs::StdRng,
+    seq::{IteratorRandom, SliceRandom},
+    SeedableRng,
+};
 use rayon::prelude::*;
 use takzero::{
-    network::repr::{game_to_tensor, input_channels},
+    network::repr::{game_to_tensor, input_size},
     target::Replay,
 };
 use tch::{
@@ -31,58 +35,37 @@ type Env = Game<N, HALF_KOMI>;
 
 const BATCH_SIZE: usize = 512;
 
-// core
-const FILTERS: i64 = 128;
-// rnd
-const BEFORE_LINEAR: i64 = N as i64 * N as i64 * FILTERS;
-const LINEAR_SIZE: i64 = 1024;
-
-fn rnd(path: &nn::Path) -> nn::SequentialT {
+fn target_rnd(path: &nn::Path) -> nn::SequentialT {
     nn::seq_t()
-        .add(nn::conv2d(
-            path,
-            input_channels::<N>() as i64,
-            FILTERS,
-            3,
-            nn::ConvConfig {
-                stride: 1,
-                padding: 1,
-                ..Default::default()
-            },
-        ))
-        .add_fn(Tensor::relu)
-        .add_fn(|x| x.view([-1, BEFORE_LINEAR]))
+        .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
         .add(nn::linear(
             path,
-            BEFORE_LINEAR,
-            LINEAR_SIZE,
+            input_size::<N>() as i64,
+            1024,
             nn::LinearConfig::default(),
         ))
         .add_fn(Tensor::relu)
+        .add(nn::linear(path, 1024, 1024, nn::LinearConfig::default()))
+        .add_fn(Tensor::relu)
+        .add(nn::linear(path, 1024, 512, nn::LinearConfig::default()))
+}
+
+fn improving_rnd(path: &nn::Path) -> nn::SequentialT {
+    nn::seq_t()
+        .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
         .add(nn::linear(
             path,
-            LINEAR_SIZE,
-            LINEAR_SIZE,
+            input_size::<N>() as i64,
+            1024,
             nn::LinearConfig::default(),
         ))
         .add_fn(Tensor::relu)
-        .add(nn::linear(
-            path,
-            LINEAR_SIZE,
-            LINEAR_SIZE,
-            nn::LinearConfig::default(),
-        ))
-        .add_fn(Tensor::relu)
-        .add(nn::linear(
-            path,
-            LINEAR_SIZE,
-            LINEAR_SIZE,
-            nn::LinearConfig::default(),
-        ))
+        .add(nn::linear(path, 1024, 512, nn::LinearConfig::default()))
 }
 
 const DEVICE: Device = Device::Cuda(0);
-const REPLAY_LIMIT: usize = 2_000_000;
+const REPLAY_LIMIT: usize = 1000;
+const STEPS: usize = 100;
 
 fn main() {
     let mut rng = StdRng::seed_from_u64(70);
@@ -93,8 +76,8 @@ fn main() {
         .unwrap();
     let replay_buffer: HashSet<_> = BufReader::new(file)
         .lines()
-        .take(REPLAY_LIMIT) // FIXME: This is here just to make the tests go faster.
-        .par_bridge()
+        .choose_multiple(&mut rng, REPLAY_LIMIT)
+        .into_par_iter()
         .map(|line| {
             let replay: Replay<Env> = line.unwrap().parse().unwrap();
             replay.env.canonical()
@@ -106,22 +89,18 @@ fn main() {
     replay_buffer.shuffle(&mut rng);
     let (training, test) = replay_buffer.split_at(replay_buffer.len() / 2);
 
-    let vs = VarStore::new(DEVICE);
-    let root = vs.root();
-    let improving = rnd(&root);
-    let target = rnd(&root);
+    let improving_vs = VarStore::new(DEVICE);
+    let improving = improving_rnd(&improving_vs.root());
+    let mut target_vs = VarStore::new(DEVICE);
+    let target = target_rnd(&target_vs.root());
+    target_vs.freeze();
 
-    let mut opt = Adam {
-        wd: 1e-3,
-        ..Default::default()
-    }
-    .build(&vs, 1e-3)
-    .unwrap();
+    let mut opt = Adam::default().build(&improving_vs, 1e-3).unwrap();
 
     let mut training_losses = Vec::new();
     let mut test_losses = Vec::new();
-    for epoch in 0..100 {
-        println!("epoch: {epoch}");
+    for step in 0..STEPS {
+        println!("step: {step}");
 
         // Test
         {
@@ -134,9 +113,16 @@ fn main() {
                 0,
             );
 
+            let actual = tch::no_grad(|| {
+                target
+                    .forward_t(&inputs.set_requires_grad(false), false)
+                    .detach()
+            });
             let predicted = improving.forward_t(&inputs, false);
-            let actual = target.forward_t(&inputs, false).detach();
-            let loss = predicted.mse_loss(&actual, tch::Reduction::Mean);
+            let loss = predicted
+                .mse_loss(&actual, tch::Reduction::None)
+                .sum_dim_intlist(1, false, None)
+                .mean(None);
 
             test_losses.push(loss.to_device_(Device::Cpu, Kind::Float, true, false));
         }
@@ -152,9 +138,16 @@ fn main() {
                 0,
             );
 
+            let actual = tch::no_grad(|| {
+                target
+                    .forward_t(&inputs.set_requires_grad(false), false)
+                    .detach()
+            });
             let predicted = improving.forward_t(&inputs, true);
-            let actual = target.forward_t(&inputs, false).detach();
-            let loss = predicted.mse_loss(&actual, tch::Reduction::Mean);
+            let loss = predicted
+                .mse_loss(&actual, tch::Reduction::None)
+                .sum_dim_intlist(1, false, None)
+                .mean(None);
             opt.backward_step(&loss);
 
             training_losses.push(loss.to_device_(Device::Cpu, Kind::Float, true, false));

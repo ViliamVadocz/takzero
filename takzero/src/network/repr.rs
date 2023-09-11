@@ -4,7 +4,7 @@ use fast_tak::{
     Reserves,
 };
 use ordered_float::NotNan;
-use tch::{Device, Kind, Tensor};
+use tch::{Device, Tensor};
 
 /// Get the number of possible moves for a given board size.
 ///
