@@ -79,7 +79,7 @@ pub fn move_mask<const N: usize>(moves: &[Move], device: Device) -> Tensor {
     // `Tensor::from_blob` will not work because backing data will deallocate.
     Tensor::from_slice(&mask)
         .reshape([1, output_channels::<N>() as i64, N as i64, N as i64])
-        .to_device_(device, Kind::Float, true, false)
+        .to(device)
 }
 
 pub fn policy_tensor<const N: usize>(policy: &[(Move, f32)], device: Device) -> Tensor {
@@ -90,7 +90,7 @@ pub fn policy_tensor<const N: usize>(policy: &[(Move, f32)], device: Device) -> 
     // FIXME: Can we prevent this copy?
     Tensor::from_slice(&data)
         .reshape([1, output_channels::<N>() as i64, N as i64, N as i64])
-        .to_device_(device, Kind::Float, true, false)
+        .to(device)
 }
 
 /// Get the number of channels needed to encode each move type.
@@ -230,7 +230,7 @@ where
     // FIXME: Can we prevent this copy?
     Tensor::from_slice(&buffer)
         .reshape([1, input_channels::<N>() as i64, N as i64, N as i64])
-        .to_device_(device, Kind::Float, true, false)
+        .to(device)
 }
 
 #[cfg(test)]

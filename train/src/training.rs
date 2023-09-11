@@ -80,18 +80,8 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
 
         // Get the target.
         let p = Tensor::stack(&policy_targets, 0).view(policy.size().as_slice());
-        let z = Tensor::from_slice(&value_targets).unsqueeze(1).to_device_(
-            device,
-            Kind::Float,
-            true,
-            false,
-        );
-        let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to_device_(
-            device,
-            Kind::Float,
-            true,
-            false,
-        );
+        let z = Tensor::from_slice(&value_targets).unsqueeze(1).to(device);
+        let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to(device);
 
         // Calculate loss.
         let loss_p = policy.kl_div(&p, Reduction::Sum, false) / i64::try_from(batch_size).unwrap();
