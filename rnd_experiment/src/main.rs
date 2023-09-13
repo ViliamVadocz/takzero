@@ -25,7 +25,6 @@ use takzero::{
 use tch::{
     nn::{self, Adam, ModuleT, OptimizerConfig, VarStore},
     Device,
-    Kind,
     Tensor,
 };
 
@@ -64,8 +63,10 @@ fn improving_rnd(path: &nn::Path) -> nn::SequentialT {
 }
 
 const DEVICE: Device = Device::Cuda(0);
-const REPLAY_LIMIT: usize = 1000;
-const STEPS: usize = 100;
+const REPLAY_LIMIT: usize = 2_000_000;
+const STARTING_REPLAY_BUFFER_SIZE: usize = 1_000;
+const NEW_REPLAYS_PER_STEP: usize = 10;
+const STEPS: usize = 1000;
 
 fn main() {
     let mut rng = StdRng::seed_from_u64(70);
@@ -80,14 +81,24 @@ fn main() {
         .into_par_iter()
         .map(|line| {
             let replay: Replay<Env> = line.unwrap().parse().unwrap();
-            replay.env.canonical()
+            replay.env // .canonical()
         })
         .collect();
     println!("loaded {} unique replays!", replay_buffer.len());
 
-    let mut replay_buffer: Vec<_> = replay_buffer.into_iter().collect();
-    replay_buffer.shuffle(&mut rng);
-    let (training, test) = replay_buffer.split_at(replay_buffer.len() / 2);
+    let (mut training, mut simulated_buffer, test) = {
+        let mut replay_buffer: Vec<_> = replay_buffer.into_iter().collect();
+        replay_buffer.shuffle(&mut rng);
+        let len = replay_buffer.len();
+        let mut iter = replay_buffer.into_iter();
+        let mut training = iter.by_ref().take(len / 2).collect::<Vec<_>>().into_iter();
+        let simulated_buffer: Vec<_> = training
+            .by_ref()
+            .take(STARTING_REPLAY_BUFFER_SIZE)
+            .collect();
+        (training, simulated_buffer, iter.collect::<Vec<_>>())
+    };
+    let original = simulated_buffer.clone();
 
     let improving_vs = VarStore::new(DEVICE);
     let improving = improving_rnd(&improving_vs.root());
@@ -99,11 +110,12 @@ fn main() {
 
     let mut training_losses = Vec::new();
     let mut test_losses = Vec::new();
+    let mut original_losses = Vec::new();
     for step in 0..STEPS {
-        println!("step: {step}");
+        print!("step: {step}, ");
 
         // Test
-        {
+        tch::no_grad(|| {
             let batch = test.choose_multiple(&mut rng, BATCH_SIZE);
             let inputs = Tensor::cat(
                 &batch
@@ -113,23 +125,45 @@ fn main() {
                 0,
             );
 
-            let actual = tch::no_grad(|| {
-                target
-                    .forward_t(&inputs.set_requires_grad(false), false)
-                    .detach()
-            });
+            let actual = target
+                .forward_t(&inputs.set_requires_grad(false), false)
+                .detach();
             let predicted = improving.forward_t(&inputs, false);
             let loss = predicted
                 .mse_loss(&actual, tch::Reduction::None)
                 .sum_dim_intlist(1, false, None)
                 .mean(None);
 
-            test_losses.push(loss.to_device_(Device::Cpu, Kind::Float, true, false));
-        }
+            test_losses.push(f32::try_from(loss).unwrap());
+        });
+
+        // Test on original
+        tch::no_grad(|| {
+            let batch = original.choose_multiple(&mut rng, BATCH_SIZE);
+            let inputs = Tensor::cat(
+                &batch
+                    .into_iter()
+                    .map(|env| game_to_tensor::<N, HALF_KOMI>(env, DEVICE))
+                    .collect::<Vec<_>>(),
+                0,
+            );
+
+            let actual = target
+                .forward_t(&inputs.set_requires_grad(false), false)
+                .detach();
+            let predicted = improving.forward_t(&inputs, false);
+            let loss = predicted
+                .mse_loss(&actual, tch::Reduction::None)
+                .sum_dim_intlist(1, false, None)
+                .mean(None);
+
+            original_losses.push(f32::try_from(loss).unwrap());
+        });
 
         // Training
         {
-            let batch = training.choose_multiple(&mut rng, BATCH_SIZE);
+            println!("size of buffer: {}", simulated_buffer.len());
+            let batch = simulated_buffer.choose_multiple(&mut rng, BATCH_SIZE);
             let inputs = Tensor::cat(
                 &batch
                     .into_iter()
@@ -150,13 +184,10 @@ fn main() {
                 .mean(None);
             opt.backward_step(&loss);
 
-            training_losses.push(loss.to_device_(Device::Cpu, Kind::Float, true, false));
+            training_losses.push(f32::try_from(loss).unwrap());
+            simulated_buffer.extend(training.by_ref().take(NEW_REPLAYS_PER_STEP));
         }
     }
-    tch::Cuda::synchronize(0);
-
-    let training_loss: Vec<f32> = Tensor::stack(&training_losses, 0).try_into().unwrap();
-    let test_loss: Vec<f32> = Tensor::stack(&test_losses, 0).try_into().unwrap();
 
     let chart = Chart::new()
         .title(Title::new().text("RND").left("center").top(0))
@@ -164,18 +195,30 @@ fn main() {
         .y_axis(Axis::new().name("loss"))
         .series(
             Line::new().dataset_id("training").show_symbol(false).data(
-                training_loss
+                training_losses
                     .into_iter()
                     .enumerate()
+                    .skip(100)
                     .map(|(x, y)| vec![x as f64, y as f64])
                     .collect(),
             ),
         )
         .series(
             Line::new().dataset_id("test").show_symbol(false).data(
-                test_loss
+                test_losses
                     .into_iter()
                     .enumerate()
+                    .skip(100)
+                    .map(|(x, y)| vec![x as f64, y as f64])
+                    .collect(),
+            ),
+        )
+        .series(
+            Line::new().dataset_id("original").show_symbol(false).data(
+                original_losses
+                    .into_iter()
+                    .enumerate()
+                    .skip(100)
                     .map(|(x, y)| vec![x as f64, y as f64])
                     .collect(),
             ),
