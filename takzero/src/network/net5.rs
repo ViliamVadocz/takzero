@@ -161,10 +161,9 @@ impl Network for Net5 {
         let policy_head = policy_head(&(&root / "policy"));
         let value_head = value_head(&(&root / "value"));
         let ube_head = ube_head(&(&root / "ube"));
-        let rnd_path = &root / "rnd";
         let rnd = Rnd {
-            learning: rnd(&rnd_path),
-            target: rnd(&rnd_path),
+            learning: rnd(&(&root / "rnd_learning")),
+            target: rnd(&(&root / "rnd_target")),
         };
 
         Self {
