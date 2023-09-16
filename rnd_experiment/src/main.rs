@@ -59,21 +59,24 @@ fn improving_rnd(path: &nn::Path) -> nn::SequentialT {
             nn::LinearConfig::default(),
         ))
         .add_fn(Tensor::relu)
+        .add(nn::linear(path, 1024, 1024, nn::LinearConfig::default()))
+        .add_fn(Tensor::relu)
         .add(nn::linear(path, 1024, 512, nn::LinearConfig::default()))
 }
 
 const DEVICE: Device = Device::Cuda(0);
 const REPLAY_LIMIT: usize = 2_000_000;
-const STARTING_REPLAY_BUFFER_SIZE: usize = 1_000;
+const STARTING_REPLAY_BUFFER_SIZE: usize = 10_000;
 const NEW_REPLAYS_PER_STEP: usize = 10;
-const STEPS: usize = 1000;
+const STEPS: usize = 4_000;
+const SKIP: usize = 250;
 
 fn main() {
     let mut rng = StdRng::seed_from_u64(70);
 
     let file = OpenOptions::new()
         .read(true)
-        .open(".\\_data\\5x5\\1\\replays_final.txt")
+        .open(".\\replays_final.txt")
         .unwrap();
     let replay_buffer: HashSet<_> = BufReader::new(file)
         .lines()
@@ -100,13 +103,11 @@ fn main() {
     };
     let original = simulated_buffer.clone();
 
-    let improving_vs = VarStore::new(DEVICE);
-    let improving = improving_rnd(&improving_vs.root());
-    let mut target_vs = VarStore::new(DEVICE);
-    let target = target_rnd(&target_vs.root());
-    target_vs.freeze();
+    let vs = VarStore::new(DEVICE);
+    let improving = improving_rnd(&(vs.root() / "improving"));
+    let target = target_rnd(&(vs.root() / "target"));
 
-    let mut opt = Adam::default().build(&improving_vs, 1e-3).unwrap();
+    let mut opt = Adam::default().build(&vs, 1e-3).unwrap();
 
     let mut training_losses = Vec::new();
     let mut test_losses = Vec::new();
@@ -198,7 +199,7 @@ fn main() {
                 training_losses
                     .into_iter()
                     .enumerate()
-                    .skip(100)
+                    .skip(SKIP)
                     .map(|(x, y)| vec![x as f64, y as f64])
                     .collect(),
             ),
@@ -208,7 +209,7 @@ fn main() {
                 test_losses
                     .into_iter()
                     .enumerate()
-                    .skip(100)
+                    .skip(SKIP)
                     .map(|(x, y)| vec![x as f64, y as f64])
                     .collect(),
             ),
@@ -218,7 +219,7 @@ fn main() {
                 original_losses
                     .into_iter()
                     .enumerate()
-                    .skip(100)
+                    .skip(SKIP)
                     .map(|(x, y)| vec![x as f64, y as f64])
                     .collect(),
             ),
