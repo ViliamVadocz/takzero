@@ -17,10 +17,17 @@ use fast_tak::Game;
 use rand::prelude::*;
 use takzero::{
     network::{net5::Net5, Network},
-    search::{agent::Agent, env::Environment, STEP},
+    search::{agent::Agent, env::Environment, DISCOUNT_FACTOR, STEP},
     target::{Augment, Replay, Target},
 };
 use tch::{nn::VarStore, Device};
+
+use crate::training::{
+    EFFECTIVE_BATCH_SIZE,
+    LEARNING_RATE,
+    PUBLISHES_BETWEEN_SAVE,
+    STEPS_BETWEEN_PUBLISH,
+};
 
 mod reanalyze;
 mod self_play;
@@ -34,9 +41,6 @@ struct Args {
     /// Path to store replays
     #[arg(long)]
     replay_path: PathBuf,
-    /// Seed for the RNG
-    #[arg(long, default_value_t = 42)]
-    seed: u64,
     /// Load an existing replay file
     #[arg(long)]
     load_replay: Option<PathBuf>,
@@ -72,7 +76,7 @@ const REANALYZE_THREADS_2: usize = 16;
 const REANALYZE_THREADS: usize = REANALYZE_THREADS_1 + REANALYZE_THREADS_2;
 
 const MINIMUM_REPLAY_BUFFER_SIZE: usize = 10_000;
-const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 2_000_000;
+const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 100_000_000;
 
 fn main() {
     let args = Args::parse();
@@ -98,7 +102,8 @@ fn main() {
 
     env_logger::init();
 
-    let mut rng = rand::rngs::StdRng::seed_from_u64(args.seed);
+    let seed: u64 = rand::thread_rng().gen();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let self_play_seed: u64 = rng.gen();
     let reanalyze_seeds: [u64; REANALYZE_THREADS] = rng.gen();
 
@@ -107,6 +112,9 @@ fn main() {
         |path| Net::load(path, Device::Cpu).unwrap(),
     );
     net.save(args.model_path.join(file_name(0))).unwrap();
+
+    print_hyper_parameters(&net, seed);
+
     let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
     let (batch_tx, batch_rx) = crossbeam::channel::bounded::<Vec<Target<Env>>>(64);
@@ -209,4 +217,47 @@ fn new_opening<E: Environment>(env: &mut E, actions: &mut Vec<E::Action>, rng: &
         env.populate_actions(actions);
         env.step(actions.drain(..).choose(rng).unwrap());
     }
+}
+
+fn print_hyper_parameters(net: &Net, seed: u64) {
+    println!("=== Tak ===");
+    println!("N = {N}");
+    println!("HALF_KOMI = {HALF_KOMI}");
+
+    println!("=== Search ===");
+    println!("DISCOUNT_FACTOR = {DISCOUNT_FACTOR}");
+    println!("TEMPORAL_DIFFERENCE_STEP = {STEP}");
+
+    println!("=== Training ===");
+    println!("MINIMUM_REPLAY_BUFFER_SIZE = {MINIMUM_REPLAY_BUFFER_SIZE}");
+    println!("MAXIMUM_REPLAY_BUFFER_SIZE = {MAXIMUM_REPLAY_BUFFER_SIZE}");
+
+    println!("self_play::BATCH_SIZE = {}", self_play::BATCH_SIZE);
+    println!("self_play::SAMPLED = {}", self_play::SAMPLED);
+    println!("self_play::SIMULATIONS = {}", self_play::SIMULATIONS);
+
+    println!("reanalyze::BATCH_SIZE = {}", reanalyze::BATCH_SIZE);
+    println!("reanalyze::SAMPLED = {}", reanalyze::SAMPLED);
+    println!("reanalyze::SIMULATIONS = {}", reanalyze::SIMULATIONS);
+
+    println!("LEARNING_RATE = {LEARNING_RATE}");
+    println!("EFFECTIVE_BATCH_SIZE = {EFFECTIVE_BATCH_SIZE}");
+    println!("STEPS_BETWEEN_PUBLISH = {STEPS_BETWEEN_PUBLISH}");
+    println!("PUBLISHED_BETWEEN_SAVE = {PUBLISHES_BETWEEN_SAVE}");
+
+    println!("seed = {seed}");
+
+    println!("=== Network ===");
+    let mut variables: Vec<_> = net.vs().variables().into_iter().collect();
+    variables.sort_by_key(|(name, _)| name.clone());
+    let mut total_params = 0;
+    for (name, tensor) in variables {
+        println!("{name} = {tensor:?}");
+        if !name.starts_with("rnd") {
+            total_params += tensor.size().into_iter().product::<i64>();
+        }
+    }
+    println!("total_params = {total_params}");
+
+    panic!("testing testing");
 }

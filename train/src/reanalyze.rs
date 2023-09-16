@@ -19,10 +19,9 @@ use tch::{Device, Tensor};
 
 use crate::{BetaNet, Env, Net, ReplayBuffer, STEP};
 
-const BATCH_SIZE: usize = 512;
-
-const SAMPLED: usize = 32;
-const SIMULATIONS: u32 = 128;
+pub const BATCH_SIZE: usize = 512;
+pub const SAMPLED: usize = 16;
+pub const SIMULATIONS: u32 = 512;
 
 // TODO: Less n-step for older replays
 // TODO: Prioritized sampling

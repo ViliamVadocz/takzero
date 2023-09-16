@@ -22,10 +22,9 @@ use tch::Device;
 
 use crate::{new_opening, BetaNet, Env, Net, ReplayBuffer, MAXIMUM_REPLAY_BUFFER_SIZE, STEP};
 
-const BATCH_SIZE: usize = 64;
-
-const SAMPLED: usize = 32;
-const SIMULATIONS: u32 = 512;
+pub const BATCH_SIZE: usize = 32;
+pub const SAMPLED: usize = 64;
+pub const SIMULATIONS: u32 = 1024;
 
 // This number should be large enough that there are also late-game positions.
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 500;

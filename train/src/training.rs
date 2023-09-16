@@ -16,13 +16,16 @@ use tch::{
     Tensor,
 };
 
-use crate::{file_name, BetaNet, Env, Net, N};
+use crate::{file_name, BetaNet, Env, Net, N, reanalyze};
 
-const WEIGHT_DECAY: f64 = 1e-4;
-const LEARNING_RATE: f64 = 1e-4;
-const BATCHES_PER_STEP: i64 = 4;
-const STEPS_BETWEEN_PUBLISH: u64 = 25;
-const PUBLISHES_BETWEEN_SAVE: u64 = 10;
+pub const LEARNING_RATE: f64 = 1e-4;
+pub const EFFECTIVE_BATCH_SIZE: usize = 2048;
+pub const STEPS_BETWEEN_PUBLISH: u64 = 100;
+pub const PUBLISHES_BETWEEN_SAVE: u64 = 10;
+
+#[allow(clippy::assertions_on_constants)]
+const _: () = assert!(EFFECTIVE_BATCH_SIZE % reanalyze::BATCH_SIZE == 0, "EFFECTIVE_BATCH_SIZE should be divisible by reanalyze::BATCH_SIZE");
+const BATCHES_PER_STEP: usize = EFFECTIVE_BATCH_SIZE.div_ceil(reanalyze::BATCH_SIZE);
 
 // TODO: Consider learning rate scheduler: https://pytorch.org/docs/stable/optim.html
 
@@ -38,10 +41,7 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
         .copy(&beta_net.1.read().unwrap())
         .unwrap();
 
-    let mut opt = Adam {
-        wd: WEIGHT_DECAY,
-        ..Default::default()
-    }
+    let mut opt = Adam::default()
     .build(alpha_net.vs_mut(), LEARNING_RATE)
     .unwrap();
 
@@ -98,7 +98,7 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
         batches += 1;
         if batches % BATCHES_PER_STEP == 0 {
             log::info!("taking step, accumulated_loss = {accumulated_total_loss:?}"); // FIXME: Forces synchronization
-            opt.backward_step(&(accumulated_total_loss / BATCHES_PER_STEP));
+            opt.backward_step(&(accumulated_total_loss / i64::try_from(BATCHES_PER_STEP).unwrap()));
             accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
             training_steps += 1;
 
