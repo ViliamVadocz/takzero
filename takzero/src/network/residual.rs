@@ -13,18 +13,19 @@ impl SmallBlock {
     fn new(vs: &nn::Path, in_channels: i64, out_channels: i64) -> Self {
         let model = nn::seq_t()
             .add(nn::conv2d(
-                vs,
+                vs / "conv2d",
                 in_channels,
                 out_channels,
                 3,
                 nn::ConvConfig {
                     stride: 1,
                     padding: 1,
+                    bias: false,
                     ..Default::default()
                 },
             ))
             .add(nn::batch_norm2d(
-                vs,
+                vs / "batch_norm",
                 out_channels,
                 nn::BatchNormConfig::default(),
             ));

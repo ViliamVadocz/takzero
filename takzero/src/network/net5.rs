@@ -10,7 +10,7 @@ use tch::{
 };
 
 use super::{
-    repr::{game_to_tensor, input_channels, move_index, output_channels, output_size},
+    repr::{game_to_tensor, input_channels, input_size, move_index, output_channels, output_size},
     residual::ResidualBlock,
     Network,
 };
@@ -20,12 +20,8 @@ use crate::{
 };
 
 const N: usize = 5;
-// core
 const FILTERS: i64 = 128;
 const CORE_RES_BLOCKS: u32 = 10;
-// rnd
-const BEFORE_LINEAR: i64 = N as i64 * N as i64 * FILTERS;
-const LINEAR_SIZE: i64 = 1024;
 
 #[derive(Debug)]
 pub struct Net5 {
@@ -46,33 +42,38 @@ struct Rnd {
 fn core(path: &nn::Path) -> nn::SequentialT {
     let mut core = nn::seq_t()
         .add(nn::conv2d(
-            path,
+            path / "input_conv2d",
             input_channels::<N>() as i64,
             FILTERS,
             3,
             nn::ConvConfig {
                 stride: 1,
                 padding: 1,
+                bias: false,
                 ..Default::default()
             },
         ))
         .add(nn::batch_norm2d(
-            path,
+            path / "batch_norm",
             FILTERS,
             nn::BatchNormConfig::default(),
         ))
         .add_fn(Tensor::relu);
-    for _ in 0..CORE_RES_BLOCKS {
-        core = core.add(ResidualBlock::new(path, FILTERS, FILTERS));
+    for n in 0..CORE_RES_BLOCKS {
+        core = core.add(ResidualBlock::new(
+            &(path / format!("res_block_{n}")),
+            FILTERS,
+            FILTERS,
+        ));
     }
     core
 }
 
 fn policy_head(path: &nn::Path) -> nn::SequentialT {
     nn::seq_t()
-        .add(ResidualBlock::new(path, FILTERS, FILTERS))
+        .add(ResidualBlock::new(&(path / "res_block"), FILTERS, FILTERS))
         .add(nn::conv2d(
-            path,
+            path / "conv2d",
             FILTERS,
             output_channels::<N>() as i64,
             3,
@@ -86,15 +87,15 @@ fn policy_head(path: &nn::Path) -> nn::SequentialT {
 
 fn value_head(path: &nn::Path) -> nn::SequentialT {
     nn::seq_t()
-        .add(ResidualBlock::new(path, FILTERS, FILTERS))
-        .add(nn::conv2d(path, FILTERS, 1, 1, nn::ConvConfig {
+        .add(ResidualBlock::new(&(path / "res_block"), FILTERS, FILTERS))
+        .add(nn::conv2d(path / "conv2d", FILTERS, 1, 1, nn::ConvConfig {
             stride: 1,
             ..Default::default()
         }))
         .add_fn(Tensor::relu)
         .add_fn(|x| x.view([-1, (N * N) as i64]))
         .add(nn::linear(
-            path,
+            path / "linear",
             (N * N) as i64,
             1,
             nn::LinearConfig::default(),
@@ -104,15 +105,15 @@ fn value_head(path: &nn::Path) -> nn::SequentialT {
 
 fn ube_head(path: &nn::Path) -> nn::SequentialT {
     nn::seq_t()
-        .add(ResidualBlock::new(path, FILTERS, FILTERS))
-        .add(nn::conv2d(path, FILTERS, 1, 1, nn::ConvConfig {
+        .add(ResidualBlock::new(&(path / "res_block"), FILTERS, FILTERS))
+        .add(nn::conv2d(path / "conv2d", FILTERS, 1, 1, nn::ConvConfig {
             stride: 1,
             ..Default::default()
         }))
         .add_fn(Tensor::relu)
         .add_fn(|x| x.view([-1, (N * N) as i64]))
         .add(nn::linear(
-            path,
+            path / "linear",
             (N * N) as i64,
             1,
             nn::LinearConfig::default(),
@@ -121,37 +122,28 @@ fn ube_head(path: &nn::Path) -> nn::SequentialT {
 }
 
 fn rnd(path: &nn::Path) -> nn::SequentialT {
+    const HIDDEN_LAYER: i64 = 1024;
+    const OUTPUT: i64 = 512;
     nn::seq_t()
-        .add(nn::conv2d(
-            path,
-            input_channels::<N>() as i64,
-            FILTERS,
-            3,
-            nn::ConvConfig {
-                stride: 1,
-                padding: 1,
-                ..Default::default()
-            },
-        ))
-        .add_fn(Tensor::relu)
-        .add(nn::conv2d(path, FILTERS, FILTERS, 3, nn::ConvConfig {
-            stride: 1,
-            padding: 1,
-            ..Default::default()
-        }))
-        .add_fn(|x| x.view([-1, BEFORE_LINEAR]))
-        .add_fn(Tensor::relu)
+        .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
         .add(nn::linear(
-            path,
-            BEFORE_LINEAR,
-            LINEAR_SIZE,
+            path / "input_linear",
+            input_size::<N>() as i64,
+            HIDDEN_LAYER,
             nn::LinearConfig::default(),
         ))
         .add_fn(Tensor::relu)
         .add(nn::linear(
-            path,
-            LINEAR_SIZE,
-            LINEAR_SIZE,
+            path / "hidden_linear",
+            HIDDEN_LAYER,
+            HIDDEN_LAYER,
+            nn::LinearConfig::default(),
+        ))
+        .add_fn(Tensor::relu)
+        .add(nn::linear(
+            path / "final_linear",
+            HIDDEN_LAYER,
+            OUTPUT,
             nn::LinearConfig::default(),
         ))
 }
@@ -204,7 +196,11 @@ impl Network for Net5 {
 
     fn forward_rnd(&self, xs: &Tensor, train: bool) -> Tensor {
         self.rnd.learning.forward_t(xs, train).mse_loss(
-            &self.rnd.target.forward_t(xs, false).detach(),
+            &self
+                .rnd
+                .target
+                .forward_t(&xs.set_requires_grad(false), false)
+                .detach(),
             Reduction::None,
         )
     }
