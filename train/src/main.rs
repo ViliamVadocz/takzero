@@ -8,7 +8,7 @@ use std::{
     fs::OpenOptions,
     io::{BufRead, BufReader},
     path::PathBuf,
-    sync::{atomic::AtomicUsize, RwLock},
+    sync::RwLock,
 };
 
 use arrayvec::ArrayVec;
@@ -20,7 +20,7 @@ use takzero::{
     search::{agent::Agent, env::Environment, DISCOUNT_FACTOR, STEP},
     target::{Augment, Replay, Target},
 };
-use tch::{nn::VarStore, Device};
+use tch::Device;
 
 use crate::training::{
     EFFECTIVE_BATCH_SIZE,
@@ -61,25 +61,22 @@ type Net = Net5;
 #[rustfmt::skip] #[allow(dead_code)] const fn assert_net<NET: Network + Agent<Env>>() {}
 const _: () = assert_net::<Net>();
 
-// RW-lock to the variable store for the beta network.
-type BetaNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);
 // RW-lock to the replay buffer.
 type ReplayBuffer = RwLock<VecDeque<Replay<Env>>>;
 
-const TRAINING_DEVICE: Device = Device::Cuda(0);
-const SELF_PLAY_DEVICE: Device = Device::Cuda(1);
-const REANALYZE_DEVICE_1: Device = Device::Cuda(2);
-const REANALYZE_DEVICE_2: Device = Device::Cuda(3);
-
-const REANALYZE_THREADS_1: usize = 16;
-const REANALYZE_THREADS_2: usize = 16;
-const REANALYZE_THREADS: usize = REANALYZE_THREADS_1 + REANALYZE_THREADS_2;
-
 const MINIMUM_REPLAY_BUFFER_SIZE: usize = 10_000;
 const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 100_000_000;
+const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
+const TRAINING_DEVICE: Device = Device::Cuda(0);
+const REANALYZE_PER_DEVICE: &[(Device, usize)] = &[
+    (Device::Cuda(0), 30),
+    (Device::Cuda(1), 32),
+    (Device::Cuda(2), 32),
+    (Device::Cuda(3), 32),
+    (Device::Cuda(4), 32),
+];
 
-fn main() {
-    let args = Args::parse();
+fn assert_paths_are_correct(args: &Args) {
     assert!(
         args.model_path.is_dir(),
         "`model_path` should point to a directory"
@@ -99,26 +96,9 @@ fn main() {
     if let Some(path) = args.load_replay.as_ref() {
         assert!(path.is_file(), "`load_replay` should be a file");
     }
+}
 
-    env_logger::init();
-
-    let seed: u64 = rand::thread_rng().gen();
-    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-    let self_play_seed: u64 = rng.gen();
-    let reanalyze_seeds: [u64; REANALYZE_THREADS] = rng.gen();
-
-    let mut net = args.resume.as_ref().map_or_else(
-        || Net::new(Device::Cpu, Some(rng.gen())),
-        |path| Net::load(path, Device::Cpu).unwrap(),
-    );
-    net.save(args.model_path.join(file_name(0))).unwrap();
-
-    print_hyper_parameters(&net, seed);
-
-    let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
-
-    let (batch_tx, batch_rx) = crossbeam::channel::bounded::<Vec<Target<Env>>>(64);
-
+fn make_replay_buffer(args: &Args, rng: &mut impl Rng) -> ReplayBuffer {
     let replay_buffer: ReplayBuffer =
         RwLock::new(VecDeque::with_capacity(MAXIMUM_REPLAY_BUFFER_SIZE + 1000));
     #[allow(clippy::option_if_let_else)]
@@ -131,51 +111,64 @@ fn main() {
             lock.push_front(replay);
         }
     } else {
-        initialize_buffer_with_random_moves(&replay_buffer, &mut rng);
+        initialize_buffer_with_random_moves(&replay_buffer, rng);
     }
+    replay_buffer
+}
+
+fn main() {
+    env_logger::init();
+    let args = Args::parse();
+    assert_paths_are_correct(&args);
+
+    // Generate seeds.
+    let seed: u64 = rand::thread_rng().gen();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    let self_play_seed: u64 = rng.gen();
+
+    // Create network.
+    let mut net = args.resume.as_ref().map_or_else(
+        || Net::new(Device::Cuda(0), Some(rng.gen())),
+        |path| Net::load(path, Device::Cpu).unwrap(),
+    );
+    net.vs().freeze();
+    net.save(args.model_path.join(file_name(0))).unwrap();
+
+    print_hyper_parameters(&net, seed);
+
+    // Create synchronization primitives.
+    let net = RwLock::new(net);
+    let (batch_tx, batch_rx) = crossbeam::channel::bounded::<Vec<Target<Env>>>(64);
+    let replay_buffer = make_replay_buffer(&args, &mut rng);
 
     log::info!("Begin.");
     std::thread::scope(|s| {
-        // Self-play threads.
+        // Self-play thread.
         s.spawn(|| {
             tch::no_grad(|| {
                 self_play::run(
-                    SELF_PLAY_DEVICE,
+                    Device::Cuda(0),
                     self_play_seed,
-                    &beta_net,
+                    &net,
                     &replay_buffer,
                     &args.replay_path,
                 );
             });
         });
-
-        // Reanalyze threads.
-        for (i, seed) in reanalyze_seeds
-            .into_iter()
-            .take(REANALYZE_THREADS)
-            .enumerate()
-        {
-            let beta_net = &beta_net;
-            let replay_buffer = &replay_buffer;
-            let batch_tx = &batch_tx;
-            let device = if i < REANALYZE_THREADS_1 {
-                REANALYZE_DEVICE_1
-            } else {
-                REANALYZE_DEVICE_2
-            };
-            s.spawn(move || {
-                tch::no_grad(|| {
-                    reanalyze::run(device, seed, beta_net, batch_tx, replay_buffer);
-                });
-            });
-        }
-
         // Training thread.
         s.spawn(|| {
-            tch::with_grad(|| {
-                training::run(TRAINING_DEVICE, &beta_net, batch_rx, &args.model_path);
-            });
+            training::run(Device::Cuda(0), &net, batch_rx, &args.model_path);
         });
+        // Reanalyze threads.
+        for &(device, amount) in REANALYZE_PER_DEVICE {
+            for _ in 0..amount {
+                s.spawn(|| {
+                    tch::no_grad(|| {
+                        reanalyze::run(device, seed, &net, &batch_tx, &replay_buffer);
+                    });
+                });
+            }
+        }
     });
 }
 
