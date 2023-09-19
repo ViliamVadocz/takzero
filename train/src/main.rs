@@ -8,7 +8,10 @@ use std::{
     fs::OpenOptions,
     io::{BufRead, BufReader},
     path::PathBuf,
-    sync::RwLock,
+    sync::{
+        atomic::{AtomicU32, AtomicUsize},
+        RwLock,
+    },
 };
 
 use arrayvec::ArrayVec;
@@ -20,13 +23,16 @@ use takzero::{
     search::{agent::Agent, env::Environment, DISCOUNT_FACTOR, STEP},
     target::{Augment, Replay, Target},
 };
-use tch::Device;
+use tch::{nn::VarStore, Device};
 
-use crate::training::{
-    EFFECTIVE_BATCH_SIZE,
-    LEARNING_RATE,
-    PUBLISHES_BETWEEN_SAVE,
-    STEPS_BETWEEN_PUBLISH,
+use crate::{
+    self_play::NEW_REPLAYS_PER_TRAINING_STEP,
+    training::{
+        EFFECTIVE_BATCH_SIZE,
+        LEARNING_RATE,
+        PUBLISHES_BETWEEN_SAVE,
+        STEPS_BETWEEN_PUBLISH,
+    },
 };
 
 mod reanalyze;
@@ -63,6 +69,8 @@ const _: () = assert_net::<Net>();
 
 // RW-lock to the replay buffer.
 type ReplayBuffer = RwLock<VecDeque<Replay<Env>>>;
+// For sharing network weights.
+type SharedNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);
 
 const MINIMUM_REPLAY_BUFFER_SIZE: usize = 10_000;
 const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 100_000_000;
@@ -128,18 +136,19 @@ fn main() {
 
     // Create network.
     let mut net = args.resume.as_ref().map_or_else(
-        || Net::new(Device::Cuda(0), Some(rng.gen())),
+        || Net::new(Device::Cpu, Some(rng.gen())),
         |path| Net::load(path, Device::Cpu).unwrap(),
     );
-    net.vs().freeze();
+    net.vs_mut().freeze();
     net.save(args.model_path.join(file_name(0))).unwrap();
 
     print_hyper_parameters(&net, seed);
 
     // Create synchronization primitives.
-    let net = RwLock::new(net);
+    let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
     let (batch_tx, batch_rx) = crossbeam::channel::bounded::<Vec<Target<Env>>>(64);
     let replay_buffer = make_replay_buffer(&args, &mut rng);
+    let training_steps = AtomicU32::new(0);
 
     log::info!("Begin.");
     std::thread::scope(|s| {
@@ -147,24 +156,31 @@ fn main() {
         s.spawn(|| {
             tch::no_grad(|| {
                 self_play::run(
-                    Device::Cuda(0),
+                    SELF_PLAY_DEVICE,
                     self_play_seed,
-                    &net,
+                    &shared_net,
                     &replay_buffer,
+                    &training_steps,
                     &args.replay_path,
                 );
             });
         });
         // Training thread.
         s.spawn(|| {
-            training::run(Device::Cuda(0), &net, batch_rx, &args.model_path);
+            training::run(
+                TRAINING_DEVICE,
+                &shared_net,
+                batch_rx,
+                &training_steps,
+                &args.model_path,
+            );
         });
         // Reanalyze threads.
-        for &(device, amount) in REANALYZE_PER_DEVICE {
-            for _ in 0..amount {
+        for (device, amount) in REANALYZE_PER_DEVICE {
+            for _ in 0..*amount {
                 s.spawn(|| {
                     tch::no_grad(|| {
-                        reanalyze::run(device, seed, &net, &batch_tx, &replay_buffer);
+                        reanalyze::run(device, seed, &shared_net, &batch_tx, &replay_buffer);
                     });
                 });
             }
@@ -172,7 +188,7 @@ fn main() {
     });
 }
 
-fn file_name(n: u64) -> String {
+fn file_name(n: u32) -> String {
     format!("{n:0>6}_steps.ot")
 }
 
@@ -221,9 +237,15 @@ fn print_hyper_parameters(net: &Net, seed: u64) {
     println!("DISCOUNT_FACTOR = {DISCOUNT_FACTOR}");
     println!("TEMPORAL_DIFFERENCE_STEP = {STEP}");
 
+    println!("=== Devices ===");
+    println!("SELF_PLAY_DEVICE = {SELF_PLAY_DEVICE:?}");
+    println!("TRAINING_DEVICE = {TRAINING_DEVICE:?}");
+    println!("REANALYZE_PER_DEVICE = {REANALYZE_PER_DEVICE:?}");
+
     println!("=== Training ===");
     println!("MINIMUM_REPLAY_BUFFER_SIZE = {MINIMUM_REPLAY_BUFFER_SIZE}");
     println!("MAXIMUM_REPLAY_BUFFER_SIZE = {MAXIMUM_REPLAY_BUFFER_SIZE}");
+    println!("NEW_REPLAYS_PER_TRAINING_STEP = {NEW_REPLAYS_PER_TRAINING_STEP}");
 
     println!("self_play::BATCH_SIZE = {}", self_play::BATCH_SIZE);
     println!("self_play::SAMPLED = {}", self_play::SAMPLED);

@@ -17,7 +17,7 @@ use takzero::{
 };
 use tch::{Device, Tensor};
 
-use crate::{BetaNet, Env, Net, ReplayBuffer, STEP};
+use crate::{Env, Net, ReplayBuffer, SharedNet, STEP};
 
 pub const BATCH_SIZE: usize = 512;
 pub const SAMPLED: usize = 16;
@@ -30,19 +30,20 @@ pub const SIMULATIONS: u32 = 512;
 /// and generate batches for training.
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(
-    device: Device,
+    device: &Device,
     seed: u64,
-    beta_net: &BetaNet,
+    shared_net: &SharedNet,
     tx: &Sender<Vec<Target<Env>>>,
     replay_buffer: &ReplayBuffer,
 ) {
     log::debug!("started reanalyze thread");
+    let device = *device;
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = Net::new(device, None);
-    let mut net_index = beta_net.0.load(Ordering::Relaxed);
-    net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
+    let mut net_index = shared_net.0.load(Ordering::Relaxed);
+    net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
 
     let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Env::default());
     let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
@@ -88,11 +89,11 @@ pub fn run(
         log::debug!("reanalyzed and sent replays");
 
         //  Get the latest network
-        let maybe_new_net_index = beta_net.0.load(Ordering::Relaxed);
+        let maybe_new_net_index = shared_net.0.load(Ordering::Relaxed);
         if maybe_new_net_index > net_index {
             net_index = maybe_new_net_index;
-            net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
-            log::info!("updating reanalyze to model beta{net_index}");
+            net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
+            log::info!("updating reanalyze to model shared_net_{net_index}");
         }
 
         if cfg!(test) {
@@ -253,7 +254,7 @@ mod tests {
     };
     use tch::Device;
 
-    use crate::{reanalyze::run, BetaNet, Env};
+    use crate::{reanalyze::run, Env, SharedNet};
 
     fn replay_from<const N: usize, const HALF_KOMI: i8>(
         tps: &str,
@@ -281,7 +282,7 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
         let mut net = Net5::new(Device::Cpu, Some(rng.gen()));
-        let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
+        let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
 
@@ -300,9 +301,9 @@ mod tests {
         ])));
 
         run(
-            Device::cuda_if_available(),
+            &Device::cuda_if_available(),
             rng.gen(),
-            &beta_net,
+            &shared_net,
             &batch_tx,
             &replay_buffer,
         );

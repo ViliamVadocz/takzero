@@ -4,7 +4,7 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::Path,
-    sync::atomic::Ordering,
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 use arrayvec::ArrayVec;
@@ -20,11 +20,13 @@ use takzero::{
 };
 use tch::Device;
 
-use crate::{new_opening, BetaNet, Env, Net, ReplayBuffer, MAXIMUM_REPLAY_BUFFER_SIZE, STEP};
+use crate::{new_opening, Env, Net, ReplayBuffer, SharedNet, MAXIMUM_REPLAY_BUFFER_SIZE, STEP};
 
 pub const BATCH_SIZE: usize = 32;
 pub const SAMPLED: usize = 64;
 pub const SIMULATIONS: u32 = 1024;
+
+pub const NEW_REPLAYS_PER_TRAINING_STEP: u32 = 10;
 
 // This number should be large enough that there are also late-game positions.
 const STEPS_BEFORE_CHECKING_NETWORK: usize = 500;
@@ -35,8 +37,9 @@ const WEIGHTED_RANDOM_PLIES: u16 = 30;
 pub fn run(
     device: Device,
     seed: u64,
-    beta_net: &BetaNet,
+    shared_net: &SharedNet,
     replay_buffer: &ReplayBuffer,
+    training_steps: &AtomicU32,
     replay_path: &Path,
 ) {
     log::debug!("started self-play thread");
@@ -44,9 +47,10 @@ pub fn run(
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let chacha_seed = rng.gen();
 
+    // Copy shared network weights to the network on this thread.
     let mut net = Net::new(device, None);
-    let mut net_index = beta_net.0.load(Ordering::Relaxed);
-    net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
+    let mut net_index = shared_net.0.load(Ordering::Relaxed);
+    net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
 
     let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Env::default());
     let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
@@ -76,6 +80,8 @@ pub fn run(
             &mut temp_replay_buffer,
         );
 
+        // TODO: Wait for correct training step / game step ratio.
+
         log::debug!("waiting to write into replay buffer");
         let mut lock = replay_buffer.write().unwrap();
         log::debug!("replay buffer write lock acquired");
@@ -89,11 +95,11 @@ pub fn run(
 
         //  Get the latest network
         log::info!("checking if there is a new model for self-play");
-        let maybe_new_net_index = beta_net.0.load(Ordering::Relaxed);
+        let maybe_new_net_index = shared_net.0.load(Ordering::Relaxed);
         if maybe_new_net_index > net_index {
             net_index = maybe_new_net_index;
-            net.vs_mut().copy(&beta_net.1.read().unwrap()).unwrap();
-            log::info!("updating self-play model to beta{net_index}");
+            net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
+            log::info!("updating self-play model to shared_net_{net_index}");
 
             // While doing this, also save the replay buffer
             let s: String = replay_buffer
@@ -226,14 +232,17 @@ mod tests {
     use std::{
         collections::VecDeque,
         path::PathBuf,
-        sync::{atomic::AtomicUsize, RwLock},
+        sync::{
+            atomic::{AtomicU32, AtomicUsize},
+            RwLock,
+        },
     };
 
     use rand::{Rng, SeedableRng};
     use takzero::network::Network;
     use tch::Device;
 
-    use crate::{self_play::run, BetaNet, Net};
+    use crate::{self_play::run, Net, SharedNet};
 
     // NOTE TO SELF:
     // Decrease constants above to actually see results before you die.
@@ -244,15 +253,16 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
         let mut net = Net::new(Device::Cpu, Some(rng.gen()));
-        let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
+        let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
         let replay_buffer = RwLock::new(VecDeque::new());
 
         run(
             Device::cuda_if_available(),
             rng.gen(),
-            &beta_net,
+            &shared_net,
             &replay_buffer,
+            &AtomicU32::new(0),
             &PathBuf::default(),
         );
 

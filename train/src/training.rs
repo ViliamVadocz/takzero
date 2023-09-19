@@ -1,4 +1,4 @@
-use std::{path::Path, sync::atomic::Ordering};
+use std::{path::Path, sync::atomic::{Ordering, AtomicU32}};
 
 use crossbeam::channel::Receiver;
 use takzero::{
@@ -16,12 +16,12 @@ use tch::{
     Tensor,
 };
 
-use crate::{file_name, BetaNet, Env, Net, N, reanalyze};
+use crate::{file_name, SharedNet, Env, Net, N, reanalyze};
 
 pub const LEARNING_RATE: f64 = 1e-4;
 pub const EFFECTIVE_BATCH_SIZE: usize = 2048;
-pub const STEPS_BETWEEN_PUBLISH: u64 = 100;
-pub const PUBLISHES_BETWEEN_SAVE: u64 = 10;
+pub const STEPS_BETWEEN_PUBLISH: u32 = 100;
+pub const PUBLISHES_BETWEEN_SAVE: u32 = 10;
 
 #[allow(clippy::assertions_on_constants)]
 const _: () = assert!(EFFECTIVE_BATCH_SIZE % reanalyze::BATCH_SIZE == 0, "EFFECTIVE_BATCH_SIZE should be divisible by reanalyze::BATCH_SIZE");
@@ -32,20 +32,20 @@ const BATCHES_PER_STEP: usize = EFFECTIVE_BATCH_SIZE.div_ceil(reanalyze::BATCH_S
 /// Improve the network by training on batches from the re-analyze thread.
 /// Save checkpoints and distribute the newest model.
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, model_path: &Path) {
+pub fn run(device: Device, shared_net: &SharedNet, rx: Receiver<Vec<Target<Env>>>, training_steps: &AtomicU32, model_path: &Path) {
     log::debug!("started training thread");
 
-    let mut alpha_net = Net::new(device, None);
-    alpha_net
+    let mut net = Net::new(device, None);
+    net
         .vs_mut()
-        .copy(&beta_net.1.read().unwrap())
+        .copy(&shared_net.1.read().unwrap())
         .unwrap();
+    net.vs_mut().unfreeze();
 
     let mut opt = Adam::default()
-    .build(alpha_net.vs_mut(), LEARNING_RATE)
+    .build(net.vs_mut(), LEARNING_RATE)
     .unwrap();
 
-    let mut training_steps = 0;
     let mut batches = 0;
 
     let mut accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
@@ -71,7 +71,7 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
         // Get network output.
         let input = Tensor::cat(&inputs, 0);
         let mask = Tensor::cat(&masks, 0);
-        let (policy, values, ube_uncertainty) = alpha_net.forward_t(&input, true);
+        let (policy, values, ube_uncertainty) = net.forward_t(&input, true);
         #[allow(clippy::cast_possible_wrap)]
         let policy = policy
             .masked_fill(&mask, f64::from(f32::MIN))
@@ -91,7 +91,7 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
         accumulated_total_loss += loss_z + loss_p;
 
         // RND
-        let loss_rnd = alpha_net.forward_rnd(&input, true).mean(Kind::Float);
+        let loss_rnd = net.forward_rnd(&input, true).mean(Kind::Float);
         accumulated_total_loss += loss_rnd;
 
         // Do multiple backwards batches before making a step.
@@ -100,17 +100,21 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
             log::info!("taking step, accumulated_loss = {accumulated_total_loss:?}"); // FIXME: Forces synchronization
             opt.backward_step(&(accumulated_total_loss / i64::try_from(BATCHES_PER_STEP).unwrap()));
             accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
-            training_steps += 1;
+            let training_steps = 1 + training_steps.fetch_add(1, Ordering::Relaxed);
 
             #[allow(clippy::modulo_one)]
             if training_steps % STEPS_BETWEEN_PUBLISH == 0 {
-                beta_net.1.write().unwrap().copy(alpha_net.vs()).unwrap();
-                beta_net.0.fetch_add(1, Ordering::Relaxed);
+                {
+                    let mut lock = shared_net.1.write().unwrap();
+                    lock.copy(net.vs()).unwrap();
+                    lock.freeze();
+                }
+                shared_net.0.fetch_add(1, Ordering::Relaxed);
                 // Save checkpoint.
                 if (training_steps / STEPS_BETWEEN_PUBLISH) % PUBLISHES_BETWEEN_SAVE == 0 {
                     // FIXME: This will stall until write is complete, which might be a long time
                     // because we are writing to a different computer.
-                    alpha_net
+                    net
                         .save(model_path.join(file_name(training_steps)))
                         .unwrap();
                 }
@@ -123,7 +127,7 @@ pub fn run(device: Device, beta_net: &BetaNet, rx: Receiver<Vec<Target<Env>>>, m
 mod tests {
     use std::{
         path::PathBuf,
-        sync::{atomic::AtomicUsize, RwLock},
+        sync::{atomic::{AtomicUsize, AtomicU32}, RwLock},
     };
 
     use fast_tak::Game;
@@ -132,7 +136,7 @@ mod tests {
     use tch::Device;
 
     use super::run;
-    use crate::{BetaNet, Net};
+    use crate::{SharedNet, Net};
 
     #[test]
     fn training_works() {
@@ -141,7 +145,7 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
         let mut net = Net::new(Device::Cpu, Some(rng.gen()));
-        let beta_net: BetaNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
+        let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
 
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
 
@@ -168,8 +172,9 @@ mod tests {
 
         run(
             Device::cuda_if_available(),
-            &beta_net,
+            &shared_net,
             batch_rx,
+            &AtomicU32::new(0),
             &PathBuf::default(),
         );
     }
