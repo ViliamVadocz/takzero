@@ -116,7 +116,7 @@ fn reanalyze(
     trajectories: &mut [Vec<usize>],
 ) -> Vec<Target<Env>> {
     debug_assert_eq!(replays.len(), BATCH_SIZE);
-    let beta = 0.0;
+    let betas = [0.0; BATCH_SIZE];
 
     envs.iter_mut()
         .zip(replays)
@@ -131,7 +131,7 @@ fn reanalyze(
         net,
         SAMPLED,
         SIMULATIONS,
-        beta,
+        &betas,
         actions,
         trajectories,
         Some(rng),
@@ -140,7 +140,8 @@ fn reanalyze(
     let mut targets: Vec<_> = nodes
         .iter()
         .zip(envs.iter())
-        .map(|(node, env)| Target {
+        .zip(betas)
+        .map(|((node, env), beta)| Target {
             env: env.clone(),
             policy: node
                 .improved_policy(beta)

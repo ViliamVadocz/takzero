@@ -19,7 +19,7 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
     nodes: &mut [Node<E>],
     envs: &[E],
     agent: &A,
-    beta: f32,
+    betas: &[f32],
 
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
@@ -32,9 +32,10 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
         .zip(envs)
         .zip(actions.par_iter_mut())
         .zip(trajectories.par_iter_mut())
+        .zip(betas.par_iter())
         .enumerate()
-        .filter_map(|(index, (((node, env), actions), trajectory))| {
-            match node.forward(trajectory, env.clone(), beta) {
+        .filter_map(|(index, ((((node, env), actions), trajectory), beta))| {
+            match node.forward(trajectory, env.clone(), *beta) {
                 Forward::Known(eval) => {
                     // If the result is known just propagate it now.
                     node.backward_known_eval(trajectory.drain(..), eval);
@@ -105,7 +106,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     agent: &A,
     sampled: usize,
     simulations: u32,
-    beta: f32,
+    betas: &[f32],
 
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
@@ -115,12 +116,13 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     debug_assert_eq!(nodes.len(), envs.len());
     debug_assert_eq!(nodes.len(), actions.len());
     debug_assert_eq!(nodes.len(), trajectories.len());
+    debug_assert_eq!(nodes.len(), betas.len());
     debug_assert!(actions.iter().all(Vec::is_empty));
     debug_assert!(trajectories.iter().all(Vec::is_empty));
     debug_assert!(envs.iter().all(|env| env.terminal().is_none()));
 
     // Run one simulation on all nodes.
-    batched_simulate(nodes, envs, agent, beta, actions, trajectories);
+    batched_simulate(nodes, envs, agent, betas, actions, trajectories);
 
     let before_policy_batch: Vec<Vec<_>> = nodes
         .iter()
@@ -189,7 +191,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                     (child, clone)
                 })
                 .unzip();
-            batched_simulate(&mut nodes, &envs, agent, beta, actions, trajectories);
+            batched_simulate(&mut nodes, &envs, agent, betas, actions, trajectories);
             // Restore children.
             search_sets
                 .par_iter_mut()
@@ -201,19 +203,21 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
         }
 
         // Sort and sample.
-        search_sets.par_iter_mut().for_each(|search_set| {
-            let fake_visit_count = (iteration * simulations_per_halving / sampled) as f32;
-            search_set.sort_unstable_by_key(|(_, child)| {
-                Reverse(
-                    child
-                        .evaluation
-                        .negate()
-                        .map(|q| sigma(q, child.variance, beta, fake_visit_count) + child.policy),
-                )
+        search_sets
+            .par_iter_mut()
+            .zip(betas)
+            .for_each(|(search_set, beta)| {
+                let fake_visit_count = (iteration * simulations_per_halving / sampled) as f32;
+                search_set.sort_unstable_by_key(|(_, child)| {
+                    Reverse(
+                        child.evaluation.negate().map(|q| {
+                            sigma(q, child.variance, *beta, fake_visit_count) + child.policy
+                        }),
+                    )
+                });
+                let len = search_set.len().div(2).max(1);
+                *search_set = unsafe { std::mem::transmute(&mut search_set[..len]) };
             });
-            let len = search_set.len().div(2).max(1);
-            *search_set = unsafe { std::mem::transmute(&mut search_set[..len]) };
-        });
         iteration += 1;
     }
 
@@ -305,7 +309,7 @@ mod tests {
             &Dummy,
             SAMPLED,
             SIMULATIONS,
-            BETA,
+            &[BETA],
             &mut [vec![]],
             &mut [vec![]],
             Some(&mut rng),
@@ -335,7 +339,7 @@ mod tests {
             &Dummy,
             SAMPLED,
             SIMULATIONS,
-            BETA,
+            &[BETA],
             &mut [vec![]],
             &mut [vec![]],
             Some(&mut rng),
@@ -368,7 +372,7 @@ mod tests {
                 &Dummy,
                 SAMPLED,
                 SIMULATIONS,
-                BETA,
+                &[BETA],
                 &mut actions,
                 &mut trajectories,
                 Some(&mut rng),

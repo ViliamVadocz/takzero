@@ -29,9 +29,20 @@ pub const SIMULATIONS: u32 = 1024;
 pub const NEW_REPLAYS_PER_TRAINING_STEP: u32 = 10;
 
 // This number should be large enough that there are also late-game positions.
-const STEPS_BEFORE_CHECKING_NETWORK: usize = 500;
+pub const STEPS_BEFORE_CHECKING_NETWORK: usize = 500;
 
-const WEIGHTED_RANDOM_PLIES: u16 = 30;
+pub const WEIGHTED_RANDOM_PLIES: u16 = 30;
+
+pub const GREEDY_AGENTS: usize = 1;
+pub const BASELINE_AGENTS: usize = BATCH_SIZE / 2 - GREEDY_AGENTS;
+pub const LOW_BETA_AGENTS: usize = BATCH_SIZE / 4;
+pub const HIGH_BETA_AGENTS: usize = BATCH_SIZE / 4;
+pub const LOW_BETA: f32 = 0.02;
+pub const HIGH_BETA: f32 = 0.2;
+
+#[allow(clippy::assertions_on_constants)]
+const _: () =
+    assert!(GREEDY_AGENTS + BASELINE_AGENTS + LOW_BETA_AGENTS + HIGH_BETA_AGENTS == BATCH_SIZE);
 
 /// Populate the replay buffer with new state-action pairs from self-play.
 pub fn run(
@@ -64,14 +75,21 @@ pub fn run(
     });
 
     let mut temp_replay_buffer = VecDeque::new();
+    let betas: Vec<f32> = [
+        vec![0.0; GREEDY_AGENTS],
+        vec![0.0; BASELINE_AGENTS],
+        vec![LOW_BETA; LOW_BETA_AGENTS],
+        vec![HIGH_BETA; HIGH_BETA_AGENTS],
+    ]
+    .concat();
 
+    let mut old_steps = training_steps.load(Ordering::Relaxed);
     loop {
-        const BETA: f32 = 0.0; // TODO
         self_play(
             &mut rng,
             &mut rngs,
             &net,
-            BETA,
+            &betas,
             &mut envs,
             &mut nodes,
             &mut replays_batch,
@@ -81,6 +99,13 @@ pub fn run(
         );
 
         // TODO: Wait for correct training step / game step ratio.
+        let steps_since_last_time = training_steps.load(Ordering::Relaxed) - old_steps;
+        log::debug!(
+            "generated {} replays per {steps_since_last_time} training steps, ratio = {:.2}",
+            temp_replay_buffer.len(),
+            temp_replay_buffer.len() as f64 / steps_since_last_time as f64
+        );
+        old_steps += steps_since_last_time;
 
         log::debug!("waiting to write into replay buffer");
         let mut lock = replay_buffer.write().unwrap();
@@ -132,7 +157,7 @@ fn self_play(
     rng: &mut impl Rng,
     rngs: &mut [ChaCha8Rng],
     agent: &Net,
-    beta: f32,
+    betas: &[f32],
 
     envs: &mut [Env],
     nodes: &mut [Node<Env>],
@@ -148,13 +173,14 @@ fn self_play(
     nodes.iter_mut().for_each(|node| *node = Node::default());
 
     for _ in 0..STEPS_BEFORE_CHECKING_NETWORK {
+        log::debug!("step");
         let mut top_actions = gumbel_sequential_halving(
             nodes,
             envs,
             agent,
             SAMPLED,
             SIMULATIONS,
-            beta,
+            betas,
             actions,
             trajectories,
             Some(rng),
@@ -164,6 +190,8 @@ fn self_play(
             .zip(rngs.iter_mut())
             .zip(nodes.iter_mut())
             .zip(&mut top_actions)
+            .skip(GREEDY_AGENTS)
+            .take(BASELINE_AGENTS)
             .filter(|(((env, _), _), _)| env.steps() < WEIGHTED_RANDOM_PLIES)
             .for_each(|(((_, rng), node), top_action)| {
                 let weighted_index =

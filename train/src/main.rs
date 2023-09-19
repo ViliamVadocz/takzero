@@ -26,7 +26,17 @@ use takzero::{
 use tch::{nn::VarStore, Device};
 
 use crate::{
-    self_play::NEW_REPLAYS_PER_TRAINING_STEP,
+    self_play::{
+        BASELINE_AGENTS,
+        GREEDY_AGENTS,
+        HIGH_BETA,
+        HIGH_BETA_AGENTS,
+        LOW_BETA,
+        LOW_BETA_AGENTS,
+        NEW_REPLAYS_PER_TRAINING_STEP,
+        STEPS_BEFORE_CHECKING_NETWORK,
+        WEIGHTED_RANDOM_PLIES,
+    },
     training::{
         EFFECTIVE_BATCH_SIZE,
         LEARNING_RATE,
@@ -81,7 +91,6 @@ const REANALYZE_PER_DEVICE: &[(Device, usize)] = &[
     (Device::Cuda(1), 32),
     (Device::Cuda(2), 32),
     (Device::Cuda(3), 32),
-    (Device::Cuda(4), 32),
 ];
 
 fn assert_paths_are_correct(args: &Args) {
@@ -250,6 +259,14 @@ fn print_hyper_parameters(net: &Net, seed: u64) {
     println!("self_play::BATCH_SIZE = {}", self_play::BATCH_SIZE);
     println!("self_play::SAMPLED = {}", self_play::SAMPLED);
     println!("self_play::SIMULATIONS = {}", self_play::SIMULATIONS);
+    println!("STEPS_BEFORE_CHECKING_NETWORK = {STEPS_BEFORE_CHECKING_NETWORK}");
+    println!("WEIGHTED_RANDOM_PLIES = {WEIGHTED_RANDOM_PLIES}");
+    println!("GREEDY_AGENTS = {GREEDY_AGENTS}");
+    println!("BASELINE_AGENTS = {BASELINE_AGENTS}");
+    println!("LOW_BETA_AGENTS = {LOW_BETA_AGENTS}");
+    println!("HIGH_BETA_AGENTS = {HIGH_BETA_AGENTS}");
+    println!("LOW_BETA = {LOW_BETA}");
+    println!("HIGH_BETA = {HIGH_BETA}");
 
     println!("reanalyze::BATCH_SIZE = {}", reanalyze::BATCH_SIZE);
     println!("reanalyze::SAMPLED = {}", reanalyze::SAMPLED);
@@ -273,6 +290,4 @@ fn print_hyper_parameters(net: &Net, seed: u64) {
         }
     }
     println!("total_params = {total_params}");
-
-    panic!("testing testing");
 }
