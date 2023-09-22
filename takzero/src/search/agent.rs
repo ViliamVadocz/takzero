@@ -4,12 +4,14 @@ use super::env::Environment;
 
 pub trait Agent<E: Environment> {
     type Policy: Index<E::Action, Output = f32> + Send + Sync;
+    type Context;
 
     // Always batched.
     fn policy_value_uncertainty(
         &self,
         env_batch: &[E],
         actions_batch: &[Vec<E::Action>],
+        context: &mut Self::Context,
     ) -> Vec<(Self::Policy, f32, f32)>;
 }
 
@@ -21,12 +23,14 @@ pub mod dummy {
     pub struct Dummy;
 
     impl<E: Environment> Agent<E> for Dummy {
+        type Context = ();
         type Policy = Policy;
 
         fn policy_value_uncertainty(
             &self,
             env_batch: &[E],
             actions_batch: &[Vec<<E as Environment>::Action>],
+            context: &mut Self::Context,
         ) -> Vec<(Self::Policy, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
             actions_batch

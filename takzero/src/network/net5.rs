@@ -1,6 +1,7 @@
 use std::ops::Index;
 
 use fast_tak::{takparse::Move, Game};
+use rayon::prelude::*;
 use tch::{
     nn::{self, ModuleT},
     Device,
@@ -208,12 +209,14 @@ impl Network for Net5 {
 type Env = Game<N, 4>;
 
 impl Agent<Env> for Net5 {
+    type Context = RndNormalizationContext;
     type Policy = Policy;
 
     fn policy_value_uncertainty(
         &self,
         env_batch: &[Env],
         actions_batch: &[Vec<<Env as crate::search::env::Environment>::Action>],
+        context: &mut Self::Context,
     ) -> Vec<(Self::Policy, f32, f32)> {
         debug_assert_eq!(env_batch.len(), actions_batch.len());
         if env_batch.is_empty() {
@@ -223,14 +226,14 @@ impl Agent<Env> for Net5 {
 
         let xs = Tensor::cat(
             &env_batch
-                .iter()
+                .par_iter()
                 .map(|env| game_to_tensor(env, device))
                 .collect::<Vec<_>>(),
             0,
         );
         let mask = Tensor::cat(
             &actions_batch
-                .iter()
+                .par_iter()
                 .map(|m| move_mask::<N>(m, device))
                 .collect::<Vec<_>>(),
             0,
@@ -246,7 +249,7 @@ impl Agent<Env> for Net5 {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        let rnd_uncertainties = self.forward_rnd(&xs, false);
+        let rnd_uncertainties = context.normalize(&self.forward_rnd(&xs, false));
         let uncertainties: Vec<_> = ube_uncertainties
             .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
             .clip(0.0, 1.0)
@@ -274,6 +277,40 @@ impl Index<Move> for Policy {
     }
 }
 
+pub struct RndNormalizationContext {
+    min: Tensor,
+    max: Tensor,
+}
+
+impl RndNormalizationContext {
+    pub fn new(batch_size: i64, device: Device) -> Self {
+        let mut this = Self {
+            min: Tensor::zeros([batch_size, 1], (Kind::Float, device)),
+            max: Tensor::zeros([batch_size, 1], (Kind::Float, device)),
+        };
+        this.reset();
+        this
+    }
+
+    pub fn reset(&mut self) {
+        self.min = self.min.fill(f32::MAX as f64);
+        self.max = self.max.fill(f32::MIN as f64);
+    }
+
+    fn update(&mut self, rnd: &Tensor) {
+        self.min = self.min.minimum(rnd);
+        self.max = self.max.maximum(rnd);
+    }
+
+    pub fn normalize(&mut self, rnd: &Tensor) -> Tensor {
+        self.update(rnd);
+        let diff = self.max - self.min;
+        let mask = diff.greater(0).neg();
+        let normalized = (rnd - self.min) / diff;
+        normalized.masked_fill_tensor(&mask, rnd)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::array;
@@ -281,7 +318,7 @@ mod tests {
     use fast_tak::Game;
     use tch::Device;
 
-    use super::{Env, Net5};
+    use super::{Env, Net5, RndNormalizationContext};
     use crate::{
         network::Network,
         search::{agent::Agent, env::Environment},
@@ -292,9 +329,10 @@ mod tests {
         let net = Net5::new(Device::cuda_if_available(), Some(123));
         let game: Env = Game::default();
         let mut moves = Vec::new();
+        let mut context = RndNormalizationContext::new(1, Device::cuda_if_available());
         game.possible_moves(&mut moves);
         let (_policy, _value, _uncertainty) = net
-            .policy_value_uncertainty(&[game], &[moves])
+            .policy_value_uncertainty(&[game], &[moves], &mut context)
             .pop()
             .unwrap();
     }
@@ -305,11 +343,13 @@ mod tests {
         let net = Net5::new(Device::cuda_if_available(), Some(456));
         let mut games: [Env; BATCH_SIZE] = array::from_fn(|_| Game::default());
         let mut actions_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+        let mut context =
+            RndNormalizationContext::new(BATCH_SIZE as i64, Device::cuda_if_available());
         games
             .iter_mut()
             .zip(&mut actions_batch)
             .for_each(|(game, actions)| game.populate_actions(actions));
-        let output = net.policy_value_uncertainty(&games, &actions_batch);
+        let output = net.policy_value_uncertainty(&games, &actions_batch, &mut context);
         assert_eq!(output.len(), BATCH_SIZE);
     }
 }

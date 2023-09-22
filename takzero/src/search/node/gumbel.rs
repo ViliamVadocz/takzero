@@ -21,6 +21,7 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
     agent: &A,
     betas: &[f32],
 
+    context: &mut A::Context, // FIXME (assumes same order of nodes and always the same batch size)
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
 ) {
@@ -50,7 +51,7 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
         })
         .unzip();
     let (batch_envs, batch_actions): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
-    let output = agent.policy_value_uncertainty(&batch_envs, &batch_actions);
+    let output = agent.policy_value_uncertainty(&batch_envs, &batch_actions, context);
 
     let borrows: Vec<_> = filter_by_unique_ascending_indices(
         nodes.iter_mut().zip(actions).zip(trajectories.iter_mut()),
@@ -108,6 +109,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     simulations: u32,
     betas: &[f32],
 
+    context: &mut A::Context,
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
     rng: Option<&mut R>,
@@ -122,7 +124,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     debug_assert!(envs.iter().all(|env| env.terminal().is_none()));
 
     // Run one simulation on all nodes.
-    batched_simulate(nodes, envs, agent, betas, actions, trajectories);
+    batched_simulate(nodes, envs, agent, betas, context, actions, trajectories);
 
     let before_policy_batch: Vec<Vec<_>> = nodes
         .iter()
@@ -191,7 +193,15 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                     (child, clone)
                 })
                 .unzip();
-            batched_simulate(&mut nodes, &envs, agent, betas, actions, trajectories);
+            batched_simulate(
+                &mut nodes,
+                &envs,
+                agent,
+                betas,
+                context,
+                actions,
+                trajectories,
+            );
             // Restore children.
             search_sets
                 .par_iter_mut()
