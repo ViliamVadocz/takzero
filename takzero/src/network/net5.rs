@@ -216,7 +216,7 @@ impl Agent<Env> for Net5 {
         &self,
         env_batch: &[Env],
         actions_batch: &[Vec<<Env as crate::search::env::Environment>::Action>],
-        context: &mut Self::Context,
+        context: &mut [Self::Context],
     ) -> Vec<(Self::Policy, f32, f32)> {
         debug_assert_eq!(env_batch.len(), actions_batch.len());
         if env_batch.is_empty() {
@@ -249,7 +249,15 @@ impl Agent<Env> for Net5 {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        let rnd_uncertainties = context.normalize(&self.forward_rnd(&xs, false));
+        // FIXME: causes synchronization which could be slow.
+        let rnd_uncertainties = Tensor::from_slice(
+            &Vec::try_from(self.forward_rnd(&xs, false))
+                .unwrap()
+                .into_iter()
+                .zip(context)
+                .map(|(rnd, c)| c.normalize(rnd))
+                .collect::<Vec<_>>(),
+        );
         let uncertainties: Vec<_> = ube_uncertainties
             .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
             .clip(0.0, 1.0)
@@ -278,36 +286,33 @@ impl Index<Move> for Policy {
 }
 
 pub struct RndNormalizationContext {
-    min: Tensor,
-    max: Tensor,
+    min: f32,
+    max: f32,
+}
+
+impl Default for RndNormalizationContext {
+    fn default() -> Self {
+        Self {
+            min: f32::MAX,
+            max: f32::MIN,
+        }
+    }
 }
 
 impl RndNormalizationContext {
-    pub fn new(batch_size: i64, device: Device) -> Self {
-        let mut this = Self {
-            min: Tensor::zeros([batch_size, 1], (Kind::Float, device)),
-            max: Tensor::zeros([batch_size, 1], (Kind::Float, device)),
-        };
-        this.reset();
-        this
+    fn update(&mut self, rnd: f32) {
+        self.min = self.min.min(rnd);
+        self.max = self.max.max(rnd);
     }
 
-    pub fn reset(&mut self) {
-        self.min = self.min.fill(f32::MAX as f64);
-        self.max = self.max.fill(f32::MIN as f64);
-    }
-
-    fn update(&mut self, rnd: &Tensor) {
-        self.min = self.min.minimum(rnd);
-        self.max = self.max.maximum(rnd);
-    }
-
-    pub fn normalize(&mut self, rnd: &Tensor) -> Tensor {
+    pub fn normalize(&mut self, rnd: f32) -> f32 {
         self.update(rnd);
         let diff = self.max - self.min;
-        let mask = diff.greater(0).neg();
-        let normalized = (rnd - self.min) / diff;
-        normalized.masked_fill_tensor(&mask, rnd)
+        if diff > 0.0 {
+            (rnd - self.min) / diff
+        } else {
+            rnd
+        }
     }
 }
 
@@ -329,10 +334,10 @@ mod tests {
         let net = Net5::new(Device::cuda_if_available(), Some(123));
         let game: Env = Game::default();
         let mut moves = Vec::new();
-        let mut context = RndNormalizationContext::new(1, Device::cuda_if_available());
+        let context = RndNormalizationContext::default();
         game.possible_moves(&mut moves);
         let (_policy, _value, _uncertainty) = net
-            .policy_value_uncertainty(&[game], &[moves], &mut context)
+            .policy_value_uncertainty(&[game], &[moves], &mut [context])
             .pop()
             .unwrap();
     }
@@ -343,13 +348,12 @@ mod tests {
         let net = Net5::new(Device::cuda_if_available(), Some(456));
         let mut games: [Env; BATCH_SIZE] = array::from_fn(|_| Game::default());
         let mut actions_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-        let mut context =
-            RndNormalizationContext::new(BATCH_SIZE as i64, Device::cuda_if_available());
+        let context = RndNormalizationContext::default();
         games
             .iter_mut()
             .zip(&mut actions_batch)
             .for_each(|(game, actions)| game.populate_actions(actions));
-        let output = net.policy_value_uncertainty(&games, &actions_batch, &mut context);
+        let output = net.policy_value_uncertainty(&games, &actions_batch, &mut [context]);
         assert_eq!(output.len(), BATCH_SIZE);
     }
 }

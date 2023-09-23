@@ -117,6 +117,9 @@ fn reanalyze(
 ) -> Vec<Target<Env>> {
     debug_assert_eq!(replays.len(), BATCH_SIZE);
     let betas = [0.0; BATCH_SIZE];
+    let mut context: Vec<_> = (0..nodes.len())
+        .map(|_| <Net as Agent<Env>>::Context::default())
+        .collect();
 
     envs.iter_mut()
         .zip(replays)
@@ -132,6 +135,7 @@ fn reanalyze(
         SAMPLED,
         SIMULATIONS,
         &betas,
+        &mut context,
         actions,
         trajectories,
         Some(rng),
@@ -156,8 +160,8 @@ fn reanalyze(
     for step in 0..STEP {
         log::debug!("reanalyze step");
         let sign = if step % 2 == 0 { 1.0 } else { -1.0 };
-        let raw_rnd: Vec<f32> = net
-            .forward_rnd(
+        let raw_rnd: Vec<f32> = Vec::try_from(
+            net.forward_rnd(
                 &Tensor::cat(
                     &envs
                         .iter()
@@ -167,9 +171,13 @@ fn reanalyze(
                 ),
                 false,
             )
-            .view([-1])
-            .try_into()
-            .unwrap();
+            .view([-1]),
+        )
+        .unwrap()
+        .into_iter()
+        .zip(&mut context)
+        .map(|(rnd, c)| c.normalize(rnd))
+        .collect();
 
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         nodes
@@ -213,7 +221,7 @@ fn reanalyze(
         .map(|((index, (env, actions)), _)| (index, (env.clone(), std::mem::take(actions))))
         .unzip();
     let (batch_envs, batch_actions): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
-    let output = net.policy_value_uncertainty(&batch_envs, &batch_actions);
+    let output = net.policy_value_uncertainty(&batch_envs, &batch_actions, &mut context);
 
     // Apply the output values and uncertainties onto the targets to finish them.
     filter_by_unique_ascending_indices(targets.iter_mut().zip(actions.iter_mut()), indices)

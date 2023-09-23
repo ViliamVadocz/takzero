@@ -13,6 +13,7 @@ use rand_chacha::ChaCha8Rng;
 use takzero::{
     network::Network,
     search::{
+        agent::Agent,
         env::Environment,
         node::{gumbel::gumbel_sequential_halving, Node},
     },
@@ -174,6 +175,9 @@ fn self_play(
 
     for _ in 0..STEPS_BEFORE_CHECKING_NETWORK {
         log::debug!("step");
+        let mut context: Vec<_> = (0..nodes.len())
+            .map(|_| <Net as Agent<Env>>::Context::default())
+            .collect();
         let mut top_actions = gumbel_sequential_halving(
             nodes,
             envs,
@@ -181,6 +185,7 @@ fn self_play(
             SAMPLED,
             SIMULATIONS,
             betas,
+            &mut context,
             actions,
             trajectories,
             Some(rng),

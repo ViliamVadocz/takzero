@@ -143,7 +143,13 @@ impl<E: Environment> Node<E> {
     }
 
     #[allow(clippy::missing_panics_doc)]
-    pub fn simulate_simple<A: Agent<E>>(&mut self, agent: &A, env: E, beta: f32) -> (Eval, f32) {
+    pub fn simulate_simple<A: Agent<E>>(
+        &mut self,
+        agent: &A,
+        env: E,
+        beta: f32,
+        context: &mut [A::Context; 1],
+    ) -> (Eval, f32) {
         let mut trajectory = Vec::new();
         match self.forward(&mut trajectory, env, beta) {
             Forward::Known(eval) => self.backward_known_eval(trajectory.into_iter(), eval),
@@ -151,7 +157,7 @@ impl<E: Environment> Node<E> {
                 let mut actions = [Vec::new()];
                 env.populate_actions(&mut actions[0]);
                 let (policy, value, uncertainty) = agent
-                    .policy_value_uncertainty(&[env], &actions)
+                    .policy_value_uncertainty(&[env], &actions, context)
                     .pop()
                     .unwrap();
                 self.backward_network_eval(
@@ -190,7 +196,7 @@ mod tests {
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate_simple(&Dummy, game.clone(), 1.0),
+                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut [()]),
                     (Eval::Win(_), _)
                 )
             })
@@ -218,7 +224,7 @@ mod tests {
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate_simple(&Dummy, game.clone(), 1.0),
+                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut [()]),
                     (Eval::Win(_), _)
                 )
             })

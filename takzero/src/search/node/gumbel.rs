@@ -21,7 +21,7 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
     agent: &A,
     betas: &[f32],
 
-    context: &mut A::Context, // FIXME (assumes same order of nodes and always the same batch size)
+    context: &mut [A::Context],
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
 ) {
@@ -34,27 +34,39 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
         .zip(actions.par_iter_mut())
         .zip(trajectories.par_iter_mut())
         .zip(betas.par_iter())
+        .zip(context.par_iter_mut())
         .enumerate()
-        .filter_map(|(index, ((((node, env), actions), trajectory), beta))| {
-            match node.forward(trajectory, env.clone(), *beta) {
-                Forward::Known(eval) => {
-                    // If the result is known just propagate it now.
-                    node.backward_known_eval(trajectory.drain(..), eval);
-                    None
+        .filter_map(
+            |(index, (((((node, env), actions), trajectory), beta), context))| {
+                match node.forward(trajectory, env.clone(), *beta) {
+                    Forward::Known(eval) => {
+                        // If the result is known just propagate it now.
+                        node.backward_known_eval(trajectory.drain(..), eval);
+                        None
+                    }
+                    Forward::NeedsNetwork(env) => {
+                        env.populate_actions(actions);
+                        Some((
+                            index,
+                            // We are taking the actions and rnd_contexts because we need owned.
+                            (env, (std::mem::take(actions), std::mem::take(context))),
+                        ))
+                    }
                 }
-                Forward::NeedsNetwork(env) => {
-                    env.populate_actions(actions);
-                    Some((index, (env, std::mem::take(actions))))
-                    // We are taking the actions because we need owned.
-                }
-            }
-        })
+            },
+        )
         .unzip();
-    let (batch_envs, batch_actions): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
-    let output = agent.policy_value_uncertainty(&batch_envs, &batch_actions, context);
+    let (batch_envs, batch_actions_context): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
+    let (batch_actions, mut batch_context): (Vec<_>, Vec<_>) =
+        batch_actions_context.into_iter().unzip();
+    let output = agent.policy_value_uncertainty(&batch_envs, &batch_actions, &mut batch_context);
 
     let borrows: Vec<_> = filter_by_unique_ascending_indices(
-        nodes.iter_mut().zip(actions).zip(trajectories.iter_mut()),
+        nodes
+            .iter_mut()
+            .zip(actions)
+            .zip(trajectories.iter_mut())
+            .zip(context),
         indices,
     )
     .collect();
@@ -62,16 +74,27 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
         .into_par_iter()
         .zip(output)
         .zip(batch_actions)
+        .zip(batch_context)
         .for_each(
-            |((((node, old_actions), trajectory), (policy, value, uncertainty)), mut actions)| {
+            |(
+                (
+                    (
+                        (((node, old_actions), trajectory), old_context),
+                        (policy, value, uncertainty),
+                    ),
+                    mut actions,
+                ),
+                context,
+            )| {
                 node.backward_network_eval(
                     trajectory.drain(..),
                     actions.drain(..).map(|a| (a.clone(), policy[a])),
                     value,
                     uncertainty,
                 );
-                // Restore old actions.
+                // Restore old actions and RND contexts.
                 let _ = std::mem::replace(old_actions, actions);
+                let _ = std::mem::replace(old_context, context);
             },
         );
 }
@@ -109,7 +132,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     simulations: u32,
     betas: &[f32],
 
-    context: &mut A::Context,
+    context: &mut [A::Context],
     actions: &mut [Vec<E::Action>],
     trajectories: &mut [Vec<usize>],
     rng: Option<&mut R>,
@@ -119,6 +142,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     debug_assert_eq!(nodes.len(), actions.len());
     debug_assert_eq!(nodes.len(), trajectories.len());
     debug_assert_eq!(nodes.len(), betas.len());
+    debug_assert_eq!(nodes.len(), context.len());
     debug_assert!(actions.iter().all(Vec::is_empty));
     debug_assert!(trajectories.iter().all(Vec::is_empty));
     debug_assert!(envs.iter().all(|env| env.terminal().is_none()));
@@ -320,6 +344,7 @@ mod tests {
             SAMPLED,
             SIMULATIONS,
             &[BETA],
+            &mut [()],
             &mut [vec![]],
             &mut [vec![]],
             Some(&mut rng),
@@ -350,6 +375,7 @@ mod tests {
             SAMPLED,
             SIMULATIONS,
             &[BETA],
+            &mut [()],
             &mut [vec![]],
             &mut [vec![]],
             Some(&mut rng),
@@ -383,6 +409,7 @@ mod tests {
                 SAMPLED,
                 SIMULATIONS,
                 &[BETA],
+                &mut [()],
                 &mut actions,
                 &mut trajectories,
                 Some(&mut rng),
