@@ -238,15 +238,17 @@ fn self_play(
             .flatten()
             .for_each(|replay| temp_replay_buffer.push_front(replay));
 
-        let steps = training_steps.load(Ordering::Relaxed);
-        log::info!(
-            "Adding {} replays at {steps} training steps",
-            temp_replay_buffer.len()
-        );
-        replay_buffer
-            .write()
-            .unwrap()
-            .append(&mut temp_replay_buffer);
+        if !temp_replay_buffer.is_empty() {
+            let steps = training_steps.load(Ordering::Relaxed);
+            log::info!(
+                "Adding {} replays at {steps} training steps",
+                temp_replay_buffer.len()
+            );
+            replay_buffer
+                .write()
+                .unwrap()
+                .append(&mut temp_replay_buffer);
+        }
     }
 
     // Salvage replays from unfinished games.
@@ -257,6 +259,15 @@ fn self_play(
             .take(len)
             .for_each(|replay| temp_replay_buffer.push_front(replay));
     }
+    let steps = training_steps.load(Ordering::Relaxed);
+    log::info!(
+        "Adding {} replays at {steps} training steps (cut-off)",
+        temp_replay_buffer.len()
+    );
+    replay_buffer
+        .write()
+        .unwrap()
+        .append(&mut temp_replay_buffer);
 }
 
 #[cfg(test)]
