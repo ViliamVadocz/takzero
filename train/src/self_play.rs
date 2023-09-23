@@ -75,7 +75,6 @@ pub fn run(
         rng
     });
 
-    let mut temp_replay_buffer = VecDeque::new();
     let betas: Vec<f32> = [
         vec![0.0; GREEDY_AGENTS],
         vec![0.0; BASELINE_AGENTS],
@@ -84,7 +83,6 @@ pub fn run(
     ]
     .concat();
 
-    let mut old_steps = training_steps.load(Ordering::Relaxed);
     loop {
         self_play(
             &mut rng,
@@ -96,28 +94,17 @@ pub fn run(
             &mut replays_batch,
             &mut actions,
             &mut trajectories,
-            &mut temp_replay_buffer,
+            replay_buffer,
+            training_steps,
         );
 
-        // TODO: Wait for correct training step / game step ratio.
-        let steps_since_last_time = training_steps.load(Ordering::Relaxed) - old_steps;
-        log::debug!(
-            "generated {} replays per {steps_since_last_time} training steps, ratio = {:.2}",
-            temp_replay_buffer.len(),
-            temp_replay_buffer.len() as f64 / steps_since_last_time as f64
-        );
-        old_steps += steps_since_last_time;
-
-        log::debug!("waiting to write into replay buffer");
-        let mut lock = replay_buffer.write().unwrap();
-        log::debug!("replay buffer write lock acquired");
-        lock.append(&mut temp_replay_buffer);
         // Truncate replay buffer if it gets too long.
+        let mut lock = replay_buffer.write().unwrap();
         if lock.len() > MAXIMUM_REPLAY_BUFFER_SIZE {
+            log::info!("truncating replay buffer, len = {}", lock.len());
             lock.truncate(MAXIMUM_REPLAY_BUFFER_SIZE);
         }
         drop(lock);
-        log::debug!("finished editing replay buffer");
 
         //  Get the latest network
         log::info!("checking if there is a new model for self-play");
@@ -144,7 +131,7 @@ pub fn run(
                     .expect("replay file path should be valid and writable");
                 file.write_all(s.as_bytes()).unwrap();
             });
-            log::debug!("saved replays to file");
+            log::info!("saved replays to file");
         }
 
         if cfg!(test) {
@@ -166,15 +153,17 @@ fn self_play(
     actions: &mut [Vec<<Env as Environment>::Action>],
     trajectories: &mut [Vec<usize>],
 
-    temp_replay_buffer: &mut VecDeque<Replay<Env>>,
+    replay_buffer: &ReplayBuffer,
+    training_steps: &AtomicU32,
 ) {
     envs.iter_mut()
         .zip(actions.iter_mut())
         .for_each(|(env, actions)| new_opening(env, actions, rng));
     nodes.iter_mut().for_each(|node| *node = Node::default());
 
+    let mut temp_replay_buffer = VecDeque::new();
     for _ in 0..STEPS_BEFORE_CHECKING_NETWORK {
-        log::debug!("step");
+        log::info!("step");
         let mut context: Vec<_> = (0..nodes.len())
             .map(|_| <Net as Agent<Env>>::Context::default())
             .collect();
@@ -248,6 +237,16 @@ fn self_play(
             })
             .flatten()
             .for_each(|replay| temp_replay_buffer.push_front(replay));
+
+        let steps = training_steps.load(Ordering::Relaxed);
+        log::info!(
+            "Adding {} replays at {steps} training steps",
+            temp_replay_buffer.len()
+        );
+        replay_buffer
+            .write()
+            .unwrap()
+            .append(&mut temp_replay_buffer);
     }
 
     // Salvage replays from unfinished games.

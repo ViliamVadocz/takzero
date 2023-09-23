@@ -99,6 +99,7 @@ pub fn run(
 
         // RND
         let loss_rnd = net.forward_rnd(&input, true).mean(Kind::Float);
+        log::info!("rnd={loss_rnd:?}"); // FIXME: another synchronization point!
         accumulated_total_loss += loss_rnd;
 
         // Do multiple backwards batches before making a step.
