@@ -1,4 +1,7 @@
-use std::{path::Path, sync::atomic::{Ordering, AtomicU32}};
+use std::{
+    path::Path,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use crossbeam::channel::Receiver;
 use takzero::{
@@ -16,7 +19,7 @@ use tch::{
     Tensor,
 };
 
-use crate::{file_name, SharedNet, Env, Net, N, reanalyze};
+use crate::{file_name, reanalyze, Env, Net, SharedNet, N};
 
 pub const LEARNING_RATE: f64 = 1e-4;
 pub const EFFECTIVE_BATCH_SIZE: usize = 2048;
@@ -24,7 +27,10 @@ pub const STEPS_BETWEEN_PUBLISH: u32 = 100;
 pub const PUBLISHES_BETWEEN_SAVE: u32 = 10;
 
 #[allow(clippy::assertions_on_constants)]
-const _: () = assert!(EFFECTIVE_BATCH_SIZE % reanalyze::BATCH_SIZE == 0, "EFFECTIVE_BATCH_SIZE should be divisible by reanalyze::BATCH_SIZE");
+const _: () = assert!(
+    EFFECTIVE_BATCH_SIZE % reanalyze::BATCH_SIZE == 0,
+    "EFFECTIVE_BATCH_SIZE should be divisible by reanalyze::BATCH_SIZE"
+);
 const BATCHES_PER_STEP: usize = EFFECTIVE_BATCH_SIZE.div_ceil(reanalyze::BATCH_SIZE);
 
 // TODO: Consider learning rate scheduler: https://pytorch.org/docs/stable/optim.html
@@ -32,19 +38,20 @@ const BATCHES_PER_STEP: usize = EFFECTIVE_BATCH_SIZE.div_ceil(reanalyze::BATCH_S
 /// Improve the network by training on batches from the re-analyze thread.
 /// Save checkpoints and distribute the newest model.
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(device: Device, shared_net: &SharedNet, rx: Receiver<Vec<Target<Env>>>, training_steps: &AtomicU32, model_path: &Path) {
+pub fn run(
+    device: Device,
+    shared_net: &SharedNet,
+    rx: Receiver<Vec<Target<Env>>>,
+    training_steps: &AtomicU32,
+    model_path: &Path,
+) {
     log::debug!("started training thread");
 
     let mut net = Net::new(device, None);
-    net
-        .vs_mut()
-        .copy(&shared_net.1.read().unwrap())
-        .unwrap();
+    net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
     net.vs_mut().unfreeze();
 
-    let mut opt = Adam::default()
-    .build(net.vs_mut(), LEARNING_RATE)
-    .unwrap();
+    let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
 
     let mut batches = 0;
 
@@ -114,8 +121,7 @@ pub fn run(device: Device, shared_net: &SharedNet, rx: Receiver<Vec<Target<Env>>
                 if (training_steps / STEPS_BETWEEN_PUBLISH) % PUBLISHES_BETWEEN_SAVE == 0 {
                     // FIXME: This will stall until write is complete, which might be a long time
                     // because we are writing to a different computer.
-                    net
-                        .save(model_path.join(file_name(training_steps)))
+                    net.save(model_path.join(file_name(training_steps)))
                         .unwrap();
                 }
             }
@@ -127,7 +133,10 @@ pub fn run(device: Device, shared_net: &SharedNet, rx: Receiver<Vec<Target<Env>>
 mod tests {
     use std::{
         path::PathBuf,
-        sync::{atomic::{AtomicUsize, AtomicU32}, RwLock},
+        sync::{
+            atomic::{AtomicU32, AtomicUsize},
+            RwLock,
+        },
     };
 
     use fast_tak::Game;
@@ -136,7 +145,7 @@ mod tests {
     use tch::Device;
 
     use super::run;
-    use crate::{SharedNet, Net};
+    use crate::{Net, SharedNet};
 
     #[test]
     fn training_works() {
