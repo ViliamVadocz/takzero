@@ -185,7 +185,7 @@ fn self_play(
             .zip(nodes.iter_mut())
             .zip(&mut top_actions)
             .skip(GREEDY_AGENTS)
-            .take(BASELINE_AGENTS)
+            // .take(BASELINE_AGENTS)
             .filter(|(((env, _), _), _)| env.steps() < WEIGHTED_RANDOM_PLIES)
             .for_each(|(((_, rng), node), top_action)| {
                 let weighted_index =
