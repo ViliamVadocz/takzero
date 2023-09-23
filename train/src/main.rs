@@ -17,7 +17,7 @@ use std::{
 use arrayvec::ArrayVec;
 use clap::Parser;
 use fast_tak::Game;
-use rand::prelude::*;
+use rand::{distributions::Uniform, prelude::*};
 use takzero::{
     network::{net5::Net5, Network},
     search::{agent::Agent, env::Environment, DISCOUNT_FACTOR, STEP},
@@ -142,6 +142,15 @@ fn main() {
     let seed: u64 = rand::thread_rng().gen();
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let self_play_seed: u64 = rng.gen();
+    let reanalyze_seeds: Vec<u64> = (&mut rng)
+        .sample_iter(Uniform::new_inclusive(u64::MIN, u64::MAX))
+        .take(
+            REANALYZE_PER_DEVICE
+                .iter()
+                .map(|(_, n)| n)
+                .product::<usize>(),
+        )
+        .collect();
 
     // Create network.
     let mut net = args.resume.as_ref().map_or_else(
@@ -185,11 +194,15 @@ fn main() {
             );
         });
         // Reanalyze threads.
+        let mut seed_iter = reanalyze_seeds.into_iter();
         for (device, amount) in REANALYZE_PER_DEVICE {
-            for _ in 0..*amount {
-                s.spawn(|| {
+            for seed in seed_iter.by_ref().take(*amount) {
+                let shared_net = &shared_net;
+                let batch_tx = &batch_tx;
+                let replay_buffer = &replay_buffer;
+                s.spawn(move || {
                     tch::no_grad(|| {
-                        reanalyze::run(device, seed, &shared_net, &batch_tx, &replay_buffer);
+                        reanalyze::run(device, seed, shared_net, batch_tx, replay_buffer);
                     });
                 });
             }
