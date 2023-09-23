@@ -251,13 +251,14 @@ impl Agent<Env> for Net5 {
         // Uncertainty.
         // FIXME: causes synchronization which could be slow.
         let rnd_uncertainties = Tensor::from_slice(
-            &Vec::try_from(self.forward_rnd(&xs, false))
+            &Vec::try_from(self.forward_rnd(&xs, false).view([-1]))
                 .unwrap()
                 .into_iter()
                 .zip(context)
                 .map(|(rnd, c)| c.normalize(rnd))
                 .collect::<Vec<_>>(),
-        );
+        )
+        .to(device);
         let uncertainties: Vec<_> = ube_uncertainties
             .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
             .clip(0.0, 1.0)
