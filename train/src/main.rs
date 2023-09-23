@@ -87,10 +87,10 @@ const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 100_000_000;
 const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
 const TRAINING_DEVICE: Device = Device::Cuda(0);
 const REANALYZE_PER_DEVICE: &[(Device, usize)] = &[
-    (Device::Cuda(0), 30),
-    (Device::Cuda(1), 32),
-    (Device::Cuda(2), 32),
-    (Device::Cuda(3), 32),
+    (Device::Cuda(0), 6),
+    (Device::Cuda(1), 8),
+    (Device::Cuda(2), 8),
+    (Device::Cuda(3), 8),
 ];
 
 fn assert_paths_are_correct(args: &Args) {
