@@ -46,6 +46,7 @@ const _: () =
     assert!(GREEDY_AGENTS + BASELINE_AGENTS + LOW_BETA_AGENTS + HIGH_BETA_AGENTS == BATCH_SIZE);
 
 /// Populate the replay buffer with new state-action pairs from self-play.
+#[allow(clippy::too_many_lines)]
 pub fn run(
     device: Device,
     seed: u64,
@@ -83,101 +84,28 @@ pub fn run(
     ]
     .concat();
 
-    loop {
-        self_play(
-            &mut rng,
-            &mut rngs,
-            &net,
-            &betas,
-            &mut envs,
-            &mut nodes,
-            &mut replays_batch,
-            &mut actions,
-            &mut trajectories,
-            replay_buffer,
-            training_steps,
-        );
-
-        // Truncate replay buffer if it gets too long.
-        let mut lock = replay_buffer.write().unwrap();
-        if lock.len() > MAXIMUM_REPLAY_BUFFER_SIZE {
-            log::info!("truncating replay buffer, len = {}", lock.len());
-            lock.truncate(MAXIMUM_REPLAY_BUFFER_SIZE);
-        }
-        drop(lock);
-
-        //  Get the latest network
-        log::info!("checking if there is a new model for self-play");
-        let maybe_new_net_index = shared_net.0.load(Ordering::Relaxed);
-        if maybe_new_net_index > net_index {
-            net_index = maybe_new_net_index;
-            net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
-            log::info!("updating self-play model to shared_net_{net_index}");
-
-            // While doing this, also save the replay buffer
-            let s: String = replay_buffer
-                .read()
-                .unwrap()
-                .iter()
-                .map(ToString::to_string)
-                .collect();
-            let path = replay_path.join("replays.txt");
-            std::thread::spawn(move || {
-                let mut file = OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(path)
-                    .expect("replay file path should be valid and writable");
-                file.write_all(s.as_bytes()).unwrap();
-            });
-            log::info!("saved replays to file");
-        }
-
-        if cfg!(test) {
-            break;
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn self_play(
-    rng: &mut impl Rng,
-    rngs: &mut [ChaCha8Rng],
-    agent: &Net,
-    betas: &[f32],
-
-    envs: &mut [Env],
-    nodes: &mut [Node<Env>],
-    replays_batch: &mut [Vec<Replay<Env>>],
-    actions: &mut [Vec<<Env as Environment>::Action>],
-    trajectories: &mut [Vec<usize>],
-
-    replay_buffer: &ReplayBuffer,
-    training_steps: &AtomicU32,
-) {
+    let mut temp_replay_buffer = VecDeque::new();
     envs.iter_mut()
         .zip(actions.iter_mut())
-        .for_each(|(env, actions)| new_opening(env, actions, rng));
-    nodes.iter_mut().for_each(|node| *node = Node::default());
+        .for_each(|(env, actions)| new_opening(env, actions, &mut rng));
 
-    let mut temp_replay_buffer = VecDeque::new();
-    for _ in 0..STEPS_BEFORE_CHECKING_NETWORK {
-        log::info!("step");
+    loop {
+        log::info!("search");
+        // Do Gumbel sequential halving.
         let mut context: Vec<_> = (0..nodes.len())
             .map(|_| <Net as Agent<Env>>::Context::default())
             .collect();
         let mut top_actions = gumbel_sequential_halving(
-            nodes,
-            envs,
-            agent,
+            &mut nodes,
+            &envs,
+            &net,
             SAMPLED,
             SIMULATIONS,
-            betas,
+            &betas,
             &mut context,
-            actions,
-            trajectories,
-            Some(rng),
+            &mut actions,
+            &mut trajectories,
+            Some(&mut rng),
         );
         // For openings, sample actions according to visits instead.
         envs.iter()
@@ -230,7 +158,7 @@ fn self_play(
             .zip(actions.iter_mut())
             .filter_map(|(((replays, node), env), actions)| {
                 env.terminal().map(|_| {
-                    new_opening(env, actions, rng);
+                    new_opening(env, actions, &mut rng);
                     *node = Node::default();
                     replays.drain(..)
                 })
@@ -238,36 +166,51 @@ fn self_play(
             .flatten()
             .for_each(|replay| temp_replay_buffer.push_front(replay));
 
+        // Add replays to buffer.
         if !temp_replay_buffer.is_empty() {
             let steps = training_steps.load(Ordering::Relaxed);
             log::info!(
                 "Adding {} replays at {steps} training steps",
                 temp_replay_buffer.len()
             );
-            replay_buffer
-                .write()
-                .unwrap()
-                .append(&mut temp_replay_buffer);
+            let mut lock = replay_buffer.write().unwrap();
+            lock.append(&mut temp_replay_buffer);
+
+            // Truncate replay buffer if it gets too long.
+            if lock.len() > MAXIMUM_REPLAY_BUFFER_SIZE {
+                log::info!("truncating replay buffer, len = {}", lock.len());
+                lock.truncate(MAXIMUM_REPLAY_BUFFER_SIZE);
+            }
+
+            // While doing this, also save the replay buffer
+            let s: String = lock.iter().map(ToString::to_string).collect();
+            drop(lock);
+            let path = replay_path.join("replays.txt");
+            std::thread::spawn(move || {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(path)
+                    .expect("replay file path should be valid and writable");
+                file.write_all(s.as_bytes()).unwrap();
+            });
+            log::info!("saved replays to file");
+        }
+
+        //  Get the latest network
+        log::debug!("checking if there is a new model for self-play");
+        let maybe_new_net_index = shared_net.0.load(Ordering::Relaxed);
+        if maybe_new_net_index > net_index {
+            net_index = maybe_new_net_index;
+            net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
+            log::info!("updating self-play model to shared_net_{net_index}");
+        }
+
+        if cfg!(test) {
+            break;
         }
     }
-
-    // Salvage replays from unfinished games.
-    for replays in replays_batch {
-        let len = replays.len().saturating_sub(STEP);
-        replays
-            .drain(..)
-            .take(len)
-            .for_each(|replay| temp_replay_buffer.push_front(replay));
-    }
-    let steps = training_steps.load(Ordering::Relaxed);
-    log::info!(
-        "Adding {} replays at {steps} training steps (cut-off)",
-        temp_replay_buffer.len()
-    );
-    replay_buffer
-        .write()
-        .unwrap()
-        .append(&mut temp_replay_buffer);
 }
 
 #[cfg(test)]
