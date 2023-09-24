@@ -33,8 +33,6 @@ use crate::{
         HIGH_BETA_AGENTS,
         LOW_BETA,
         LOW_BETA_AGENTS,
-        NEW_REPLAYS_PER_TRAINING_STEP,
-        STEPS_BEFORE_CHECKING_NETWORK,
         WEIGHTED_RANDOM_PLIES,
     },
     training::{
@@ -267,12 +265,10 @@ fn print_hyper_parameters(net: &Net, seed: u64) {
     println!("=== Training ===");
     println!("MINIMUM_REPLAY_BUFFER_SIZE = {MINIMUM_REPLAY_BUFFER_SIZE}");
     println!("MAXIMUM_REPLAY_BUFFER_SIZE = {MAXIMUM_REPLAY_BUFFER_SIZE}");
-    println!("NEW_REPLAYS_PER_TRAINING_STEP = {NEW_REPLAYS_PER_TRAINING_STEP}");
 
     println!("self_play::BATCH_SIZE = {}", self_play::BATCH_SIZE);
     println!("self_play::SAMPLED = {}", self_play::SAMPLED);
     println!("self_play::SIMULATIONS = {}", self_play::SIMULATIONS);
-    println!("STEPS_BEFORE_CHECKING_NETWORK = {STEPS_BEFORE_CHECKING_NETWORK}");
     println!("WEIGHTED_RANDOM_PLIES = {WEIGHTED_RANDOM_PLIES}");
     println!("GREEDY_AGENTS = {GREEDY_AGENTS}");
     println!("BASELINE_AGENTS = {BASELINE_AGENTS}");

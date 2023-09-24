@@ -27,11 +27,6 @@ pub const BATCH_SIZE: usize = 128;
 pub const SAMPLED: usize = 64;
 pub const SIMULATIONS: u32 = 1024;
 
-pub const NEW_REPLAYS_PER_TRAINING_STEP: u32 = 10; // FIXME: Currently not enforced
-
-// This number should be large enough that there are also late-game positions.
-pub const STEPS_BEFORE_CHECKING_NETWORK: usize = 500;
-
 pub const WEIGHTED_RANDOM_PLIES: u16 = 30;
 
 pub const GREEDY_AGENTS: usize = 1;
