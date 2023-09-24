@@ -22,7 +22,7 @@ use tch::{
 use crate::{file_name, reanalyze, Env, Net, SharedNet, N};
 
 pub const LEARNING_RATE: f64 = 1e-4;
-pub const EFFECTIVE_BATCH_SIZE: usize = 2048;
+pub const EFFECTIVE_BATCH_SIZE: usize = 512;
 pub const STEPS_BETWEEN_PUBLISH: u32 = 100;
 pub const PUBLISHES_BETWEEN_SAVE: u32 = 10;
 
@@ -104,6 +104,7 @@ pub fn run(
 
         // Do multiple backwards batches before making a step.
         batches += 1;
+        #[allow(clippy::modulo_one)]
         if batches % BATCHES_PER_STEP == 0 {
             log::info!("taking step, accumulated_loss = {accumulated_total_loss:?}"); // FIXME: Forces synchronization
             opt.backward_step(&(accumulated_total_loss / i64::try_from(BATCHES_PER_STEP).unwrap()));
