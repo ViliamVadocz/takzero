@@ -147,8 +147,18 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
     debug_assert!(trajectories.iter().all(Vec::is_empty));
     debug_assert!(envs.iter().all(|env| env.terminal().is_none()));
 
+    let zeros = vec![0.0; betas.len()];
+
     // Run one simulation on all nodes.
-    batched_simulate(nodes, envs, agent, betas, context, actions, trajectories);
+    batched_simulate(
+        nodes,
+        envs,
+        agent,
+        &zeros, // betas, (Only use betas for root)
+        context,
+        actions,
+        trajectories,
+    );
 
     let before_policy_batch: Vec<Vec<_>> = nodes
         .iter()
@@ -221,7 +231,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                 &mut nodes,
                 &envs,
                 agent,
-                betas,
+                &zeros, // betas, (Only use betas for root)
                 context,
                 actions,
                 trajectories,
