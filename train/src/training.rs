@@ -95,7 +95,7 @@ pub fn run(
         let loss_z = (z - values).square().mean(Kind::Float);
         let loss_u = (u - ube_uncertainty).square().mean(Kind::Float);
         log::info!("p={loss_p:?}\t z={loss_z:?}\t u={loss_u:?}"); // FIXME: This forces synchronization!
-        accumulated_total_loss += loss_z + loss_p;
+        accumulated_total_loss += loss_z + loss_p + loss_u;
 
         // RND
         let loss_rnd = net.forward_rnd(&input, true).mean(Kind::Float);
