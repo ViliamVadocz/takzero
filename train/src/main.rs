@@ -158,7 +158,7 @@ fn main() {
     net.vs_mut().freeze();
     net.save(args.model_path.join(file_name(0))).unwrap();
 
-    print_hyper_parameters(&net, seed);
+    print_hyper_parameters(&net, seed, &args);
 
     // Create synchronization primitives.
     let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
@@ -248,7 +248,10 @@ fn new_opening<E: Environment>(env: &mut E, actions: &mut Vec<E::Action>, rng: &
     }
 }
 
-fn print_hyper_parameters(net: &Net, seed: u64) {
+fn print_hyper_parameters(net: &Net, seed: u64, args: &Args) {
+    println!("=== Args ===");
+    println!("{args:#?}");
+
     println!("=== Tak ===");
     println!("N = {N}");
     println!("HALF_KOMI = {HALF_KOMI}");
