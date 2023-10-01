@@ -4,14 +4,14 @@ use super::env::Environment;
 
 pub trait Agent<E: Environment> {
     type Policy: Index<E::Action, Output = f32> + Send + Sync;
-    type Context: Send + Sync + Default;
+    type Context;
 
     // Always batched.
     fn policy_value_uncertainty(
         &self,
         env_batch: &[E],
         actions_batch: &[Vec<E::Action>],
-        context: &mut [Self::Context],
+        context: &mut Self::Context,
     ) -> Vec<(Self::Policy, f32, f32)>;
 }
 
@@ -30,7 +30,7 @@ pub mod dummy {
             &self,
             env_batch: &[E],
             actions_batch: &[Vec<<E as Environment>::Action>],
-            _context: &mut [Self::Context],
+            _context: &mut Self::Context,
         ) -> Vec<(Self::Policy, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
             actions_batch

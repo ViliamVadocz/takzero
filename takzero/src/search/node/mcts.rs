@@ -148,7 +148,7 @@ impl<E: Environment> Node<E> {
         agent: &A,
         env: E,
         beta: f32,
-        context: &mut [A::Context; 1],
+        context: &mut A::Context,
     ) -> (Eval, f32) {
         let mut trajectory = Vec::new();
         match self.forward(&mut trajectory, env, beta) {
@@ -196,7 +196,7 @@ mod tests {
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut [()]),
+                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut ()),
                     (Eval::Win(_), _)
                 )
             })
@@ -224,7 +224,7 @@ mod tests {
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut [()]),
+                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut ()),
                     (Eval::Win(_), _)
                 )
             })
