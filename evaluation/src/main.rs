@@ -52,7 +52,10 @@ struct Args {
 fn main() {
     env_logger::init();
     log::info!("Begin.");
+    tch::no_grad(real_main);
+}
 
+fn real_main() {
     let args = Args::parse();
     let mut rng = StdRng::seed_from_u64(args.seed);
 

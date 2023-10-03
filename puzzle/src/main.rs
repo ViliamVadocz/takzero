@@ -40,7 +40,10 @@ const DEVICE: Device = Device::Cuda(0);
 fn main() {
     env_logger::init();
     log::info!("Begin.");
+    tch::no_grad(real_main);
+}
 
+fn real_main() {
     let args = Args::parse();
     let mut paths: Vec<_> = read_dir(args.model_path)
         .unwrap()
