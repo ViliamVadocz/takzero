@@ -10,7 +10,10 @@ use rayon::prelude::*;
 use sqlite::{Connection, Value};
 use takzero::{
     network::{net5::Net5, Network},
-    search::node::{gumbel::gumbel_sequential_halving, Node},
+    search::{
+        agent::Agent,
+        node::{gumbel::gumbel_sequential_halving, Node},
+    },
 };
 use tch::Device;
 
@@ -27,10 +30,12 @@ struct Args {
 const N: usize = 5;
 const HALF_KOMI: i8 = 4;
 type Net = Net5;
+type Env = Game<N, HALF_KOMI>;
 const BATCH_SIZE: usize = 256;
 const SAMPLED: usize = usize::MAX;
 const SIMULATIONS: u32 = 1024;
-const BETA: f32 = 0.0;
+const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
+const DEVICE: Device = Device::Cuda(0);
 
 fn main() {
     env_logger::init();
@@ -44,7 +49,7 @@ fn main() {
     paths.sort();
 
     for path in paths {
-        let Ok(net) = Net::load(&path, Device::Cuda(0)) else {
+        let Ok(net) = Net::load(&path, DEVICE) else {
             log::warn!("Cannot load {}", path.display());
             continue;
         };
@@ -93,7 +98,7 @@ where
     let row_num = rows.len();
 
     // Parse puzzles.
-    let puzzles: Vec<Game<N, HALF_KOMI>> = rows
+    let puzzles: Vec<Env> = rows
         .into_par_iter()
         .map(|(_game_id, notation, plies_to_undo, _tinue)| {
             let mut moves: Vec<_> = notation.split(',').map(parse_playtak_move).collect();
@@ -110,13 +115,15 @@ where
         let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
         let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
         let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+        let mut context = <Net as Agent<Env>>::Context::new(BATCH_SIZE as i64, DEVICE);
         let _top_actions = gumbel_sequential_halving(
             &mut nodes[..envs.len()],
             envs,
             agent,
             SAMPLED,
             SIMULATIONS,
-            BETA,
+            &BETA,
+            &mut context,
             &mut actions[..envs.len()],
             &mut trajectories[..envs.len()],
             None::<&mut rand::rngs::ThreadRng>,
