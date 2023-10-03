@@ -37,6 +37,9 @@ const SIMULATIONS: u32 = 1024;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const DEVICE: Device = Device::Cuda(0);
 
+const DEPTH_3_LIMIT: Option<i64> = Some(1024);
+const DEPTH_5_LIMIT: Option<i64> = Some(1024);
+
 fn main() {
     env_logger::init();
     log::info!("Begin.");
@@ -58,8 +61,8 @@ fn real_main() {
         };
         log::info!("Benchmarking {}", path.display());
         let connection = sqlite::open(&args.puzzle_db_path).unwrap();
-        run_benchmark(&connection, 3, None, &net);
-        run_benchmark(&connection, 5, None, &net);
+        run_benchmark(&connection, 3, DEPTH_3_LIMIT, &net);
+        run_benchmark(&connection, 5, DEPTH_5_LIMIT, &net);
     }
 }
 
