@@ -78,6 +78,7 @@ pub fn run(
         vec![HIGH_BETA; HIGH_BETA_AGENTS],
     ]
     .concat();
+    let mut context = <Net as Agent<Env>>::Context::new(i64::try_from(BATCH_SIZE).unwrap(), device);
 
     let mut temp_replay_buffer = VecDeque::new();
     envs.iter_mut()
@@ -86,10 +87,8 @@ pub fn run(
 
     loop {
         log::info!("search");
+        context.reset();
         // Do Gumbel sequential halving.
-        let mut context: Vec<_> = (0..nodes.len())
-            .map(|_| <Net as Agent<Env>>::Context::default())
-            .collect();
         let mut top_actions = gumbel_sequential_halving(
             &mut nodes,
             &envs,
