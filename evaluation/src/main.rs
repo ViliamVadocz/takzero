@@ -13,6 +13,7 @@ use rayon::prelude::*;
 use takzero::{
     network::{net5::Net5, Network},
     search::{
+        agent::Agent,
         env::{Environment, Terminal},
         node::{gumbel::gumbel_sequential_halving, Node},
     },
@@ -31,7 +32,7 @@ const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 32;
 const SAMPLED: usize = 8;
 const SIMULATIONS: u32 = 256;
-const BETA: f32 = 0.0;
+const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 
 const OPENINGS: usize = N * N * (N * N - 1);
 
@@ -109,6 +110,10 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
     let mut games = games.to_owned();
     let mut white_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
     let mut black_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
+    let mut white_context =
+        <Net as Agent<Env>>::Context::new(i64::try_from(BATCH_SIZE).unwrap(), DEVICE);
+    let mut black_context =
+        <Net as Agent<Env>>::Context::new(i64::try_from(BATCH_SIZE).unwrap(), DEVICE);
 
     let mut actions: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
     let mut trajectories: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
@@ -135,7 +140,12 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                 agent,
                 SAMPLED,
                 SIMULATIONS,
-                BETA,
+                &BETA,
+                if is_white {
+                    &mut white_context
+                } else {
+                    &mut black_context
+                },
                 &mut actions,
                 &mut trajectories,
                 None::<&mut ThreadRng>,
