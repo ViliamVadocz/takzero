@@ -28,53 +28,57 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
     debug_assert!(actions.iter().all(Vec::is_empty));
     debug_assert!(trajectories.iter().all(Vec::is_empty));
 
-    let (indices, batch): (Vec<usize>, Vec<_>) = nodes
+    let mut mask = vec![false; nodes.len()];
+    let (env_batch, actions_batch): (Vec<_>, Vec<_>) = nodes
         .par_iter_mut()
         .zip(envs)
+        .zip(&mut mask)
         .zip(actions.par_iter_mut())
         .zip(trajectories.par_iter_mut())
         .zip(betas.par_iter())
-        .enumerate()
-        .filter_map(|(index, ((((node, env), actions), trajectory), beta))| {
+        .map(|(((((node, env), mask), actions), trajectory), beta)| {
             match node.forward(trajectory, env.clone(), *beta) {
                 Forward::Known(eval) => {
                     // If the result is known just propagate it now.
                     node.backward_known_eval(trajectory.drain(..), eval);
-                    None
+                    (E::default(), Vec::new())
                 }
                 Forward::NeedsNetwork(env) => {
+                    *mask = true;
                     env.populate_actions(actions);
-                    Some((
-                        index,
-                        // We are taking the actions and rnd_contexts because we need owned.
-                        (env, (std::mem::take(actions))),
-                    ))
+                    // We are taking the actions we need owned.
+                    (env, std::mem::take(actions))
                 }
             }
         })
         .unzip();
-    let (batch_envs, batch_actions): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
-    let output = agent.policy_value_uncertainty(&batch_envs, &batch_actions, context);
+    let output = agent.policy_value_uncertainty(&env_batch, &actions_batch, &mask, context);
 
-    let borrows: Vec<_> = filter_by_unique_ascending_indices(
-        nodes.iter_mut().zip(actions).zip(trajectories.iter_mut()),
-        indices,
-    )
-    .collect();
-    borrows
-        .into_par_iter()
+    nodes
+        .iter_mut()
+        .zip(actions)
+        .zip(trajectories)
+        .zip(&mask)
+        .filter(|(_, mask)| **mask)
         .zip(output)
-        .zip(batch_actions)
+        .zip(actions_batch)
+        .map(
+            |(((((node, old_actions), trajectory), _mask), output), moved_actions)| {
+                (node, trajectory, old_actions, moved_actions, output)
+            },
+        )
+        .par_bridge()
         .for_each(
-            |((((node, old_actions), trajectory), (policy, value, uncertainty)), mut actions)| {
+            |(node, trajectory, old_actions, mut moved_actions, output)| {
+                let (policy, value, uncertainty) = output;
                 node.backward_network_eval(
                     trajectory.drain(..),
-                    actions.drain(..).map(|a| (a.clone(), policy[a])),
+                    moved_actions.drain(..).map(|a| (a.clone(), policy[a])),
                     value,
                     uncertainty,
                 );
-                // Restore old actions and RND contexts.
-                let _ = std::mem::replace(old_actions, actions);
+                // Restore old actions.
+                let _ = std::mem::replace(old_actions, moved_actions);
             },
         );
 }

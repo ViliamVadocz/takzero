@@ -216,32 +216,52 @@ impl Agent<Env> for Net5 {
         &self,
         env_batch: &[Env],
         actions_batch: &[Vec<<Env as crate::search::env::Environment>::Action>],
+        env_mask: &[bool],
         context: &mut Self::Context,
     ) -> Vec<(Self::Policy, f32, f32)> {
         debug_assert_eq!(env_batch.len(), actions_batch.len());
-        if env_batch.is_empty() {
-            return Vec::new();
-        }
+        debug_assert_eq!(env_batch.len(), env_mask.len());
         let device = self.vs.device();
 
         let xs = Tensor::cat(
             &env_batch
                 .par_iter()
-                .map(|env| game_to_tensor(env, device))
+                .zip(env_mask)
+                .map(|(env, mask)| {
+                    if *mask {
+                        game_to_tensor(env, device)
+                    } else {
+                        Tensor::zeros(
+                            [1, input_channels::<N>() as i64, N as i64, N as i64],
+                            (Kind::Float, device),
+                        )
+                    }
+                })
                 .collect::<Vec<_>>(),
             0,
         );
-        let mask = Tensor::cat(
+        let move_mask = Tensor::cat(
             &actions_batch
                 .par_iter()
-                .map(|m| move_mask::<N>(m, device))
+                .zip(env_mask)
+                .map(|(m, mask)| {
+                    if *mask {
+                        move_mask::<N>(m, device)
+                    } else {
+                        Tensor::zeros(
+                            [1, output_channels::<N>() as i64, N as i64, N as i64],
+                            (Kind::Float, device),
+                        )
+                    }
+                })
                 .collect::<Vec<_>>(),
             0,
         );
+        let env_mask_tensor = Tensor::from_slice(env_mask);
 
         let (policy, values, ube_uncertainties) = self.forward_t(&xs, false);
         let masked_policy: Vec<Vec<_>> = policy
-            .masked_fill(&mask, f64::from(f32::MIN))
+            .masked_fill(&move_mask, f64::from(f32::MIN))
             .view([-1, output_size::<N>() as i64])
             .softmax(1, Kind::Float)
             .try_into()
@@ -249,7 +269,7 @@ impl Agent<Env> for Net5 {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        let rnd_uncertainties = context.normalize(&self.forward_rnd(&xs, false));
+        let rnd_uncertainties = context.normalize(&self.forward_rnd(&xs, false), &env_mask_tensor);
         let uncertainties: Vec<_> = ube_uncertainties
             .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
             .clip(0.0, 1.0)
@@ -262,7 +282,9 @@ impl Agent<Env> for Net5 {
             .map(Policy)
             .zip(values)
             .zip(uncertainties)
-            .map(|((p, v), u)| (p, v, u))
+            .zip(env_mask)
+            .filter(|(_, mask)| **mask)
+            .map(|(((p, v), u), _)| (p, v, u))
             .collect()
     }
 }
@@ -283,7 +305,8 @@ pub struct RndNormalizationContext {
 }
 
 impl RndNormalizationContext {
-    fn new(batch_size: i64, device: Device) -> Self {
+    #[must_use]
+    pub fn new(batch_size: i64, device: Device) -> Self {
         let mut this = Self {
             min: Tensor::zeros([batch_size], (Kind::Float, device)),
             max: Tensor::zeros([batch_size], (Kind::Float, device)),
@@ -292,22 +315,24 @@ impl RndNormalizationContext {
         this
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.min = self.min.fill(f64::from(f32::MAX));
         self.max = self.max.fill(f64::from(f32::MIN));
     }
 
-    fn update(&mut self, rnd: &Tensor) {
-        self.min = self.min.minimum(rnd);
-        self.max = self.max.maximum(rnd);
+    fn update(&mut self, rnd: &Tensor, mask: &Tensor) {
+        let new_min = self.min.minimum(rnd);
+        let new_max = self.max.maximum(rnd);
+        self.min = new_min * mask + &self.min * mask.logical_not();
+        self.max = new_max * mask + &self.min * mask.logical_not();
     }
 
-    pub fn normalize(&mut self, rnd: &Tensor) -> Tensor {
-        self.update(rnd);
+    pub fn normalize(&mut self, rnd: &Tensor, mask: &Tensor) -> Tensor {
+        self.update(rnd, mask);
         let diff = &self.max - &self.min;
-        let mask = diff.gt(0.0);
+        let gtz_mask = diff.gt(0.0);
         let norm = (rnd - &self.min) / diff;
-        norm * &mask + rnd * mask.logical_not()
+        norm * &gtz_mask + rnd * gtz_mask.logical_not()
     }
 }
 
@@ -332,7 +357,7 @@ mod tests {
         let mut context = RndNormalizationContext::new(1, Device::cuda_if_available());
         game.possible_moves(&mut moves);
         let (_policy, _value, _uncertainty) = net
-            .policy_value_uncertainty(&[game], &[moves], &mut context)
+            .policy_value_uncertainty(&[game], &[moves], &[true], &mut context)
             .pop()
             .unwrap();
     }
@@ -345,11 +370,12 @@ mod tests {
         let mut actions_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
         let mut context =
             RndNormalizationContext::new(BATCH_SIZE as i64, Device::cuda_if_available());
+        let mask = [[false; BATCH_SIZE / 2], [true; BATCH_SIZE / 2]].concat();
         games
             .iter_mut()
             .zip(&mut actions_batch)
             .for_each(|(game, actions)| game.populate_actions(actions));
-        let output = net.policy_value_uncertainty(&games, &actions_batch, &mut context);
+        let output = net.policy_value_uncertainty(&games, &actions_batch, &mask, &mut context);
         assert_eq!(output.len(), BATCH_SIZE);
     }
 }

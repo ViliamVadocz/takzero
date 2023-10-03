@@ -6,11 +6,13 @@ pub trait Agent<E: Environment> {
     type Policy: Index<E::Action, Output = f32> + Send + Sync;
     type Context;
 
-    // Always batched.
+    /// Always batched. Mask is true for environments which need eval and for
+    /// those the context should be updated.
     fn policy_value_uncertainty(
         &self,
         env_batch: &[E],
         actions_batch: &[Vec<E::Action>],
+        mask: &[bool],
         context: &mut Self::Context,
     ) -> Vec<(Self::Policy, f32, f32)>;
 }
@@ -30,6 +32,7 @@ pub mod dummy {
             &self,
             env_batch: &[E],
             actions_batch: &[Vec<<E as Environment>::Action>],
+            _mask: &[bool],
             _context: &mut Self::Context,
         ) -> Vec<(Self::Policy, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
