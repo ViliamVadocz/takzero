@@ -1,6 +1,6 @@
 #![warn(clippy::pedantic, clippy::style)]
 
-use std::{array, cmp::Reverse, collections::HashMap, fmt::Write, fs::read_dir, path::PathBuf};
+use std::{array, collections::HashMap, fmt::Write, fs::read_dir, path::PathBuf};
 
 use clap::Parser;
 use evaluation::Evaluation;
@@ -124,9 +124,11 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
         .map(|game| (game.into(), Vec::new()))
         .collect();
 
+    let mut done = [false; BATCH_SIZE];
+
     'outer: loop {
         for (agent, is_white) in [(white, true), (black, false)] {
-            if games.is_empty() {
+            if done.iter().all(|x| *x) {
                 break 'outer;
             }
 
@@ -151,20 +153,34 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                 None::<&mut ThreadRng>,
             );
 
-            let (mut done_indices, terminals): (Vec<_>, Vec<_>) = top_actions
+            let terminals: Vec<_> = top_actions
                 .into_par_iter()
                 .zip(games.par_iter_mut())
                 .zip(white_nodes.par_iter_mut())
                 .zip(black_nodes.par_iter_mut())
                 .zip(game_replays.par_iter_mut())
-                .enumerate()
+                .zip(done.par_iter_mut())
+                .filter(|(_, done)| !**done)
                 .filter_map(
-                    |(i, ((((action, game), white_node), black_node), replay))| {
+                    |(((((action, game), white_node), black_node), replay), done)| {
                         game.step(action);
                         replay.1.push(action);
 
                         if let Some(terminal) = game.terminal() {
-                            Some((i, terminal))
+                            *game = Env::default();
+                            *white_node = Node::default();
+                            *black_node = Node::default();
+                            *done = true;
+                            let (tps, moves) =
+                                std::mem::replace(replay, (Tps::starting_position(N), Vec::new()));
+                            log::debug!(
+                                "{tps} {}",
+                                moves.into_iter().fold(String::new(), |mut s, m| {
+                                    let _ = write!(s, "{m} ");
+                                    s
+                                })
+                            );
+                            Some(terminal)
                         } else {
                             white_node.descend(&action);
                             black_node.descend(&action);
@@ -172,24 +188,7 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                         }
                     },
                 )
-                .unzip();
-
-            done_indices.sort_by_key(|i| Reverse(*i));
-            actions.truncate(actions.len() - done_indices.len());
-            trajectories.truncate(trajectories.len() - done_indices.len());
-            for index in done_indices {
-                games.swap_remove(index);
-                white_nodes.swap_remove(index);
-                black_nodes.swap_remove(index);
-                let (tps, moves) = game_replays.swap_remove(index);
-                log::debug!(
-                    "{tps} {}",
-                    moves.into_iter().fold(String::new(), |mut s, m| {
-                        let _ = write!(s, "{m} ");
-                        s
-                    })
-                );
-            }
+                .collect();
 
             for terminal in terminals {
                 // This may seem opposite of what is should be.
