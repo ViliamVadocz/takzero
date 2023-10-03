@@ -83,24 +83,6 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
         );
 }
 
-/// Filter an iterator by a collection of unique ascending indices.
-///
-/// # Panics
-///
-/// Panics if any index is greater than the length of the iterator,
-/// or if the indices are not unique and ascending.
-pub fn filter_by_unique_ascending_indices<T>(
-    mut iter: impl Iterator<Item = T>,
-    indices: impl IntoIterator<Item = usize>,
-) -> impl Iterator<Item = T> {
-    let mut prev = 0;
-    indices.into_iter().map(move |i| {
-        let res = iter.nth(i - prev).unwrap();
-        prev = i + 1;
-        res
-    })
-}
-
 #[allow(
     clippy::missing_panics_doc,
     clippy::too_many_arguments,
