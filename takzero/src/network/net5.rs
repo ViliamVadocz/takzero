@@ -195,14 +195,18 @@ impl Network for Net5 {
     }
 
     fn forward_rnd(&self, xs: &Tensor, train: bool) -> Tensor {
-        self.rnd.learning.forward_t(xs, train).mse_loss(
-            &self
-                .rnd
-                .target
-                .forward_t(&xs.set_requires_grad(false), false)
-                .detach(),
-            Reduction::None,
-        )
+        self.rnd
+            .learning
+            .forward_t(xs, train)
+            .mse_loss(
+                &self
+                    .rnd
+                    .target
+                    .forward_t(&xs.set_requires_grad(false), false)
+                    .detach(),
+                Reduction::None,
+            )
+            .sum_dim_intlist(1, false, None)
     }
 }
 
@@ -250,14 +254,14 @@ impl Agent<Env> for Net5 {
                     } else {
                         Tensor::zeros(
                             [1, output_channels::<N>() as i64, N as i64, N as i64],
-                            (Kind::Float, device),
+                            (Kind::Bool, device),
                         )
                     }
                 })
                 .collect::<Vec<_>>(),
             0,
         );
-        let env_mask_tensor = Tensor::from_slice(env_mask);
+        let env_mask_tensor = Tensor::from_slice(env_mask).to(device);
 
         let (policy, values, ube_uncertainties) = self.forward_t(&xs, false);
         let masked_policy: Vec<Vec<_>> = policy
@@ -324,15 +328,16 @@ impl RndNormalizationContext {
         let new_min = self.min.minimum(rnd);
         let new_max = self.max.maximum(rnd);
         self.min = new_min * mask + &self.min * mask.logical_not();
-        self.max = new_max * mask + &self.min * mask.logical_not();
+        self.max = new_max * mask + &self.max * mask.logical_not();
     }
 
     pub fn normalize(&mut self, rnd: &Tensor, mask: &Tensor) -> Tensor {
         self.update(rnd, mask);
         let diff = &self.max - &self.min;
-        let gtz_mask = diff.gt(0.0);
+        let greater_than_zero_mask = diff.gt(0.0);
         let norm = (rnd - &self.min) / diff;
-        norm * &gtz_mask + rnd * gtz_mask.logical_not()
+        norm.nan_to_num(0.0, 0.0, 0.0) * &greater_than_zero_mask
+            + rnd * greater_than_zero_mask.logical_not()
     }
 }
 
@@ -376,6 +381,6 @@ mod tests {
             .zip(&mut actions_batch)
             .for_each(|(game, actions)| game.populate_actions(actions));
         let output = net.policy_value_uncertainty(&games, &actions_batch, &mask, &mut context);
-        assert_eq!(output.len(), BATCH_SIZE);
+        assert_eq!(output.len(), BATCH_SIZE / 2);
     }
 }

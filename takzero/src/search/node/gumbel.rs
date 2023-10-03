@@ -53,17 +53,18 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
         })
         .unzip();
     let output = agent.policy_value_uncertainty(&env_batch, &actions_batch, &mask, context);
+    debug_assert_eq!(output.len(), mask.iter().filter(|x| **x).count());
 
     nodes
         .iter_mut()
         .zip(actions)
         .zip(trajectories)
+        .zip(actions_batch)
         .zip(&mask)
         .filter(|(_, mask)| **mask)
         .zip(output)
-        .zip(actions_batch)
         .map(
-            |(((((node, old_actions), trajectory), _mask), output), moved_actions)| {
+            |(((((node, old_actions), trajectory), moved_actions), _mask), output)| {
                 (node, trajectory, old_actions, moved_actions, output)
             },
         )
