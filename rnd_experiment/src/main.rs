@@ -76,7 +76,7 @@ fn improving_rnd(path: &nn::Path) -> nn::SequentialT {
 const DEVICE: Device = Device::Cuda(0);
 const REPLAY_LIMIT: usize = 2_000_000;
 const STARTING_REPLAY_BUFFER_SIZE: usize = 10_000;
-const NEW_REPLAYS_PER_STEP: usize = 5;
+const NEW_REPLAYS_PER_STEP: usize = 1;
 const STEPS: usize = 2_000;
 const SKIP: usize = 250;
 
@@ -171,9 +171,7 @@ fn experiment() {
                 0,
             );
 
-            let actual = target
-                .forward_t(&inputs.set_requires_grad(false), false)
-                .detach();
+            let actual = target.forward_t(&inputs, false).detach();
             let predicted = improving.forward_t(&inputs, false);
             let loss = predicted
                 .mse_loss(&actual, tch::Reduction::None)
@@ -194,9 +192,7 @@ fn experiment() {
                 0,
             );
 
-            let actual = target
-                .forward_t(&inputs.set_requires_grad(false), false)
-                .detach();
+            let actual = target.forward_t(&inputs, false).detach();
             let predicted = improving.forward_t(&inputs, false);
             let loss = predicted
                 .mse_loss(&actual, tch::Reduction::None)
@@ -217,9 +213,7 @@ fn experiment() {
                 0,
             );
 
-            let actual = target
-                .forward_t(&inputs.set_requires_grad(false), false)
-                .detach();
+            let actual = target.forward_t(&inputs, false).detach();
             let predicted = improving.forward_t(&inputs, false);
             let loss = predicted
                 .mse_loss(&actual, tch::Reduction::None)
@@ -240,9 +234,7 @@ fn experiment() {
                 0,
             );
 
-            let actual = target
-                .forward_t(&inputs.set_requires_grad(false), false)
-                .detach();
+            let actual = target.forward_t(&inputs, false).detach();
             let predicted = improving.forward_t(&inputs, false);
             let loss = predicted
                 .mse_loss(&actual, tch::Reduction::None)
@@ -381,10 +373,10 @@ fn draw_chart(
 }
 
 fn generate_unlikely_position(rng: &mut impl Rng) -> Env {
-    const MIN_FLATS: u8 = 10;
-    const MAX_FLATS: u8 = 30;
+    const MIN_FLATS: u8 = 1;
+    const MAX_FLATS: u8 = 10;
     const MAX_WALLS: u8 = 3;
-    const MAX_PLIES: u16 = 200;
+    const MAX_PLIES: u16 = 100;
 
     let mut env = Env::default();
 
@@ -433,7 +425,7 @@ fn generate_unlikely_position(rng: &mut impl Rng) -> Env {
                 .unwrap()
                 .stack(Piece::Cap, color);
         }
-        rng.gen_bool(0.1) // small chance to generate more capstones
+        rng.gen_bool(0.01) // small chance to generate more capstones
     } {}
 
     // randomize other data
