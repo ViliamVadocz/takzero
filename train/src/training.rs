@@ -1,6 +1,6 @@
 use std::{
     path::Path,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{atomic::{AtomicU32, Ordering}, RwLock},
 };
 
 use crossbeam::channel::Receiver;
@@ -42,6 +42,7 @@ pub fn run(
     device: Device,
     shared_net: &SharedNet,
     rx: Receiver<Vec<Target<Env>>>,
+    exploitation_buffer: &RwLock<Vec<Target<Env>>>,
     training_steps: &AtomicU32,
     model_path: &Path,
 ) {
@@ -56,7 +57,7 @@ pub fn run(
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
     let mut batches = 0;
     let mut accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
-    while let Ok(batch) = rx.recv() {
+    while let Ok(batch) = rx.recv() { // TODO: Sample half (or more) from exploitation buffer
         let batch_size = batch.len();
 
         let mut inputs = Vec::with_capacity(batch_size);
@@ -190,6 +191,7 @@ mod tests {
             Device::cuda_if_available(),
             &shared_net,
             batch_rx,
+            &RwLock::new(Vec::new()),
             &AtomicU32::new(0),
             &PathBuf::default(),
         );

@@ -28,6 +28,7 @@ use tch::{nn::VarStore, Device};
 use crate::{
     self_play::{
         BASELINE_AGENTS,
+        EXPLOITATION_STEP,
         GREEDY_AGENTS,
         HIGH_BETA,
         HIGH_BETA_AGENTS,
@@ -139,7 +140,8 @@ fn main() {
     // Generate seeds.
     let seed: u64 = rand::thread_rng().gen();
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-    let self_play_seed: u64 = rng.gen();
+    let exploitation_seed: u64 = rng.gen();
+    let exploration_seed: u64 = rng.gen();
     let reanalyze_seeds: Vec<u64> = (&mut rng)
         .sample_iter(Uniform::new_inclusive(u64::MIN, u64::MAX))
         .take(
@@ -167,30 +169,46 @@ fn main() {
         RwLock::new(0.0),
     );
     let (batch_tx, batch_rx) = crossbeam::channel::bounded::<Vec<Target<Env>>>(64);
-    let replay_buffer = make_replay_buffer(&args, &mut rng);
+    let exploitation_buffer = RwLock::new(Vec::new());
+    let exploration_buffer = make_replay_buffer(&args, &mut rng);
     let training_steps = AtomicU32::new(0);
 
     log::info!("Begin.");
     std::thread::scope(|s| {
-        // Self-play thread.
+        // Exploitation thread.
         s.spawn(|| {
             tch::no_grad(|| {
-                self_play::run(
+                self_play::exploitation(
                     SELF_PLAY_DEVICE,
-                    self_play_seed,
+                    exploitation_seed,
                     &shared_net,
-                    &replay_buffer,
+                    &exploitation_buffer,
                     &training_steps,
                     &args.replay_path,
                 );
             });
         });
+        // Exploration thread.
+        s.spawn(|| {
+            tch::no_grad(|| {
+                self_play::exploration(
+                    SELF_PLAY_DEVICE,
+                    exploration_seed,
+                    &shared_net,
+                    &exploration_buffer,
+                    &training_steps,
+                    &args.replay_path,
+                );
+            });
+        });
+
         // Training thread.
         s.spawn(|| {
             training::run(
                 TRAINING_DEVICE,
                 &shared_net,
                 batch_rx,
+                &exploitation_buffer,
                 &training_steps,
                 &args.model_path,
             );
@@ -201,7 +219,7 @@ fn main() {
             for seed in seed_iter.by_ref().take(*amount) {
                 let shared_net = &shared_net;
                 let batch_tx = &batch_tx;
-                let replay_buffer = &replay_buffer;
+                let replay_buffer = &exploration_buffer;
                 s.spawn(move || {
                     tch::no_grad(|| {
                         reanalyze::run(device, seed, shared_net, batch_tx, replay_buffer);
@@ -283,6 +301,7 @@ fn print_hyper_parameters(net: &Net, seed: u64, args: &Args) {
     println!("HIGH_BETA_AGENTS = {HIGH_BETA_AGENTS}");
     println!("LOW_BETA = {LOW_BETA}");
     println!("HIGH_BETA = {HIGH_BETA}");
+    println!("EXPLOITATION_STEP = {EXPLOITATION_STEP}");
 
     println!("reanalyze::BATCH_SIZE = {}", reanalyze::BATCH_SIZE);
     println!("reanalyze::SAMPLED = {}", reanalyze::SAMPLED);

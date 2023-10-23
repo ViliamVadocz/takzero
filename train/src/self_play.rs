@@ -4,7 +4,10 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::Path,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        RwLock,
+    },
 };
 
 use arrayvec::ArrayVec;
@@ -15,9 +18,9 @@ use takzero::{
     search::{
         agent::Agent,
         env::Environment,
-        node::{gumbel::gumbel_sequential_halving, Node},
+        node::{gumbel::gumbel_sequential_halving, Node}, DISCOUNT_FACTOR,
     },
-    target::Replay,
+    target::{Replay, Target},
 };
 use tch::Device;
 
@@ -29,28 +32,182 @@ pub const SIMULATIONS: u32 = 1024;
 
 pub const WEIGHTED_RANDOM_PLIES: u16 = 30;
 
-pub const GREEDY_AGENTS: usize = 1;
+pub const GREEDY_AGENTS: usize = 1; // no noise
 pub const BASELINE_AGENTS: usize = BATCH_SIZE / 2 - GREEDY_AGENTS;
 pub const LOW_BETA_AGENTS: usize = BATCH_SIZE / 4;
 pub const HIGH_BETA_AGENTS: usize = BATCH_SIZE / 4;
-pub const LOW_BETA: f32 = 0.02;
-pub const HIGH_BETA: f32 = 0.2;
 
 #[allow(clippy::assertions_on_constants)]
 const _: () =
     assert!(GREEDY_AGENTS + BASELINE_AGENTS + LOW_BETA_AGENTS + HIGH_BETA_AGENTS == BATCH_SIZE);
 
-/// Populate the replay buffer with new state-action pairs from self-play.
-#[allow(clippy::too_many_lines)]
-pub fn run(
+pub const LOW_BETA: f32 = 0.02;
+pub const HIGH_BETA: f32 = 0.2;
+pub const EXPLOITATION_STEP: usize = 20;
+
+pub fn exploitation(
     device: Device,
     seed: u64,
     shared_net: &SharedNet,
-    replay_buffer: &ReplayBuffer,
+    exploitation_buffer: &RwLock<Vec<Target<Env>>>,
     training_steps: &AtomicU32,
     replay_path: &Path,
 ) {
-    log::debug!("started self-play thread");
+    log::debug!("started exploitation self-play thread");
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+    let chacha_seed = rng.gen();
+
+    // Copy shared network weights to the network on this thread.
+    let mut net = Net::new(device, None);
+    let mut net_index = shared_net.0.load(Ordering::Relaxed);
+    net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
+    let mut context = <Net as Agent<Env>>::Context::new(*shared_net.2.read().unwrap());
+
+    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Env::default());
+    let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
+    let mut replays_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut target_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut rngs: [_; BATCH_SIZE] = array::from_fn(|i| {
+        let mut rng = ChaCha8Rng::from_seed(chacha_seed);
+        rng.set_stream(i as u64);
+        rng
+    });
+
+    let betas = [0.0; BATCH_SIZE];
+
+    let mut temp_target_buffer = VecDeque::new();
+    let mut temp_replay_buffer = VecDeque::new();
+    envs.iter_mut()
+        .zip(actions.iter_mut())
+        .for_each(|(env, actions)| new_opening(env, actions, &mut rng));
+
+    loop {
+        log::info!("search");
+        // Do Gumbel sequential halving.
+        let mut top_actions = gumbel_sequential_halving(
+            &mut nodes,
+            &envs,
+            &net,
+            SAMPLED,
+            SIMULATIONS,
+            &betas,
+            &mut context,
+            &mut actions,
+            &mut trajectories,
+            Some(&mut rng),
+        );
+
+        // For openings, sample actions according to visits instead.
+        envs.iter()
+            .zip(rngs.iter_mut())
+            .zip(nodes.iter_mut())
+            .zip(&mut top_actions)
+            .skip(GREEDY_AGENTS)
+            // .take(BASELINE_AGENTS)
+            .filter(|(((env, _), _), _)| env.steps() < WEIGHTED_RANDOM_PLIES)
+            .for_each(|(((_, rng), node), top_action)| {
+                let weighted_index =
+                    WeightedIndex::new(node.children.iter().map(|(_, child)| child.visit_count))
+                        .unwrap();
+                *top_action = node.children[weighted_index.sample(rng)].0;
+            });
+
+        // Update replays and targets.
+        replays_batch
+            .iter_mut()
+            .zip(target_batch.iter_mut())
+            .zip(envs.iter())
+            .zip(nodes.iter())
+            .zip(&top_actions)
+            .for_each(|((((replays, targets), env), node), action)| {
+                // Push start of fresh replay.
+                replays.push(Replay {
+                    env: env.clone(),
+                    actions: ArrayVec::default(),
+                });
+                // Update existing replays.
+                let from = replays.len().saturating_sub(STEP);
+                for replay in &mut replays[from..] {
+                    replay.actions.push(*action);
+                }
+
+                // Push start of fresh target.
+                targets.push(Target {
+                    env: env.clone(),
+                    policy: node
+                        .improved_policy(0.0)
+                        .zip(node.children.iter())
+                        .map(|(p, (a, _))| (*a, p))
+                        .collect(),
+                    value: f32::NAN, // Value still needs to be filled.
+                    ube: 0.0,        // Will be updated.
+                });
+
+                if targets.len() > EXPLOITATION_STEP {
+                    let target = &mut targets[targets.len() - EXPLOITATION_STEP]; // TODO: Check this index
+                    
+                    // TODO: Accumulate discounted RND.
+                    // target.ube += DISCOUNT_FACTOR.powi(2 * step as i32) * raw_rnd;
+
+                    // Assign the target value.
+                    let sign = if EXPLOITATION_STEP % 2 == 0 { 1.0 } else { -1.0 };
+                    target.value = sign * DISCOUNT_FACTOR.powi(EXPLOITATION_STEP as i32) * if let Some(ply) = node.evaluation.ply() {
+                        DISCOUNT_FACTOR.powi(ply as i32) * f32::from(node.evaluation)
+                    } else {
+                        f32::from(node.evaluation)
+                    };
+                }
+            });
+
+        // Take a step in environments and nodes.
+        nodes
+            .iter_mut()
+            .zip(envs.iter_mut())
+            .zip(top_actions)
+            .for_each(|((node, env), action)| {
+                node.descend(&action);
+                env.step(action);
+            });
+
+        // TODO: Complete targets for finished games
+        // TODO: Push to temp_target_buffer
+        // TODO: Send stuff from temp_target_buffer to exploitation buffer
+
+        // Refresh finished environments and nodes.
+        // replays_batch
+        //     .iter_mut()
+        //     .zip(nodes.iter_mut())
+        //     .zip(envs.iter_mut())
+        //     .zip(actions.iter_mut())
+        //     .filter_map(|(((replays, node), env), actions)| {
+        //         env.terminal().map(|_| {
+        //             new_opening(env, actions, &mut rng);
+        //             *node = Node::default();
+        //             replays.drain(..)
+        //         })
+        //     })
+        //     .flatten()
+        //     .for_each(|replay| temp_replay_buffer.push_front(replay));
+
+        // play self-play
+        // collect targets
+        // send straight to training
+        // update
+    }
+}
+
+pub fn exploration(
+    device: Device,
+    seed: u64,
+    shared_net: &SharedNet,
+    exploration_buffer: &ReplayBuffer,
+    training_steps: &AtomicU32,
+    replay_path: &Path,
+) {
+    log::debug!("started exploration self-play thread");
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let chacha_seed = rng.gen();
@@ -166,7 +323,7 @@ pub fn run(
                 "Adding {} replays at {steps} training steps",
                 temp_replay_buffer.len()
             );
-            let mut lock = replay_buffer.write().unwrap();
+            let mut lock = exploration_buffer.write().unwrap();
             lock.append(&mut temp_replay_buffer);
 
             // Truncate replay buffer if it gets too long.
@@ -178,7 +335,7 @@ pub fn run(
             // While doing this, also save the replay buffer
             let s: String = lock.iter().map(ToString::to_string).collect();
             drop(lock);
-            let path = replay_path.join("replays.txt");
+            let path = replay_path.join(format!("replays_{steps:0>6}.txt"));
             std::thread::spawn(move || {
                 let mut file = OpenOptions::new()
                     .write(true)
@@ -204,55 +361,6 @@ pub fn run(
 
         if cfg!(test) {
             break;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        collections::VecDeque,
-        path::PathBuf,
-        sync::{
-            atomic::{AtomicU32, AtomicUsize},
-            RwLock,
-        },
-    };
-
-    use rand::{Rng, SeedableRng};
-    use takzero::network::Network;
-    use tch::Device;
-
-    use crate::{self_play::run, Net, SharedNet};
-
-    // NOTE TO SELF:
-    // Decrease constants above to actually see results before you die.
-    #[test]
-    fn self_play_works() {
-        const SEED: u64 = 1234;
-
-        let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
-
-        let mut net = Net::new(Device::Cpu, Some(rng.gen()));
-        let shared_net: SharedNet = (
-            AtomicUsize::new(0),
-            RwLock::new(net.vs_mut()),
-            RwLock::new(0.0),
-        );
-
-        let replay_buffer = RwLock::new(VecDeque::new());
-
-        run(
-            Device::cuda_if_available(),
-            rng.gen(),
-            &shared_net,
-            &replay_buffer,
-            &AtomicU32::new(0),
-            &PathBuf::default(),
-        );
-
-        for replay in &*replay_buffer.read().unwrap() {
-            println!("{replay}");
         }
     }
 }
