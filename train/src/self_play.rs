@@ -59,6 +59,7 @@ pub fn run(
     let mut net = Net::new(device, None);
     let mut net_index = shared_net.0.load(Ordering::Relaxed);
     net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
+    let mut context = <Net as Agent<Env>>::Context::new(*shared_net.2.read().unwrap());
 
     let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Env::default());
     let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
@@ -78,7 +79,6 @@ pub fn run(
         vec![HIGH_BETA; HIGH_BETA_AGENTS],
     ]
     .concat();
-    let mut context = <Net as Agent<Env>>::Context::new(i64::try_from(BATCH_SIZE).unwrap(), device);
 
     let mut temp_replay_buffer = VecDeque::new();
     envs.iter_mut()
@@ -87,7 +87,6 @@ pub fn run(
 
     loop {
         log::info!("search");
-        context.reset();
         // Do Gumbel sequential halving.
         let mut top_actions = gumbel_sequential_halving(
             &mut nodes,
@@ -199,6 +198,8 @@ pub fn run(
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
             log::info!("updating self-play model to shared_net_{net_index}");
+
+            context = <Net as Agent<Env>>::Context::new(*shared_net.2.read().unwrap());
         }
 
         if cfg!(test) {
@@ -233,7 +234,11 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
         let mut net = Net::new(Device::Cpu, Some(rng.gen()));
-        let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
+        let shared_net: SharedNet = (
+            AtomicUsize::new(0),
+            RwLock::new(net.vs_mut()),
+            RwLock::new(0.0),
+        );
 
         let replay_buffer = RwLock::new(VecDeque::new());
 

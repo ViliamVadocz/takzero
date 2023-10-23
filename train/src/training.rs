@@ -51,10 +51,10 @@ pub fn run(
     net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
     net.vs_mut().unfreeze();
 
+    let mut latest_rnd_losses: Vec<f64> = Vec::new();
+
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
-
     let mut batches = 0;
-
     let mut accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
     while let Ok(batch) = rx.recv() {
         let batch_size = batch.len();
@@ -99,7 +99,8 @@ pub fn run(
 
         // RND
         let loss_rnd = net.forward_rnd(&input, true).mean(Kind::Float);
-        log::info!("rnd={loss_rnd:?}"); // FIXME: another synchronization point!
+        log::info!("rnd={loss_rnd:?}");
+        latest_rnd_losses.push((&loss_rnd).try_into().unwrap());
         accumulated_total_loss += loss_rnd;
 
         // Do multiple backwards batches before making a step.
@@ -119,6 +120,10 @@ pub fn run(
                     lock.freeze();
                 }
                 shared_net.0.fetch_add(1, Ordering::Relaxed);
+                *shared_net.2.write().unwrap() = {
+                    let len = latest_rnd_losses.len();
+                    latest_rnd_losses.drain(..).sum::<f64>() / f64::from(u32::try_from(len).unwrap())
+                };
                 // Save checkpoint.
                 if (training_steps / STEPS_BETWEEN_PUBLISH) % PUBLISHES_BETWEEN_SAVE == 0 {
                     // FIXME: This will stall until write is complete, which might be a long time
@@ -156,7 +161,7 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
         let mut net = Net::new(Device::Cpu, Some(rng.gen()));
-        let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
+        let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()), RwLock::new(0.0));
 
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
 

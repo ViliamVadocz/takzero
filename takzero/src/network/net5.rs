@@ -261,7 +261,7 @@ impl Agent<Env> for Net5 {
                 .collect::<Vec<_>>(),
             0,
         );
-        let env_mask_tensor = Tensor::from_slice(env_mask).to(device);
+        // let env_mask_tensor = Tensor::from_slice(env_mask).to(device);
 
         let (policy, values, ube_uncertainties) = self.forward_t(&xs, false);
         let masked_policy: Vec<Vec<_>> = policy
@@ -273,7 +273,7 @@ impl Agent<Env> for Net5 {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        let rnd_uncertainties = context.normalize(&self.forward_rnd(&xs, false), &env_mask_tensor);
+        let rnd_uncertainties = context.normalize(&self.forward_rnd(&xs, false));
         let uncertainties: Vec<_> = ube_uncertainties
             .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
             .clip(0.0, 1.0)
@@ -304,40 +304,17 @@ impl Index<Move> for Policy {
 }
 
 pub struct RndNormalizationContext {
-    min: Tensor,
-    max: Tensor,
+    last_training_loss: f64,
 }
 
 impl RndNormalizationContext {
     #[must_use]
-    pub fn new(batch_size: i64, device: Device) -> Self {
-        let mut this = Self {
-            min: Tensor::zeros([batch_size], (Kind::Float, device)),
-            max: Tensor::zeros([batch_size], (Kind::Float, device)),
-        };
-        this.reset();
-        this
+    pub const fn new(last_training_loss: f64) -> Self {
+        Self { last_training_loss }
     }
 
-    pub fn reset(&mut self) {
-        self.min = self.min.fill(f64::from(f32::MAX));
-        self.max = self.max.fill(f64::from(f32::MIN));
-    }
-
-    fn update(&mut self, rnd: &Tensor, mask: &Tensor) {
-        let new_min = self.min.minimum(rnd);
-        let new_max = self.max.maximum(rnd);
-        self.min = new_min * mask + &self.min * mask.logical_not();
-        self.max = new_max * mask + &self.max * mask.logical_not();
-    }
-
-    pub fn normalize(&mut self, rnd: &Tensor, mask: &Tensor) -> Tensor {
-        self.update(rnd, mask);
-        let diff = &self.max - &self.min;
-        let greater_than_zero_mask = diff.gt(0.0);
-        let norm = (rnd - &self.min) / diff;
-        norm.nan_to_num(0.0, 0.0, 0.0) * &greater_than_zero_mask
-            + rnd * greater_than_zero_mask.logical_not()
+    pub fn normalize(&mut self, rnd: &Tensor) -> Tensor {
+        (rnd - self.last_training_loss).clamp(0.0, 1.0)
     }
 }
 
@@ -359,7 +336,7 @@ mod tests {
         let net = Net5::new(Device::cuda_if_available(), Some(123));
         let game: Env = Game::default();
         let mut moves = Vec::new();
-        let mut context = RndNormalizationContext::new(1, Device::cuda_if_available());
+        let mut context = RndNormalizationContext::new(1.0);
         game.possible_moves(&mut moves);
         let (_policy, _value, _uncertainty) = net
             .policy_value_uncertainty(&[game], &[moves], &[true], &mut context)
@@ -373,8 +350,7 @@ mod tests {
         let net = Net5::new(Device::cuda_if_available(), Some(456));
         let mut games: [Env; BATCH_SIZE] = array::from_fn(|_| Game::default());
         let mut actions_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-        let mut context =
-            RndNormalizationContext::new(BATCH_SIZE as i64, Device::cuda_if_available());
+        let mut context = RndNormalizationContext::new(1.0);
         let mask = [[false; BATCH_SIZE / 2], [true; BATCH_SIZE / 2]].concat();
         games
             .iter_mut()

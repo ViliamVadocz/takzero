@@ -78,7 +78,7 @@ const _: () = assert_net::<Net>();
 // RW-lock to the replay buffer.
 type ReplayBuffer = RwLock<VecDeque<Replay<Env>>>;
 // For sharing network weights.
-type SharedNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>);
+type SharedNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>, RwLock<f64>);
 
 const MINIMUM_REPLAY_BUFFER_SIZE: usize = 10_000;
 const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 100_000_000;
@@ -161,7 +161,11 @@ fn main() {
     print_hyper_parameters(&net, seed, &args);
 
     // Create synchronization primitives.
-    let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
+    let shared_net: SharedNet = (
+        AtomicUsize::new(0),
+        RwLock::new(net.vs_mut()),
+        RwLock::new(0.0),
+    );
     let (batch_tx, batch_rx) = crossbeam::channel::bounded::<Vec<Target<Env>>>(64);
     let replay_buffer = make_replay_buffer(&args, &mut rng);
     let training_steps = AtomicU32::new(0);

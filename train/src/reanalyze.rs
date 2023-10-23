@@ -12,7 +12,7 @@ use takzero::{
     },
     target::{Augment, Replay, Target},
 };
-use tch::{Device, Kind, Tensor};
+use tch::{Device, Tensor};
 
 use crate::{Env, Net, ReplayBuffer, SharedNet, STEP};
 
@@ -41,12 +41,12 @@ pub fn run(
     let mut net = Net::new(device, None);
     let mut net_index = shared_net.0.load(Ordering::Relaxed);
     net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
+    let mut context = <Net as Agent<Env>>::Context::new(*shared_net.2.read().unwrap());
 
     let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Env::default());
     let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
     let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
     let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut context = <Net as Agent<Env>>::Context::new(i64::try_from(BATCH_SIZE).unwrap(), device);
 
     loop {
         if replay_buffer.read().unwrap().len() < BATCH_SIZE {
@@ -65,7 +65,6 @@ pub fn run(
             .map(|replay| replay.augment(&mut rng))
             .collect();
         log::debug!("sampled replays");
-        context.reset();
         let targets = reanalyze(
             &net,
             &replays,
@@ -94,6 +93,7 @@ pub fn run(
             net_index = maybe_new_net_index;
             net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
             log::info!("updating reanalyze to model shared_net_{net_index}");
+            context = <Net as Agent<Env>>::Context::new(*shared_net.2.read().unwrap());
         }
 
         if cfg!(test) {
@@ -170,7 +170,6 @@ fn reanalyze(
                     ),
                     false,
                 ),
-                &Tensor::ones([i64::try_from(BATCH_SIZE).unwrap()], (Kind::Bool, device)),
             )
             .try_into()
             .unwrap();
@@ -299,7 +298,11 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
         let mut net = Net5::new(Device::Cpu, Some(rng.gen()));
-        let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()));
+        let shared_net: SharedNet = (
+            AtomicUsize::new(0),
+            RwLock::new(net.vs_mut()),
+            RwLock::new(0.0),
+        );
 
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded::<Vec<Target<Env>>>();
 
