@@ -63,6 +63,43 @@ where
     }
 }
 
+impl<const N: usize, const HALF_KOMI: i8> Augment for Target<Game<N, HALF_KOMI>>
+where
+    Reserves<N>: Default,
+{
+    fn augment(&self, rng: &mut impl Rng) -> Self {
+        let index = rng.gen_range(0..8);
+        Self {
+            env: self.env.symmetries().into_iter().nth(index).unwrap(),
+            value: self.value,
+            ube: self.ube,
+            policy: self
+                .policy
+                .iter()
+                .map(|(mov, p)| (Symmetry::<N>::symmetries(mov)[index], *p))
+                .collect(),
+        }
+    }
+}
+
+impl<const N: usize, const HALF_KOMI: i8> fmt::Display for Target<Game<N, HALF_KOMI>>
+where
+    Reserves<N>: Default,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let tps: Tps = self.env.clone().into();
+        let value = self.value;
+        let ube = self.ube;
+        let policy = self
+            .policy
+            .iter()
+            .map(|(mov, p)| format!("{mov}:{p}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        writeln!(f, "{tps};{value};{ube};{policy}")
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ParseReplayError {
     #[error("missing delimiter between TPS and moves")]

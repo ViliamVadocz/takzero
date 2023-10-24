@@ -1,6 +1,6 @@
 use std::{
     path::Path,
-    sync::{atomic::{AtomicU32, Ordering}, RwLock},
+    sync::{atomic::{AtomicU32, Ordering}, RwLock}, collections::VecDeque,
 };
 
 use crossbeam::channel::Receiver;
@@ -9,7 +9,7 @@ use takzero::{
         repr::{game_to_tensor, move_mask, output_size, policy_tensor},
         Network,
     },
-    target::Target,
+    target::{Target, Augment},
 };
 use tch::{
     nn::{Adam, OptimizerConfig},
@@ -18,20 +18,23 @@ use tch::{
     Reduction,
     Tensor,
 };
+use rand::prelude::*;
 
 use crate::{file_name, reanalyze, Env, Net, SharedNet, N};
 
 pub const LEARNING_RATE: f64 = 1e-4;
-pub const EFFECTIVE_BATCH_SIZE: usize = 512;
+pub const EFFECTIVE_BATCH_SIZE: usize = 2048;
+pub const EXPLOITATION_PARTS: usize = 3;
 pub const STEPS_BETWEEN_PUBLISH: u32 = 100;
 pub const PUBLISHES_BETWEEN_SAVE: u32 = 10;
 
+const BATCH_SIZE: usize = reanalyze::BATCH_SIZE * (1 + EXPLOITATION_PARTS); 
 #[allow(clippy::assertions_on_constants)]
 const _: () = assert!(
-    EFFECTIVE_BATCH_SIZE % reanalyze::BATCH_SIZE == 0,
-    "EFFECTIVE_BATCH_SIZE should be divisible by reanalyze::BATCH_SIZE"
+    EFFECTIVE_BATCH_SIZE % BATCH_SIZE == 0,
+    "EFFECTIVE_BATCH_SIZE should be divisible by training::BATCH_SIZE"
 );
-const BATCHES_PER_STEP: usize = EFFECTIVE_BATCH_SIZE.div_ceil(reanalyze::BATCH_SIZE);
+const BATCHES_PER_STEP: usize = EFFECTIVE_BATCH_SIZE.div_ceil(BATCH_SIZE);
 
 // TODO: Consider learning rate scheduler: https://pytorch.org/docs/stable/optim.html
 
@@ -40,13 +43,16 @@ const BATCHES_PER_STEP: usize = EFFECTIVE_BATCH_SIZE.div_ceil(reanalyze::BATCH_S
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(
     device: Device,
+    seed: u64,
     shared_net: &SharedNet,
     rx: Receiver<Vec<Target<Env>>>,
-    exploitation_buffer: &RwLock<Vec<Target<Env>>>,
+    exploitation_buffer: &RwLock<VecDeque<Target<Env>>>,
     training_steps: &AtomicU32,
     model_path: &Path,
 ) {
     log::debug!("started training thread");
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = Net::new(device, None);
     net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
@@ -57,8 +63,17 @@ pub fn run(
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
     let mut batches = 0;
     let mut accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
-    while let Ok(batch) = rx.recv() { // TODO: Sample half (or more) from exploitation buffer
+    while let Ok(mut batch) = rx.recv() { 
+        // Sample some targets from the exploitation buffer.
+        batch.extend(
+            exploitation_buffer.read().unwrap()
+            .iter()
+            .choose_multiple(&mut rng, reanalyze::BATCH_SIZE * EXPLOITATION_PARTS)
+            .into_iter()
+            .map(|target| target.augment(&mut rng))
+        );
         let batch_size = batch.len();
+        log::info!("batch size is {batch_size}");
 
         let mut inputs = Vec::with_capacity(batch_size);
         let mut value_targets = Vec::with_capacity(batch_size);
@@ -144,7 +159,7 @@ mod tests {
         sync::{
             atomic::{AtomicU32, AtomicUsize},
             RwLock,
-        },
+        }, collections::VecDeque,
     };
 
     use fast_tak::Game;
@@ -189,9 +204,10 @@ mod tests {
 
         run(
             Device::cuda_if_available(),
+            123,
             &shared_net,
             batch_rx,
-            &RwLock::new(Vec::new()),
+            &RwLock::new(VecDeque::new()),
             &AtomicU32::new(0),
             &PathBuf::default(),
         );

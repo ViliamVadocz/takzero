@@ -38,6 +38,7 @@ use crate::{
     },
     training::{
         EFFECTIVE_BATCH_SIZE,
+        EXPLOITATION_PARTS,
         LEARNING_RATE,
         PUBLISHES_BETWEEN_SAVE,
         STEPS_BETWEEN_PUBLISH,
@@ -83,6 +84,7 @@ type SharedNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>, RwLock<f64>);
 
 const MINIMUM_REPLAY_BUFFER_SIZE: usize = 10_000;
 const MAXIMUM_REPLAY_BUFFER_SIZE: usize = 100_000_000;
+const MAXIMUM_EXPLOITATION_BUFFER_SIZE: usize = 50_000;
 const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
 const TRAINING_DEVICE: Device = Device::Cuda(0);
 const REANALYZE_PER_DEVICE: &[(Device, usize)] = &[
@@ -142,6 +144,7 @@ fn main() {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let exploitation_seed: u64 = rng.gen();
     let exploration_seed: u64 = rng.gen();
+    let training_seed: u64 = rng.gen();
     let reanalyze_seeds: Vec<u64> = (&mut rng)
         .sample_iter(Uniform::new_inclusive(u64::MIN, u64::MAX))
         .take(
@@ -169,7 +172,7 @@ fn main() {
         RwLock::new(0.0),
     );
     let (batch_tx, batch_rx) = crossbeam::channel::bounded::<Vec<Target<Env>>>(64);
-    let exploitation_buffer = RwLock::new(Vec::new());
+    let exploitation_buffer = RwLock::new(VecDeque::new());
     let exploration_buffer = make_replay_buffer(&args, &mut rng);
     let training_steps = AtomicU32::new(0);
 
@@ -206,6 +209,7 @@ fn main() {
         s.spawn(|| {
             training::run(
                 TRAINING_DEVICE,
+                training_seed,
                 &shared_net,
                 batch_rx,
                 &exploitation_buffer,
@@ -290,6 +294,7 @@ fn print_hyper_parameters(net: &Net, seed: u64, args: &Args) {
     println!("=== Training ===");
     println!("MINIMUM_REPLAY_BUFFER_SIZE = {MINIMUM_REPLAY_BUFFER_SIZE}");
     println!("MAXIMUM_REPLAY_BUFFER_SIZE = {MAXIMUM_REPLAY_BUFFER_SIZE}");
+    println!("MAXIMUM_EXPLOITATION_BUFFER_SIZE = {MAXIMUM_EXPLOITATION_BUFFER_SIZE}");
 
     println!("self_play::BATCH_SIZE = {}", self_play::BATCH_SIZE);
     println!("self_play::SAMPLED = {}", self_play::SAMPLED);
@@ -310,7 +315,8 @@ fn print_hyper_parameters(net: &Net, seed: u64, args: &Args) {
     println!("LEARNING_RATE = {LEARNING_RATE}");
     println!("EFFECTIVE_BATCH_SIZE = {EFFECTIVE_BATCH_SIZE}");
     println!("STEPS_BETWEEN_PUBLISH = {STEPS_BETWEEN_PUBLISH}");
-    println!("PUBLISHED_BETWEEN_SAVE = {PUBLISHES_BETWEEN_SAVE}");
+    println!("PUBLISHES_BETWEEN_SAVE = {PUBLISHES_BETWEEN_SAVE}");
+    println!("EXPLOITATION_PARTS = {EXPLOITATION_PARTS}");
 
     println!("seed = {seed}");
 

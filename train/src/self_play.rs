@@ -18,6 +18,7 @@ use takzero::{
     search::{
         agent::Agent,
         env::Environment,
+        eval::Eval,
         node::{gumbel::gumbel_sequential_halving, Node},
         DISCOUNT_FACTOR,
     },
@@ -25,7 +26,16 @@ use takzero::{
 };
 use tch::{Device, Tensor};
 
-use crate::{new_opening, Env, Net, ReplayBuffer, SharedNet, MAXIMUM_REPLAY_BUFFER_SIZE, STEP};
+use crate::{
+    new_opening,
+    Env,
+    Net,
+    ReplayBuffer,
+    SharedNet,
+    MAXIMUM_EXPLOITATION_BUFFER_SIZE,
+    MAXIMUM_REPLAY_BUFFER_SIZE,
+    STEP,
+};
 
 pub const BATCH_SIZE: usize = 128;
 pub const SAMPLED: usize = 64;
@@ -51,7 +61,7 @@ pub fn exploitation(
     device: Device,
     seed: u64,
     shared_net: &SharedNet,
-    exploitation_buffer: &RwLock<Vec<Target<Env>>>,
+    exploitation_buffer: &RwLock<VecDeque<Target<Env>>>,
     training_steps: &AtomicU32,
     replay_path: &Path,
 ) {
@@ -168,8 +178,9 @@ pub fn exploitation(
                 let from = targets.len().saturating_sub(EXPLOITATION_STEP);
                 for (i, target) in targets[from..].iter_mut().enumerate() {
                     let step = EXPLOITATION_STEP - i; // TODO check if step correct
-                    target.ube += DISCOUNT_FACTOR.powi(2 * step as i32) * rnd;
+                    target.ube += DISCOUNT_FACTOR.powi(2 * i32::try_from(step).unwrap()) * rnd;
                 }
+                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
                 if targets.len() > EXPLOITATION_STEP {
                     let target = &mut targets[from]; // TODO: Check this index
 
@@ -181,11 +192,10 @@ pub fn exploitation(
                     };
                     target.value = sign
                         * DISCOUNT_FACTOR.powi(EXPLOITATION_STEP as i32)
-                        * if let Some(ply) = node.evaluation.ply() {
-                            DISCOUNT_FACTOR.powi(ply as i32) * f32::from(node.evaluation)
-                        } else {
-                            f32::from(node.evaluation)
-                        };
+                        * node.evaluation.ply().map_or_else(
+                            || f32::from(node.evaluation),
+                            |ply| DISCOUNT_FACTOR.powi(ply as i32) * f32::from(node.evaluation),
+                        );
                 }
             });
 
@@ -209,37 +219,103 @@ pub fn exploitation(
             .zip(replays_batch.iter_mut())
             .zip(target_batch.iter_mut())
             .for_each(|((((env, node), actions), replays), targets)| {
-                match env.terminal() {
-                    None => {}
-                    Some(result) => {
-                        temp_target_buffer.extend(targets.drain(..).map(|target| {
-                            // TODO: complete targets
-                        }));
-                        temp_replay_buffer.extend(replays.drain(..));
-                    }
+                if let Some(result) = env.terminal() {
+                    let mut value = f32::from(Eval::from(result));
+                    temp_target_buffer.extend(targets.drain(..).rev().map(|mut target| {
+                        if target.value.is_nan() {
+                            // Complete value target
+                            value *= -DISCOUNT_FACTOR;
+                            target.value = value; // TODO: Check if correct
+                        }
+                        target
+                    }));
+                    temp_replay_buffer.extend(replays.drain(..));
+
+                    new_opening(env, actions, &mut rng);
+                    *node = Node::default();
                 }
             });
 
-        // Refresh finished environments and nodes.
-        // replays_batch
-        //     .iter_mut()
-        //     .zip(nodes.iter_mut())
-        //     .zip(envs.iter_mut())
-        //     .zip(actions.iter_mut())
-        //     .filter_map(|(((replays, node), env), actions)| {
-        //         env.terminal().map(|_| {
-        //             new_opening(env, actions, &mut rng);
-        //             *node = Node::default();
-        //             replays.drain(..)
-        //         })
-        //     })
-        //     .flatten()
-        //     .for_each(|replay| temp_replay_buffer.push_front(replay));
+        // Add replays to buffer.
+        if !temp_replay_buffer.is_empty() {
+            // for exploration we discard these replays.
+            temp_replay_buffer.clear();
 
-        // play self-play
-        // collect targets
-        // send straight to training
-        // update
+            // let steps = training_steps.load(Ordering::Relaxed);
+            // log::info!(
+            //     "Adding {} replays at {steps} training steps",
+            //     temp_replay_buffer.len()
+            // );
+            // let mut lock = exploration_buffer.write().unwrap();
+            // lock.append(&mut temp_replay_buffer);
+
+            // // Truncate replay buffer if it gets too long.
+            // if lock.len() > MAXIMUM_REPLAY_BUFFER_SIZE {
+            //     log::info!("truncating replay buffer, len = {}", lock.len());
+            //     lock.truncate(MAXIMUM_REPLAY_BUFFER_SIZE);
+            // }
+
+            // // While doing this, also save the replay buffer
+            // let s: String = lock.iter().map(ToString::to_string).collect();
+            // drop(lock);
+            // let path = replay_path.join(format!("replays_{steps:0>6}.txt"));
+            // std::thread::spawn(move || {
+            //     let mut file = OpenOptions::new()
+            //         .write(true)
+            //         .create(true)
+            //         .truncate(true)
+            //         .open(path)
+            //         .expect("replay file path should be valid and writable");
+            //     file.write_all(s.as_bytes()).unwrap();
+            // });
+            // log::info!("saved replays to file");
+        }
+
+        if !temp_target_buffer.is_empty() {
+            let steps = training_steps.load(Ordering::Relaxed);
+            log::info!(
+                "Adding {} targets at {steps} training steps",
+                temp_target_buffer.len()
+            );
+            let mut lock = exploitation_buffer.write().unwrap();
+            lock.append(&mut temp_target_buffer);
+
+            // Truncate target buffer if it gets too long.
+            if lock.len() > MAXIMUM_EXPLOITATION_BUFFER_SIZE {
+                log::info!("truncating target buffer, len = {}", lock.len());
+                lock.truncate(MAXIMUM_EXPLOITATION_BUFFER_SIZE);
+            }
+
+            // While doing this, also save the target buffer
+            let s: String = lock.iter().map(ToString::to_string).collect();
+            drop(lock);
+            let path = replay_path.join(format!("exploitation_targets_{steps:0>6}.txt"));
+            std::thread::spawn(move || {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(path)
+                    .expect("target file path should be valid and writable");
+                file.write_all(s.as_bytes()).unwrap();
+            });
+            log::info!("saved targets to file");
+        }
+
+        //  Get the latest network
+        log::debug!("checking if there is a new model for self-play");
+        let maybe_new_net_index = shared_net.0.load(Ordering::Relaxed);
+        if maybe_new_net_index > net_index {
+            net_index = maybe_new_net_index;
+            net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
+            log::info!("updating self-play model to shared_net_{net_index}");
+
+            context = <Net as Agent<Env>>::Context::new(*shared_net.2.read().unwrap());
+        }
+
+        if cfg!(test) {
+            break;
+        }
     }
 }
 
