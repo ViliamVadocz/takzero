@@ -14,15 +14,16 @@ use arrayvec::ArrayVec;
 use rand::{distributions::WeightedIndex, prelude::Distribution, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use takzero::{
-    network::Network,
+    network::{repr::game_to_tensor, Network},
     search::{
         agent::Agent,
         env::Environment,
-        node::{gumbel::gumbel_sequential_halving, Node}, DISCOUNT_FACTOR,
+        node::{gumbel::gumbel_sequential_halving, Node},
+        DISCOUNT_FACTOR,
     },
     target::{Replay, Target},
 };
-use tch::Device;
+use tch::{Device, Tensor};
 
 use crate::{new_opening, Env, Net, ReplayBuffer, SharedNet, MAXIMUM_REPLAY_BUFFER_SIZE, STEP};
 
@@ -45,6 +46,7 @@ pub const LOW_BETA: f32 = 0.02;
 pub const HIGH_BETA: f32 = 0.2;
 pub const EXPLOITATION_STEP: usize = 20;
 
+#[allow(clippy::too_many_lines)]
 pub fn exploitation(
     device: Device,
     seed: u64,
@@ -99,6 +101,21 @@ pub fn exploitation(
             &mut trajectories,
             Some(&mut rng),
         );
+        let raw_rnd: Vec<f32> = context
+            .normalize(
+                &net.forward_rnd(
+                    &Tensor::cat(
+                        &envs
+                            .iter()
+                            .map(|env| game_to_tensor(env, device))
+                            .collect::<Vec<_>>(),
+                        0,
+                    ),
+                    false,
+                ),
+            )
+            .try_into()
+            .unwrap();
 
         // For openings, sample actions according to visits instead.
         envs.iter()
@@ -122,7 +139,8 @@ pub fn exploitation(
             .zip(envs.iter())
             .zip(nodes.iter())
             .zip(&top_actions)
-            .for_each(|((((replays, targets), env), node), action)| {
+            .zip(raw_rnd)
+            .for_each(|(((((replays, targets), env), node), action), rnd)| {
                 // Push start of fresh replay.
                 replays.push(Replay {
                     env: env.clone(),
@@ -146,19 +164,28 @@ pub fn exploitation(
                     ube: 0.0,        // Will be updated.
                 });
 
+                // Accumulate discounted RND.
+                let from = targets.len().saturating_sub(EXPLOITATION_STEP);
+                for (i, target) in targets[from..].iter_mut().enumerate() {
+                    let step = EXPLOITATION_STEP - i; // TODO check if step correct
+                    target.ube += DISCOUNT_FACTOR.powi(2 * step as i32) * rnd;
+                }
                 if targets.len() > EXPLOITATION_STEP {
-                    let target = &mut targets[targets.len() - EXPLOITATION_STEP]; // TODO: Check this index
-                    
-                    // TODO: Accumulate discounted RND.
-                    // target.ube += DISCOUNT_FACTOR.powi(2 * step as i32) * raw_rnd;
+                    let target = &mut targets[from]; // TODO: Check this index
 
                     // Assign the target value.
-                    let sign = if EXPLOITATION_STEP % 2 == 0 { 1.0 } else { -1.0 };
-                    target.value = sign * DISCOUNT_FACTOR.powi(EXPLOITATION_STEP as i32) * if let Some(ply) = node.evaluation.ply() {
-                        DISCOUNT_FACTOR.powi(ply as i32) * f32::from(node.evaluation)
+                    let sign = if EXPLOITATION_STEP % 2 == 0 {
+                        1.0
                     } else {
-                        f32::from(node.evaluation)
+                        -1.0
                     };
+                    target.value = sign
+                        * DISCOUNT_FACTOR.powi(EXPLOITATION_STEP as i32)
+                        * if let Some(ply) = node.evaluation.ply() {
+                            DISCOUNT_FACTOR.powi(ply as i32) * f32::from(node.evaluation)
+                        } else {
+                            f32::from(node.evaluation)
+                        };
                 }
             });
 
@@ -175,6 +202,23 @@ pub fn exploitation(
         // TODO: Complete targets for finished games
         // TODO: Push to temp_target_buffer
         // TODO: Send stuff from temp_target_buffer to exploitation buffer
+
+        envs.iter_mut()
+            .zip(nodes.iter_mut())
+            .zip(actions.iter_mut())
+            .zip(replays_batch.iter_mut())
+            .zip(target_batch.iter_mut())
+            .for_each(|((((env, node), actions), replays), targets)| {
+                match env.terminal() {
+                    None => {}
+                    Some(result) => {
+                        temp_target_buffer.extend(targets.drain(..).map(|target| {
+                            // TODO: complete targets
+                        }));
+                        temp_replay_buffer.extend(replays.drain(..));
+                    }
+                }
+            });
 
         // Refresh finished environments and nodes.
         // replays_batch
@@ -199,6 +243,7 @@ pub fn exploitation(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn exploration(
     device: Device,
     seed: u64,
