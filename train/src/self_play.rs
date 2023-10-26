@@ -44,13 +44,15 @@ pub const SIMULATIONS: u32 = 1024;
 pub const WEIGHTED_RANDOM_PLIES: u16 = 30;
 
 pub const GREEDY_AGENTS: usize = 1; // no noise
-pub const BASELINE_AGENTS: usize = BATCH_SIZE / 2 - GREEDY_AGENTS;
-pub const LOW_BETA_AGENTS: usize = BATCH_SIZE / 4;
-pub const HIGH_BETA_AGENTS: usize = BATCH_SIZE / 4;
+pub const BASELINE_AGENTS: usize = BATCH_SIZE - GREEDY_AGENTS;
+pub const LOW_BETA_AGENTS: usize = BATCH_SIZE / 2;
+pub const HIGH_BETA_AGENTS: usize = BATCH_SIZE / 2;
 
 #[allow(clippy::assertions_on_constants)]
-const _: () =
-    assert!(GREEDY_AGENTS + BASELINE_AGENTS + LOW_BETA_AGENTS + HIGH_BETA_AGENTS == BATCH_SIZE);
+const _: () = assert!(
+    GREEDY_AGENTS + BASELINE_AGENTS == BATCH_SIZE
+        && LOW_BETA_AGENTS + HIGH_BETA_AGENTS == BATCH_SIZE
+);
 
 pub const LOW_BETA: f32 = 0.02;
 pub const HIGH_BETA: f32 = 0.2;
@@ -209,10 +211,6 @@ pub fn exploitation(
                 env.step(action);
             });
 
-        // TODO: Complete targets for finished games
-        // TODO: Push to temp_target_buffer
-        // TODO: Send stuff from temp_target_buffer to exploitation buffer
-
         envs.iter_mut()
             .zip(nodes.iter_mut())
             .zip(actions.iter_mut())
@@ -350,13 +348,7 @@ pub fn exploration(
         rng
     });
 
-    let betas: Vec<f32> = [
-        vec![0.0; GREEDY_AGENTS],
-        vec![0.0; BASELINE_AGENTS],
-        vec![LOW_BETA; LOW_BETA_AGENTS],
-        vec![HIGH_BETA; HIGH_BETA_AGENTS],
-    ]
-    .concat();
+    let betas: Vec<f32> = [[LOW_BETA; LOW_BETA_AGENTS], [HIGH_BETA; HIGH_BETA_AGENTS]].concat();
 
     let mut temp_replay_buffer = VecDeque::new();
     envs.iter_mut()
@@ -383,8 +375,6 @@ pub fn exploration(
             .zip(rngs.iter_mut())
             .zip(nodes.iter_mut())
             .zip(&mut top_actions)
-            .skip(GREEDY_AGENTS)
-            // .take(BASELINE_AGENTS)
             .filter(|(((env, _), _), _)| env.steps() < WEIGHTED_RANDOM_PLIES)
             .for_each(|(((_, rng), node), top_action)| {
                 let weighted_index =
