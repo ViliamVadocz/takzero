@@ -64,6 +64,7 @@ pub fn exploitation(
     seed: u64,
     shared_net: &SharedNet,
     exploitation_buffer: &RwLock<VecDeque<Target<Env>>>,
+    exploration_buffer: &RwLock<VecDeque<Replay<Env>>>,
     training_steps: &AtomicU32,
     replay_path: &Path,
 ) {
@@ -236,37 +237,37 @@ pub fn exploitation(
 
         // Add replays to buffer.
         if !temp_replay_buffer.is_empty() {
-            // for exploration we discard these replays.
-            temp_replay_buffer.clear();
+            // // for exploration we discard these replays.
+            // temp_replay_buffer.clear();
 
-            // let steps = training_steps.load(Ordering::Relaxed);
-            // log::info!(
-            //     "Adding {} replays at {steps} training steps",
-            //     temp_replay_buffer.len()
-            // );
-            // let mut lock = exploration_buffer.write().unwrap();
-            // lock.append(&mut temp_replay_buffer);
+            let steps = training_steps.load(Ordering::Relaxed);
+            log::info!(
+                "Adding {} replays at {steps} training steps",
+                temp_replay_buffer.len()
+            );
+            let mut lock = exploration_buffer.write().unwrap();
+            lock.append(&mut temp_replay_buffer);
 
-            // // Truncate replay buffer if it gets too long.
-            // if lock.len() > MAXIMUM_REPLAY_BUFFER_SIZE {
-            //     log::info!("truncating replay buffer, len = {}", lock.len());
-            //     lock.truncate(MAXIMUM_REPLAY_BUFFER_SIZE);
-            // }
+            // Truncate replay buffer if it gets too long.
+            if lock.len() > MAXIMUM_REPLAY_BUFFER_SIZE {
+                log::info!("truncating replay buffer, len = {}", lock.len());
+                lock.truncate(MAXIMUM_REPLAY_BUFFER_SIZE);
+            }
 
-            // // While doing this, also save the replay buffer
-            // let s: String = lock.iter().map(ToString::to_string).collect();
-            // drop(lock);
-            // let path = replay_path.join(format!("replays_{steps:0>6}.txt"));
-            // std::thread::spawn(move || {
-            //     let mut file = OpenOptions::new()
-            //         .write(true)
-            //         .create(true)
-            //         .truncate(true)
-            //         .open(path)
-            //         .expect("replay file path should be valid and writable");
-            //     file.write_all(s.as_bytes()).unwrap();
-            // });
-            // log::info!("saved replays to file");
+            // While doing this, also save the replay buffer
+            let s: String = lock.iter().map(ToString::to_string).collect();
+            drop(lock);
+            let path = replay_path.join(format!("replays_{steps:0>6}.txt"));
+            std::thread::spawn(move || {
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(path)
+                    .expect("replay file path should be valid and writable");
+                file.write_all(s.as_bytes()).unwrap();
+            });
+            log::info!("saved replays to file");
         }
 
         if !temp_target_buffer.is_empty() {

@@ -16,7 +16,7 @@ use tch::{Device, Tensor};
 
 use crate::{Env, Net, ReplayBuffer, SharedNet, STEP};
 
-pub const BATCH_SIZE: usize = 512;
+pub const BATCH_SIZE: usize = 128;
 pub const SAMPLED: usize = 16;
 pub const SIMULATIONS: u32 = 512;
 

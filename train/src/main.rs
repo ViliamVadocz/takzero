@@ -186,6 +186,7 @@ fn main() {
                     exploitation_seed,
                     &shared_net,
                     &exploitation_buffer,
+                    &exploration_buffer,
                     &training_steps,
                     &args.replay_path,
                 );
