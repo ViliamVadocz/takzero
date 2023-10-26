@@ -30,20 +30,17 @@ impl<E: Environment> Node<E> {
     }
 
     #[inline]
-    fn update_variance(&mut self, uncertainty: f32) {
-        self.variance = self
-            .variance
-            .mul_add((self.visit_count - 1) as f32, uncertainty)
-            / self.visit_count as f32;
+    fn update_variance(&mut self, uncertainty: NotNan<f32>) {
+        self.variance = (self.variance * ((self.visit_count - 1) as f32) + uncertainty) / (self.visit_count as f32);
     }
 
-    fn propagate_child_eval(&mut self, child_eval: Eval, child_uncertainty: f32) -> (Eval, f32) {
+    fn propagate_child_eval(&mut self, child_eval: Eval, child_uncertainty: NotNan<f32>) -> (Eval, NotNan<f32>) {
         let evaluations = self.children.iter().map(|(_, node)| node.evaluation);
         match child_eval {
             // This move made the opponent lose, so this position is a win.
             Eval::Loss(_) => {
                 self.evaluation = child_eval.negate();
-                self.variance = 0.0;
+                self.variance = NotNan::default();
                 (self.evaluation, self.variance)
             }
 
@@ -51,7 +48,7 @@ impl<E: Environment> Node<E> {
             // If all moves lead to wins or draws for the opponent, we choose to draw.
             Eval::Draw(_) | Eval::Win(_) if evaluations.clone().all(|e| e.is_known()) => {
                 self.evaluation = evaluations.min().unwrap().negate();
-                self.variance = 0.0;
+                self.variance = NotNan::default();
                 (self.evaluation, self.variance)
             }
 
@@ -101,26 +98,30 @@ impl<E: Environment> Node<E> {
         &mut self,
         mut trajectory: impl Iterator<Item = usize>,
         eval: Eval,
-    ) -> (Eval, f32) {
+    ) -> (Eval, NotNan<f32>) {
         if let Some(index) = trajectory.next() {
             let (child_eval, child_uncertainty) =
                 self.children[index].1.backward_known_eval(trajectory, eval);
             self.propagate_child_eval(child_eval, child_uncertainty)
         } else {
             // Leaf reached, time to propagate upwards.
-            (eval, 0.0)
+            (eval, NotNan::default())
         }
     }
 
-    /// Initialize a leaf node and propagate a network evaluation through the
-    /// tree.
+    /// Initialize a leaf node and propagate a network evaluation
+    /// through the tree.
+    /// 
+    /// # Panics
+    /// 
+    /// Panics if any of the policies is NaN.
     pub fn backward_network_eval(
         &mut self,
         mut trajectory: impl Iterator<Item = usize>,
         policy: impl Iterator<Item = (E::Action, f32)>,
         value: f32,
         uncertainty: f32,
-    ) -> (Eval, f32) {
+    ) -> (Eval, NotNan<f32>) {
         if let Some(index) = trajectory.next() {
             let (child_eval, child_uncertainty) = self.children[index].1.backward_network_eval(
                 trajectory,
@@ -131,13 +132,13 @@ impl<E: Environment> Node<E> {
             self.propagate_child_eval(child_eval, child_uncertainty)
         } else {
             // Finish leaf initialization.
-            self.children = policy.map(|(a, p)| (a, Self::from_policy(p))).collect();
+            self.children = policy.map(|(a, p)| (a, Self::from_policy(NotNan::new(p).expect("policy should not be NaN")))).collect();
             self.propagate_child_eval(
                 Eval::new_value(value).unwrap_or_else(|_| {
                     log::warn!("value NaN");
                     Eval::default()
                 }),
-                uncertainty,
+                NotNan::new(uncertainty).expect("uncertainty should not be NaN"),
             )
         }
     }
@@ -149,7 +150,7 @@ impl<E: Environment> Node<E> {
         env: E,
         beta: f32,
         context: &mut A::Context,
-    ) -> (Eval, f32) {
+    ) -> (Eval, NotNan<f32>) {
         let mut trajectory = Vec::new();
         match self.forward(&mut trajectory, env, beta) {
             Forward::Known(eval) => self.backward_known_eval(trajectory.into_iter(), eval),

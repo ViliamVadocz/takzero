@@ -1,6 +1,6 @@
 use std::fmt;
 
-use ordered_float::OrderedFloat;
+use ordered_float::{NotNan, OrderedFloat};
 
 use super::{
     super::{env::Environment, eval::Eval},
@@ -47,9 +47,9 @@ impl<E: Environment> Node<E> {
 pub struct ActionInfo<A> {
     action: A,
     visit_count: u32,
-    policy: f32,
+    policy: NotNan<f32>,
     improved_policy: f32,
-    variance: f32,
+    variance: NotNan<f32>,
     eval: Eval,
 }
 
@@ -60,9 +60,9 @@ impl<A: fmt::Display> fmt::Display for ActionInfo<A> {
             "{: >8} c:{: >8} p:{:+.4} i:{:+.4} v:{:.4} e:{:+.4?}",
             self.action,
             self.visit_count,
-            self.policy,
+            f32::from(self.policy),
             self.improved_policy,
-            self.variance,
+            f32::from(self.variance),
             self.eval
         )
     }

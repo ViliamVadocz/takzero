@@ -32,6 +32,11 @@ impl Eval {
     }
 
     #[must_use]
+    pub const fn new_not_nan_value(value: NotNan<f32>) -> Self {
+        Self::Value(value)
+    }
+
+    #[must_use]
     pub fn negate(&self) -> Self {
         match *self {
             Self::Value(value) => Self::Value(-value),
