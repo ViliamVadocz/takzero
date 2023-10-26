@@ -255,28 +255,47 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
             + 1;
 
         let evaluations = node.children.iter().map(|(_, child)| &child.evaluation);
-        node.evaluation =
-            if evaluations.clone().any(Eval::is_loss) || evaluations.clone().all(Eval::is_known) {
-                evaluations.min().unwrap().negate()
-            } else {
-                // Slightly different formula than in the Gumbel MuZero paper.
-                // Here we are ignoring the original network eval because we no longer have
-                // access to it. node.evaluation might already include child
-                // evaluations because of tree re-use.
-                let visited_children = node
-                    .children
-                    .iter()
-                    .map(|(_, child)| child)
-                    .filter(|child| child.visit_count > 0);
-                let sum_policies: f32 = visited_children.clone().map(|child| child.policy).sum();
-                let weighted_q: f32 = visited_children
-                    .map(|child| f32::from(child.evaluation.negate()) * child.policy)
-                    .sum();
-                Eval::new_value(weighted_q / sum_policies).unwrap_or_else(|_| {
-                    log::warn!("NaN in gumbel root value");
-                    Eval::default()
-                })
-            };
+
+        if evaluations.clone().any(Eval::is_loss) || evaluations.clone().all(Eval::is_known) {
+            // Node is solved.
+            node.evaluation = evaluations.min().unwrap().negate();
+            node.variance = NotNan::default();
+        } else {
+            // Slightly different formula than in the Gumbel MuZero paper.
+            // Here we are ignoring the original network eval because we no longer have
+            // access to it. node.evaluation could be used, but that already includes
+            // child evaluations because of tree re-use.
+            let visited_children = node
+                .children
+                .iter()
+                .map(|(_, child)| child)
+                .filter(|child| child.visit_count > 0);
+            let sum_policies: NotNan<f32> =
+                visited_children.clone().map(|child| child.policy).sum();
+            let weighted_q: NotNan<f32> = visited_children
+                .clone()
+                .map(|child| child.policy * f32::from(child.evaluation.negate()))
+                .sum();
+            node.evaluation = Eval::new_not_nan_value(weighted_q / sum_policies);
+
+            // For variance we use a completely different formula.
+            // We take the mean of variances of children with highest value + variance.
+            // TODO: Figure out whether this makes any sense.
+            let mut visited_children: Vec<_> = visited_children.collect();
+            visited_children.sort_unstable_by_key(|child| {
+                child
+                    .evaluation
+                    .negate()
+                    .map(|value| value + child.variance)
+            });
+            let len = visited_children.len();
+            node.variance = visited_children
+                .into_iter()
+                .skip(len / 2)
+                .map(|child| child.variance)
+                .sum::<NotNan<f32>>()
+                / (len / 2) as f32;
+        }
     });
 
     top_actions
