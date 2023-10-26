@@ -34,6 +34,7 @@ use crate::{
         HIGH_BETA_AGENTS,
         LOW_BETA,
         LOW_BETA_AGENTS,
+        TRAINING_STEPS_BEFORE_BETA,
         WEIGHTED_RANDOM_PLIES,
     },
     training::{
@@ -307,7 +308,8 @@ fn print_hyper_parameters(net: &Net, seed: u64, args: &Args) {
     println!("HIGH_BETA_AGENTS = {HIGH_BETA_AGENTS}");
     println!("LOW_BETA = {LOW_BETA}");
     println!("HIGH_BETA = {HIGH_BETA}");
-    println!("EXPLOITATION_STEP = {EXPLOITATION_STEP}");
+    println!("TRAINING_STEPS_BEFORE_BETA = {TRAINING_STEPS_BEFORE_BETA}");
+    println!("TEMPORAL_DIFFERENCE_STEP_FOR_EXPLOITATION = {EXPLOITATION_STEP}");
 
     println!("reanalyze::BATCH_SIZE = {}", reanalyze::BATCH_SIZE);
     println!("reanalyze::SAMPLED = {}", reanalyze::SAMPLED);
