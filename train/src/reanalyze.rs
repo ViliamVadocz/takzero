@@ -3,18 +3,17 @@ use std::{array, sync::atomic::Ordering};
 use crossbeam::channel::{Sender, TrySendError};
 use rand::{seq::IteratorRandom, Rng, SeedableRng};
 use takzero::{
-    network::{repr::game_to_tensor, Network},
+    network::Network,
     search::{
         agent::Agent,
         env::Environment,
         node::{gumbel::gumbel_sequential_halving, Node},
-        DISCOUNT_FACTOR,
     },
     target::{Augment, Replay, Target},
 };
-use tch::{Device, Tensor};
+use tch::Device;
 
-use crate::{Env, Net, ReplayBuffer, SharedNet, STEP};
+use crate::{Env, Net, ReplayBuffer, SharedNet};
 
 pub const BATCH_SIZE: usize = 128;
 pub const SAMPLED: usize = 16;
@@ -69,7 +68,6 @@ pub fn run(
             &net,
             &replays,
             &mut rng,
-            device,
             &mut envs,
             &mut nodes,
             &mut actions,
@@ -108,8 +106,6 @@ fn reanalyze(
     net: &Net,
     replays: &[Replay<Env>],
     rng: &mut impl Rng,
-    device: Device,
-
     envs: &mut [Env],
     nodes: &mut [Node<Env>],
     actions: &mut [Vec<<Env as Environment>::Action>],
@@ -138,8 +134,9 @@ fn reanalyze(
         trajectories,
         Some(rng),
     );
-    // Begin constructing targets from the environment and improved policy.
-    let mut targets: Vec<_> = nodes
+
+    // Construct targets from the improved policy.
+    nodes
         .iter()
         .zip(envs.iter())
         .zip(betas)
@@ -150,109 +147,10 @@ fn reanalyze(
                 .zip(node.children.iter())
                 .map(|(p, (a, _))| (*a, p))
                 .collect(),
-            value: f32::NAN, // Value still needs to be filled.
-            ube: 0.0,        // Will be updated.
+            value: node.evaluation.into(),
+            ube: node.variance.into(),
         })
-        .collect();
-
-    for step in 0..STEP {
-        log::debug!("reanalyze step");
-        let sign = if step % 2 == 0 { 1.0 } else { -1.0 };
-        let raw_rnd: Vec<f32> = context
-            .normalize(
-                &net.forward_rnd(
-                    &Tensor::cat(
-                        &envs
-                            .iter()
-                            .map(|env| game_to_tensor(env, device))
-                            .collect::<Vec<_>>(),
-                        0,
-                    ),
-                    false,
-                ),
-            )
-            .try_into()
-            .unwrap();
-
-        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-        nodes
-            .iter_mut()
-            .zip(envs.iter_mut())
-            .zip(replays)
-            .zip(raw_rnd)
-            .zip(&mut targets)
-            .filter(|(_, target)| target.value.is_nan())
-            .for_each(|((((node, env), replay), raw_rnd), target)| {
-                // Accumulate discounted RND.
-                target.ube += DISCOUNT_FACTOR.powi(2 * step as i32) * raw_rnd;
-
-                // If the node is solved, we can use that value.
-                if let Some(ply) = node.evaluation.ply() {
-                    target.value = sign
-                        * DISCOUNT_FACTOR.powi(step as i32 + ply as i32)
-                        * f32::from(node.evaluation);
-                    return;
-                }
-                // Take a step in the search tree and the environment.
-                let action = replay.actions[step];
-                node.descend(&action);
-                env.step(action);
-
-                // If the state is terminal, use the terminal reward.
-                if let Some(terminal) = env.terminal() {
-                    target.value =
-                        -sign * DISCOUNT_FACTOR.powi(1 + step as i32) * f32::from(terminal);
-                }
-            });
-    }
-
-    // Collect environments which still need to be evaluated.
-    let mut mask = [false; BATCH_SIZE];
-    let (env_batch, actions_batch): (Vec<_>, Vec<_>) = envs
-        .iter()
-        .zip(actions.iter_mut())
-        .zip(&mut mask)
-        .zip(&targets)
-        .filter(|(_, target)| target.value.is_nan())
-        .map(|(((env, actions), mask), _)| {
-            env.populate_actions(actions);
-            *mask = true;
-            (env.clone(), std::mem::take(actions))
-        })
-        .unzip();
-    let output = net.policy_value_uncertainty(&env_batch, &actions_batch, &mask, context);
-
-    // Apply the output values and uncertainties onto the targets to finish them.
-    targets
-        .iter_mut()
-        .zip(actions.iter_mut())
-        .zip(mask)
-        .filter(|(_, mask)| *mask)
-        .zip(output)
-        .zip(actions_batch)
-        .map(
-            |((((target, old_actions), _mask), output), moved_actions)| {
-                (target, old_actions, moved_actions, output)
-            },
-        )
-        .for_each(|(target, old_actions, mut moved_actions, output)| {
-            let (_policy, value, uncertainty) = output;
-            target.value = DISCOUNT_FACTOR.powi(i32::try_from(STEP).unwrap())
-                * value
-                * if STEP % 2 == 0 { 1.0 } else { -1.0 };
-            target.ube += DISCOUNT_FACTOR.powi(2 * i32::try_from(STEP).unwrap()) * uncertainty;
-            // Restore actions.
-            moved_actions.clear();
-            let _ = std::mem::replace(old_actions, moved_actions);
-        });
-
-    // Clip ube target between 0.0 and 1.0
-    for target in &mut targets {
-        target.ube = target.ube.clamp(0.0, 1.0);
-    }
-
-    assert!(targets.iter().all(|target| target.value.is_finite()));
-    targets
+        .collect()
 }
 
 #[cfg(test)]

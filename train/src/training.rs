@@ -72,6 +72,8 @@ pub fn run(
             .into_iter()
             .map(|target| target.augment(&mut rng))
         );
+        assert!(batch.iter().all(|target| target.value.is_finite()));
+        assert!(batch.iter().all(|target| target.ube.is_finite()));
         let batch_size = batch.len();
         log::info!("batch size is {batch_size}");
 
