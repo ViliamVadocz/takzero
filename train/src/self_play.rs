@@ -14,7 +14,7 @@ use arrayvec::ArrayVec;
 use rand::{distributions::WeightedIndex, prelude::Distribution, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use takzero::{
-    network::{repr::game_to_tensor, Network},
+    network::Network,
     search::{
         agent::Agent,
         env::Environment,
@@ -24,7 +24,7 @@ use takzero::{
     },
     target::{Replay, Target},
 };
-use tch::{Device, Tensor};
+use tch::Device;
 
 use crate::{
     new_opening,
@@ -54,6 +54,7 @@ const _: () = assert!(
         && LOW_BETA_AGENTS + HIGH_BETA_AGENTS == BATCH_SIZE
 );
 
+pub const TRAINING_STEPS_BEFORE_BETA: u32 = 2_000;
 pub const LOW_BETA: f32 = 0.02;
 pub const HIGH_BETA: f32 = 0.2;
 pub const EXPLOITATION_STEP: usize = 20;
@@ -91,7 +92,7 @@ pub fn exploitation(
         rng
     });
 
-    let betas = [0.0; BATCH_SIZE];
+    let zero_betas = [0.0; BATCH_SIZE];
 
     let mut temp_target_buffer = VecDeque::new();
     let mut temp_replay_buffer = VecDeque::new();
@@ -100,7 +101,7 @@ pub fn exploitation(
         .for_each(|(env, actions)| new_opening(env, actions, &mut rng));
 
     loop {
-        log::info!("search");
+        log::info!("exploit search");
         // Do Gumbel sequential halving.
         let mut top_actions = gumbel_sequential_halving(
             &mut nodes,
@@ -108,27 +109,12 @@ pub fn exploitation(
             &net,
             SAMPLED,
             SIMULATIONS,
-            &betas,
+            &zero_betas,
             &mut context,
             &mut actions,
             &mut trajectories,
             Some(&mut rng),
         );
-        let raw_rnd: Vec<f32> = context
-            .normalize(
-                &net.forward_rnd(
-                    &Tensor::cat(
-                        &envs
-                            .iter()
-                            .map(|env| game_to_tensor(env, device))
-                            .collect::<Vec<_>>(),
-                        0,
-                    ),
-                    false,
-                ),
-            )
-            .try_into()
-            .unwrap();
 
         // For openings, sample actions according to visits instead.
         envs.iter()
@@ -152,8 +138,7 @@ pub fn exploitation(
             .zip(envs.iter())
             .zip(nodes.iter())
             .zip(&top_actions)
-            .zip(raw_rnd)
-            .for_each(|(((((replays, targets), env), node), action), rnd)| {
+            .for_each(|((((replays, targets), env), node), action)| {
                 // Push start of fresh replay.
                 replays.push(Replay {
                     env: env.clone(),
@@ -174,18 +159,12 @@ pub fn exploitation(
                         .map(|(p, (a, _))| (*a, p))
                         .collect(),
                     value: f32::NAN, // Value still needs to be filled.
-                    ube: 0.0,        // Will be updated.
+                    ube: f32::NAN,   // UBE still needs to be filled.
                 });
-
-                // Accumulate discounted RND.
-                let from = targets.len().saturating_sub(EXPLOITATION_STEP);
-                for (i, target) in targets[from..].iter_mut().enumerate() {
-                    let step = EXPLOITATION_STEP - i; // TODO check if step correct
-                    target.ube += DISCOUNT_FACTOR.powi(2 * i32::try_from(step).unwrap()) * rnd;
-                }
-                #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                // Update N-step targets.
                 if targets.len() > EXPLOITATION_STEP {
-                    let target = &mut targets[from]; // TODO: Check this index
+                    let index = targets.len().saturating_sub(EXPLOITATION_STEP + 1);
+                    let target = &mut targets[index];
 
                     // Assign the target value.
                     let sign = if EXPLOITATION_STEP % 2 == 0 {
@@ -194,11 +173,18 @@ pub fn exploitation(
                         -1.0
                     };
                     target.value = sign
-                        * DISCOUNT_FACTOR.powi(EXPLOITATION_STEP as i32)
+                        * DISCOUNT_FACTOR.powi(i32::try_from(EXPLOITATION_STEP).unwrap())
                         * node.evaluation.ply().map_or_else(
                             || f32::from(node.evaluation),
-                            |ply| DISCOUNT_FACTOR.powi(ply as i32) * f32::from(node.evaluation),
+                            |ply| {
+                                DISCOUNT_FACTOR.powi(i32::try_from(ply).unwrap())
+                                    * f32::from(node.evaluation)
+                            },
                         );
+                    // Assign the uncertainty target.
+                    target.ube = DISCOUNT_FACTOR
+                        .powi(2 * i32::try_from(EXPLOITATION_STEP).unwrap())
+                        * f32::from(node.variance);
                 }
             });
 
@@ -212,6 +198,7 @@ pub fn exploitation(
                 env.step(action);
             });
 
+        // Deal with finished games.
         envs.iter_mut()
             .zip(nodes.iter_mut())
             .zip(actions.iter_mut())
@@ -224,7 +211,8 @@ pub fn exploitation(
                         if target.value.is_nan() {
                             // Complete value target
                             value *= -DISCOUNT_FACTOR;
-                            target.value = value; // TODO: Check if correct
+                            target.value = value;
+                            target.ube = 0.0; // TODO: Is this supposed to be 0?
                         }
                         target
                     }));
@@ -318,6 +306,8 @@ pub fn exploitation(
     }
 }
 
+// TODO: Consider beta scheduler?
+
 #[allow(clippy::too_many_lines)]
 pub fn exploration(
     device: Device,
@@ -350,6 +340,7 @@ pub fn exploration(
     });
 
     let betas: Vec<f32> = [[LOW_BETA; LOW_BETA_AGENTS], [HIGH_BETA; HIGH_BETA_AGENTS]].concat();
+    let zero_betas = [0.0f32; BATCH_SIZE];
 
     let mut temp_replay_buffer = VecDeque::new();
     envs.iter_mut()
@@ -357,7 +348,6 @@ pub fn exploration(
         .for_each(|(env, actions)| new_opening(env, actions, &mut rng));
 
     loop {
-        log::info!("search");
         // Do Gumbel sequential halving.
         let mut top_actions = gumbel_sequential_halving(
             &mut nodes,
@@ -365,7 +355,13 @@ pub fn exploration(
             &net,
             SAMPLED,
             SIMULATIONS,
-            &betas,
+            if training_steps.load(Ordering::Relaxed) > TRAINING_STEPS_BEFORE_BETA {
+                log::info!("search with beta");
+                &betas
+            } else {
+                log::info!("search without beta");
+                &zero_betas
+            },
             &mut context,
             &mut actions,
             &mut trajectories,
