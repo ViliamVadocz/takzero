@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 use std::ops::Index;
 
 use fast_tak::{takparse::Move, Game};

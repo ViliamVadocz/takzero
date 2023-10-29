@@ -143,7 +143,10 @@ fn reanalyze(
         .map(|((node, env), beta)| Target {
             env: env.clone(),
             policy: node
-                .improved_policy(beta)
+                .improved_policy(
+                    #[cfg(not(feature = "baseline"))]
+                    beta,
+                )
                 .zip(node.children.iter())
                 .map(|(p, (a, _))| (*a, p))
                 .collect(),

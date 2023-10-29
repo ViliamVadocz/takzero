@@ -155,7 +155,10 @@ pub fn exploitation(
                 targets.push(Target {
                     env: env.clone(),
                     policy: node
-                        .improved_policy(0.0)
+                        .improved_policy(
+                            #[cfg(not(feature = "baseline"))]
+                            0.0,
+                        )
                         .zip(node.children.iter())
                         .map(|(p, (a, _))| (*a, p))
                         .collect(),
