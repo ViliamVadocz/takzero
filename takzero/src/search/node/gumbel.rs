@@ -226,6 +226,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                             q,
                             #[cfg(not(feature = "baseline"))]
                             child.variance,
+                            #[cfg(not(feature = "baseline"))]
                             *beta,
                             fake_visit_count,
                         ) + child.policy

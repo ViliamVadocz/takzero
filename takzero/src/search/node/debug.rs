@@ -13,7 +13,10 @@ where
     E::Action: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut action_info = self.action_info(0.0);
+        let mut action_info = self.action_info(
+            #[cfg(not(feature = "baseline"))]
+            0.0,
+        );
         action_info.sort_by_key(|a| OrderedFloat(a.improved_policy));
         #[cfg(feature = "baseline")]
         writeln!(
@@ -36,19 +39,25 @@ where
 
 impl<E: Environment> Node<E> {
     #[must_use]
-    pub fn action_info(&self, beta: f32) -> Vec<ActionInfo<E::Action>> {
-        self.improved_policy(beta)
-            .zip(self.children.iter())
-            .map(|(improved_policy, (action, child))| ActionInfo {
-                action: action.clone(),
-                visit_count: child.visit_count,
-                policy: child.policy,
-                improved_policy,
-                eval: child.evaluation,
-                #[cfg(not(feature = "baseline"))]
-                variance: child.variance,
-            })
-            .collect()
+    pub fn action_info(
+        &self,
+        #[cfg(not(feature = "baseline"))] beta: f32,
+    ) -> Vec<ActionInfo<E::Action>> {
+        self.improved_policy(
+            #[cfg(not(feature = "baseline"))]
+            beta,
+        )
+        .zip(self.children.iter())
+        .map(|(improved_policy, (action, child))| ActionInfo {
+            action: action.clone(),
+            visit_count: child.visit_count,
+            policy: child.policy,
+            improved_policy,
+            eval: child.evaluation,
+            #[cfg(not(feature = "baseline"))]
+            variance: child.variance,
+        })
+        .collect()
     }
 }
 
