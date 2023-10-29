@@ -29,7 +29,13 @@ impl<E: Environment> Node<E> {
                 .into(),
             )
             .expect("completed value should not be NaN");
-            sigma(completed_value, node.variance, beta, most_visited_count) + node.policy
+            sigma(
+                completed_value,
+                #[cfg(not(feature = "baseline"))]
+                node.variance,
+                beta,
+                most_visited_count,
+            ) + node.policy
         });
 
         // Softmax
@@ -58,8 +64,16 @@ impl<E: Environment> Node<E> {
 
 #[must_use]
 #[allow(clippy::suboptimal_flops)]
-pub fn sigma(q: NotNan<f32>, variance: NotNan<f32>, beta: f32, visit_count: f32) -> NotNan<f32> {
+pub fn sigma(
+    q: NotNan<f32>,
+    #[cfg(not(feature = "baseline"))] variance: NotNan<f32>,
+    beta: f32,
+    visit_count: f32,
+) -> NotNan<f32> {
     const C_VISIT: f32 = 50.0; // Paper used 50, but 30 solves tests
     const C_SCALE: f32 = 1.0; // Paper used 1, but 0.1 solves tests
-    (q + variance * beta) * (C_VISIT + visit_count) * C_SCALE
+    #[cfg(feature = "baseline")]
+    return (q * beta) * (C_VISIT + visit_count) * C_SCALE;
+    #[cfg(not(feature = "baseline"))]
+    return (q + variance * beta) * (C_VISIT + visit_count) * C_SCALE;
 }

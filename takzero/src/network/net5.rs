@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use std::ops::Index;
 
 use fast_tak::{takparse::Move, Game};
@@ -30,10 +31,13 @@ pub struct Net5 {
     core: nn::SequentialT,
     policy_head: nn::SequentialT,
     value_head: nn::SequentialT,
+    #[cfg(not(feature = "baseline"))]
     ube_head: nn::SequentialT,
+    #[cfg(not(feature = "baseline"))]
     rnd: Rnd,
 }
 
+#[cfg(not(feature = "baseline"))]
 #[derive(Debug)]
 struct Rnd {
     target: nn::SequentialT,
@@ -104,6 +108,7 @@ fn value_head(path: &nn::Path) -> nn::SequentialT {
         .add_fn(Tensor::tanh)
 }
 
+#[cfg(not(feature = "baseline"))]
 fn ube_head(path: &nn::Path) -> nn::SequentialT {
     nn::seq_t()
         .add(ResidualBlock::new(&(path / "res_block"), FILTERS, FILTERS))
@@ -122,6 +127,7 @@ fn ube_head(path: &nn::Path) -> nn::SequentialT {
         .add_fn(Tensor::square)
 }
 
+#[cfg(not(feature = "baseline"))]
 fn rnd(path: &nn::Path) -> nn::SequentialT {
     const HIDDEN_LAYER: i64 = 1024;
     const OUTPUT: i64 = 512;
@@ -161,7 +167,9 @@ impl Network for Net5 {
         let core = core(&(&root / "core"));
         let policy_head = policy_head(&(&root / "policy"));
         let value_head = value_head(&(&root / "value"));
+        #[cfg(not(feature = "baseline"))]
         let ube_head = ube_head(&(&root / "ube"));
+        #[cfg(not(feature = "baseline"))]
         let rnd = Rnd {
             learning: rnd(&(&root / "rnd_learning")),
             target: rnd(&(&root / "rnd_target")),
@@ -172,7 +180,9 @@ impl Network for Net5 {
             core,
             policy_head,
             value_head,
+            #[cfg(not(feature = "baseline"))]
             ube_head,
+            #[cfg(not(feature = "baseline"))]
             rnd,
         }
     }
@@ -185,6 +195,16 @@ impl Network for Net5 {
         &mut self.vs
     }
 
+    #[cfg(feature = "baseline")]
+    fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor) {
+        let s = self.core.forward_t(xs, train);
+        (
+            self.policy_head.forward_t(&s, train),
+            self.value_head.forward_t(&s, train),
+        )
+    }
+
+    #[cfg(not(feature = "baseline"))]
     fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor, Tensor) {
         let s = self.core.forward_t(xs, train);
         (
@@ -194,6 +214,7 @@ impl Network for Net5 {
         )
     }
 
+    #[cfg(not(feature = "baseline"))]
     fn forward_rnd(&self, xs: &Tensor, train: bool) -> Tensor {
         self.rnd
             .learning
@@ -216,6 +237,74 @@ impl Agent<Env> for Net5 {
     type Context = RndNormalizationContext;
     type Policy = Policy;
 
+    #[cfg(feature = "baseline")]
+    fn policy_value(
+        &self,
+        env_batch: &[Env],
+        actions_batch: &[Vec<<Env as crate::search::env::Environment>::Action>],
+        env_mask: &[bool],
+        _context: &mut Self::Context,
+    ) -> Vec<(Self::Policy, f32)> {
+        debug_assert_eq!(env_batch.len(), actions_batch.len());
+        debug_assert_eq!(env_batch.len(), env_mask.len());
+        let device = self.vs.device();
+
+        let xs = Tensor::cat(
+            &env_batch
+                .par_iter()
+                .zip(env_mask)
+                .map(|(env, mask)| {
+                    if *mask {
+                        game_to_tensor(env, device)
+                    } else {
+                        Tensor::zeros(
+                            [1, input_channels::<N>() as i64, N as i64, N as i64],
+                            (Kind::Float, device),
+                        )
+                    }
+                })
+                .collect::<Vec<_>>(),
+            0,
+        );
+        let move_mask = Tensor::cat(
+            &actions_batch
+                .par_iter()
+                .zip(env_mask)
+                .map(|(m, mask)| {
+                    if *mask {
+                        move_mask::<N>(m, device)
+                    } else {
+                        Tensor::zeros(
+                            [1, output_channels::<N>() as i64, N as i64, N as i64],
+                            (Kind::Bool, device),
+                        )
+                    }
+                })
+                .collect::<Vec<_>>(),
+            0,
+        );
+        // let env_mask_tensor = Tensor::from_slice(env_mask).to(device);
+
+        let (policy, values) = self.forward_t(&xs, false);
+        let masked_policy: Vec<Vec<_>> = policy
+            .masked_fill(&move_mask, f64::from(f32::MIN))
+            .view([-1, output_size::<N>() as i64])
+            .softmax(1, Kind::Float)
+            .try_into()
+            .unwrap();
+        let values: Vec<_> = values.view([-1]).try_into().unwrap();
+
+        masked_policy
+            .into_iter()
+            .map(Policy)
+            .zip(values)
+            .zip(env_mask)
+            .filter(|(_, mask)| **mask)
+            .map(|((p, v), _)| (p, v))
+            .collect()
+    }
+
+    #[cfg(not(feature = "baseline"))]
     fn policy_value_uncertainty(
         &self,
         env_batch: &[Env],
@@ -318,6 +407,7 @@ impl RndNormalizationContext {
     }
 }
 
+#[cfg(not(feature = "baseline"))]
 #[cfg(test)]
 mod tests {
     use std::array;

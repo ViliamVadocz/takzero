@@ -52,6 +52,9 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
             }
         })
         .unzip();
+    #[cfg(feature = "baseline")]
+    let output = agent.policy_value(&env_batch, &actions_batch, &mask, context);
+    #[cfg(not(feature = "baseline"))]
     let output = agent.policy_value_uncertainty(&env_batch, &actions_batch, &mask, context);
     debug_assert_eq!(output.len(), mask.iter().filter(|x| **x).count());
 
@@ -71,11 +74,15 @@ fn batched_simulate<E: Environment, A: Agent<E>>(
         .par_bridge()
         .for_each(
             |(node, trajectory, old_actions, mut moved_actions, output)| {
+                #[cfg(feature = "baseline")]
+                let (policy, value) = output;
+                #[cfg(not(feature = "baseline"))]
                 let (policy, value, uncertainty) = output;
                 node.backward_network_eval(
                     trajectory.drain(..),
                     moved_actions.drain(..).map(|a| (a.clone(), policy[a])),
                     value,
+                    #[cfg(not(feature = "baseline"))]
                     uncertainty,
                 );
                 // Restore old actions.
@@ -214,11 +221,15 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
             .for_each(|(search_set, beta)| {
                 let fake_visit_count = (iteration * simulations_per_halving / sampled) as f32;
                 search_set.sort_unstable_by_key(|(_, child)| {
-                    Reverse(
-                        child.evaluation.negate().map(|q| {
-                            sigma(q, child.variance, *beta, fake_visit_count) + child.policy
-                        }),
-                    )
+                    Reverse(child.evaluation.negate().map(|q| {
+                        sigma(
+                            q,
+                            #[cfg(not(feature = "baseline"))]
+                            child.variance,
+                            *beta,
+                            fake_visit_count,
+                        ) + child.policy
+                    }))
                 });
                 let len = search_set.len().div(2).max(1);
                 *search_set = unsafe { std::mem::transmute(&mut search_set[..len]) };
@@ -259,7 +270,10 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
         if evaluations.clone().any(Eval::is_loss) || evaluations.clone().all(Eval::is_known) {
             // Node is solved.
             node.evaluation = evaluations.min().unwrap().negate();
-            node.variance = NotNan::default();
+            #[cfg(not(feature = "baseline"))]
+            {
+                node.variance = NotNan::default();
+            }
         } else {
             // Slightly different formula than in the Gumbel MuZero paper.
             // Here we are ignoring the original network eval because we no longer have
@@ -278,23 +292,26 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                 .sum();
             node.evaluation = Eval::new_not_nan_value(weighted_q / sum_policies);
 
-            // For variance we use a completely different formula.
-            // We take the mean of variances of children with highest value + variance.
-            // TODO: Figure out whether this makes any sense.
-            let mut visited_children: Vec<_> = visited_children.collect();
-            visited_children.sort_unstable_by_key(|child| {
-                child
-                    .evaluation
-                    .negate()
-                    .map(|value| value + child.variance)
-            });
-            let len = visited_children.len();
-            node.variance = visited_children
-                .into_iter()
-                .skip(len / 2)
-                .map(|child| child.variance)
-                .sum::<NotNan<f32>>()
-                / (len / 2) as f32;
+            #[cfg(not(feature = "baseline"))]
+            {
+                // For variance we use a completely different formula.
+                // We take the mean of variances of children with highest value + variance.
+                // TODO: Figure out whether this makes any sense.
+                let mut visited_children: Vec<_> = visited_children.collect();
+                visited_children.sort_unstable_by_key(|child| {
+                    child
+                        .evaluation
+                        .negate()
+                        .map(|value| value + child.variance)
+                });
+                let len = visited_children.len();
+                node.variance = visited_children
+                    .into_iter()
+                    .skip(len / 2)
+                    .map(|child| child.variance)
+                    .sum::<NotNan<f32>>()
+                    / (len / 2) as f32;
+            }
         }
     });
 

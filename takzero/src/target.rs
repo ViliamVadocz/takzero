@@ -22,7 +22,8 @@ pub struct Target<E: Environment> {
     pub env: E,                          // s_t
     pub policy: Box<[(E::Action, f32)]>, // \pi'(s_t)
     pub value: f32,                      // discounted N-step value
-    pub ube: f32,                        // sum of RND + discounted N-step UBE
+    #[cfg(not(feature = "baseline"))]
+    pub ube: f32, // sum of RND + discounted N-step UBE
 }
 
 pub trait Augment {
@@ -72,6 +73,7 @@ where
         Self {
             env: self.env.symmetries().into_iter().nth(index).unwrap(),
             value: self.value,
+            #[cfg(not(feature = "baseline"))]
             ube: self.ube,
             policy: self
                 .policy
@@ -89,6 +91,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let tps: Tps = self.env.clone().into();
         let value = self.value;
+        #[cfg(not(feature = "baseline"))]
         let ube = self.ube;
         let policy = self
             .policy
@@ -96,7 +99,11 @@ where
             .map(|(mov, p)| format!("{mov}:{p}"))
             .collect::<Vec<_>>()
             .join(",");
-        writeln!(f, "{tps};{value};{ube};{policy}")
+
+        #[cfg(feature = "baseline")]
+        return writeln!(f, "{tps};{value};{policy}");
+        #[cfg(not(feature = "baseline"))]
+        return writeln!(f, "{tps};{value};{ube};{policy}");
     }
 }
 

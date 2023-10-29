@@ -8,9 +8,10 @@ use ordered_float::NotNan;
 use super::{env::Environment, eval::Eval};
 
 pub struct Node<E: Environment> {
-    pub evaluation: Eval,      // V(s_t) or Q(s_prev, a)
-    pub visit_count: u32,      // N(s_prev, a)
-    pub policy: NotNan<f32>,   // P(s_prev, a)
+    pub evaluation: Eval,    // V(s_t) or Q(s_prev, a)
+    pub visit_count: u32,    // N(s_prev, a)
+    pub policy: NotNan<f32>, // P(s_prev, a)
+    #[cfg(not(feature = "baseline"))]
     pub variance: NotNan<f32>, // clip(max(UBE(s_t), geo_sum_discount * RND(s_t)))
     pub children: Box<[(E::Action, Self)]>,
 }
@@ -21,6 +22,7 @@ impl<E: Environment> Default for Node<E> {
             visit_count: Default::default(),
             evaluation: Eval::default(),
             policy: NotNan::default(),
+            #[cfg(not(feature = "baseline"))]
             variance: NotNan::default(),
             children: Box::default(),
         }

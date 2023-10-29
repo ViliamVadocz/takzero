@@ -14,3 +14,6 @@ rayon.workspace = true
 tch.workspace = true
 thiserror.workspace = true
 ordered-float = "3.7.0"
+
+[features]
+baseline = []
