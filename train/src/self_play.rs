@@ -37,7 +37,8 @@ use crate::{
     STEP,
 };
 
-pub const BATCH_SIZE: usize = 128;
+pub const EXPLORATION_BATCH_SIZE: usize = 256;
+pub const EXPLOITATION_BATCH_SIZE: usize = 512;
 pub const SAMPLED: usize = 64;
 pub const SIMULATIONS: u32 = 1024;
 
@@ -50,8 +51,8 @@ pub const HIGH_BETA_AGENTS: usize = BATCH_SIZE / 2;
 
 #[allow(clippy::assertions_on_constants)]
 const _: () = assert!(
-    GREEDY_AGENTS + BASELINE_AGENTS == BATCH_SIZE
-        && LOW_BETA_AGENTS + HIGH_BETA_AGENTS == BATCH_SIZE
+    GREEDY_AGENTS + BASELINE_AGENTS == EXPLOITATION_BATCH_SIZE
+        && LOW_BETA_AGENTS + HIGH_BETA_AGENTS == EXPLORATION_BATCH_SIZE
 );
 
 pub const TRAINING_STEPS_BEFORE_BETA: u32 = 2_000;
@@ -80,19 +81,19 @@ pub fn exploitation(
     net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
     let mut context = <Net as Agent<Env>>::Context::new(*shared_net.2.read().unwrap());
 
-    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Env::default());
-    let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
-    let mut replays_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut target_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut rngs: [_; BATCH_SIZE] = array::from_fn(|i| {
+    let mut envs: [_; EXPLOITATION_BATCH_SIZE] = array::from_fn(|_| Env::default());
+    let mut nodes: [_; EXPLOITATION_BATCH_SIZE] = array::from_fn(|_| Node::default());
+    let mut replays_batch: [_; EXPLOITATION_BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut target_batch: [_; EXPLOITATION_BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut actions: [_; EXPLOITATION_BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut trajectories: [_; EXPLOITATION_BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut rngs: [_; EXPLOITATION_BATCH_SIZE] = array::from_fn(|i| {
         let mut rng = ChaCha8Rng::from_seed(chacha_seed);
         rng.set_stream(i as u64);
         rng
     });
 
-    let zero_betas = [0.0; BATCH_SIZE];
+    let zero_betas = [0.0; EXPLOITATION_BATCH_SIZE];
 
     let mut temp_target_buffer = VecDeque::new();
     let mut temp_replay_buffer = VecDeque::new();
@@ -332,19 +333,19 @@ pub fn exploration(
     net.vs_mut().copy(&shared_net.1.read().unwrap()).unwrap();
     let mut context = <Net as Agent<Env>>::Context::new(*shared_net.2.read().unwrap());
 
-    let mut envs: [_; BATCH_SIZE] = array::from_fn(|_| Env::default());
-    let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
-    let mut replays_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-    let mut rngs: [_; BATCH_SIZE] = array::from_fn(|i| {
+    let mut envs: [_; EXPLORATION_BATCH_SIZE] = array::from_fn(|_| Env::default());
+    let mut nodes: [_; EXPLORATION_BATCH_SIZE] = array::from_fn(|_| Node::default());
+    let mut replays_batch: [_; EXPLORATION_BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut actions: [_; EXPLORATION_BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut trajectories: [_; EXPLORATION_BATCH_SIZE] = array::from_fn(|_| Vec::new());
+    let mut rngs: [_; EXPLORATION_BATCH_SIZE] = array::from_fn(|i| {
         let mut rng = ChaCha8Rng::from_seed(chacha_seed);
         rng.set_stream(i as u64);
         rng
     });
 
     let betas: Vec<f32> = [[LOW_BETA; LOW_BETA_AGENTS], [HIGH_BETA; HIGH_BETA_AGENTS]].concat();
-    let zero_betas = [0.0f32; BATCH_SIZE];
+    let zero_betas = [0.0f32; EXPLORATION_BATCH_SIZE];
 
     let mut temp_replay_buffer = VecDeque::new();
     envs.iter_mut()

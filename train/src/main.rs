@@ -89,7 +89,7 @@ const MAXIMUM_EXPLOITATION_BUFFER_SIZE: usize = 50_000;
 const SELF_PLAY_DEVICE: Device = Device::Cuda(0);
 const TRAINING_DEVICE: Device = Device::Cuda(0);
 const REANALYZE_PER_DEVICE: &[(Device, usize)] = &[
-    (Device::Cuda(0), 6),
+    (Device::Cuda(0), 2),
     (Device::Cuda(1), 8),
     (Device::Cuda(2), 8),
     (Device::Cuda(3), 8),
@@ -298,7 +298,14 @@ fn print_hyper_parameters(net: &Net, seed: u64, args: &Args) {
     println!("MAXIMUM_REPLAY_BUFFER_SIZE = {MAXIMUM_REPLAY_BUFFER_SIZE}");
     println!("MAXIMUM_EXPLOITATION_BUFFER_SIZE = {MAXIMUM_EXPLOITATION_BUFFER_SIZE}");
 
-    println!("self_play::BATCH_SIZE = {}", self_play::BATCH_SIZE);
+    println!(
+        "self_play::EXPLOITATION_BATCH_SIZE = {}",
+        self_play::EXPLOITATION_BATCH_SIZE
+    );
+    println!(
+        "self_play::EXPLORATION_BATCH_SIZE = {}",
+        self_play::EXPLORATION_BATCH_SIZE
+    );
     println!("self_play::SAMPLED = {}", self_play::SAMPLED);
     println!("self_play::SIMULATIONS = {}", self_play::SIMULATIONS);
     println!("WEIGHTED_RANDOM_PLIES = {WEIGHTED_RANDOM_PLIES}");
