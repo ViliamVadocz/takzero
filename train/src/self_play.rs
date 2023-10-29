@@ -160,7 +160,8 @@ pub fn exploitation(
                         .map(|(p, (a, _))| (*a, p))
                         .collect(),
                     value: f32::NAN, // Value still needs to be filled.
-                    ube: f32::NAN,   // UBE still needs to be filled.
+                    #[cfg(not(feature = "baseline"))]
+                    ube: f32::NAN, // UBE still needs to be filled.
                 });
                 // Update N-step targets.
                 if targets.len() > EXPLOITATION_STEP {
@@ -182,10 +183,13 @@ pub fn exploitation(
                                     * f32::from(node.evaluation)
                             },
                         );
-                    // Assign the uncertainty target.
-                    target.ube = DISCOUNT_FACTOR
-                        .powi(2 * i32::try_from(EXPLOITATION_STEP).unwrap())
-                        * f32::from(node.variance);
+                    #[cfg(not(feature = "baseline"))]
+                    {
+                        // Assign the uncertainty target.
+                        target.ube = DISCOUNT_FACTOR
+                            .powi(2 * i32::try_from(EXPLOITATION_STEP).unwrap())
+                            * f32::from(node.variance);
+                    }
                 }
             });
 
@@ -213,7 +217,11 @@ pub fn exploitation(
                             // Complete value target
                             value *= -DISCOUNT_FACTOR;
                             target.value = value;
-                            target.ube = 0.0; // TODO: Is this supposed to be 0?
+                            #[cfg(not(feature = "baseline"))]
+                            {
+                                // TODO: Is this supposed to be 0?
+                                target.ube = 0.0;
+                            }
                         }
                         target
                     }));

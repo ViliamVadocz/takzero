@@ -148,6 +148,7 @@ fn reanalyze(
                 .map(|(p, (a, _))| (*a, p))
                 .collect(),
             value: node.evaluation.into(),
+            #[cfg(not(feature = "baseline"))]
             ube: node.variance.into(),
         })
         .collect()

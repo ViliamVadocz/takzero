@@ -14,3 +14,6 @@ rand_chacha.workspace = true
 rand.workspace = true
 takzero.workspace = true
 tch.workspace = true
+
+[features]
+baseline = ["takzero/baseline"]
