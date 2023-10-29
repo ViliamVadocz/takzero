@@ -45,9 +45,9 @@ pub const SIMULATIONS: u32 = 1024;
 pub const WEIGHTED_RANDOM_PLIES: u16 = 30;
 
 pub const GREEDY_AGENTS: usize = 1; // no noise
-pub const BASELINE_AGENTS: usize = BATCH_SIZE - GREEDY_AGENTS;
-pub const LOW_BETA_AGENTS: usize = BATCH_SIZE / 2;
-pub const HIGH_BETA_AGENTS: usize = BATCH_SIZE / 2;
+pub const BASELINE_AGENTS: usize = EXPLOITATION_BATCH_SIZE - GREEDY_AGENTS;
+pub const LOW_BETA_AGENTS: usize = EXPLORATION_BATCH_SIZE / 2;
+pub const HIGH_BETA_AGENTS: usize = EXPLORATION_BATCH_SIZE / 2;
 
 #[allow(clippy::assertions_on_constants)]
 const _: () = assert!(
@@ -254,7 +254,7 @@ pub fn exploitation(
                     .truncate(true)
                     .open(path)
                 {
-                    Some(mut file) => file.write_all(s.as_bytes()).unwrap(),
+                    Ok(mut file) => file.write_all(s.as_bytes()).unwrap(),
                     Err(err) => log::error!("Could not save replays: {err}"),
                 }
             });
@@ -287,7 +287,7 @@ pub fn exploitation(
                     .truncate(true)
                     .open(path)
                 {
-                    Some(mut file) => file.write_all(s.as_bytes()).unwrap(),
+                    Ok(mut file) => file.write_all(s.as_bytes()).unwrap(),
                     Err(err) => log::error!("Could not save replays: {err}"),
                 }
             });
@@ -456,7 +456,7 @@ pub fn exploration(
                     .truncate(true)
                     .open(path)
                 {
-                    Some(mut file) => file.write_all(s.as_bytes()).unwrap(),
+                    Ok(mut file) => file.write_all(s.as_bytes()).unwrap(),
                     Err(err) => log::error!("Could not save replays: {err}"),
                 }
             });
