@@ -138,16 +138,18 @@ pub fn run(
                     lock.freeze();
                 }
                 shared_net.0.fetch_add(1, Ordering::Relaxed);
-                *shared_net.2.write().unwrap() = {
+                let mean_rnd_loss_over_batch = {
                     let len = latest_rnd_losses.len();
                     latest_rnd_losses.drain(..).sum::<f64>() / f64::from(u32::try_from(len).unwrap())
                 };
+                *shared_net.2.write().unwrap() = mean_rnd_loss_over_batch;
                 // Save checkpoint.
                 if (training_steps / STEPS_BETWEEN_PUBLISH) % PUBLISHES_BETWEEN_SAVE == 0 {
                     // FIXME: This will stall until write is complete, which might be a long time
                     // because we are writing to a different computer.
-                    net.save(model_path.join(file_name(training_steps)))
-                        .unwrap();
+                    let path = model_path.join(file_name(training_steps));
+                    log::info!("Saving model at {}, with rnd_loss = {mean_rnd_loss_over_batch}", path.display());
+                    net.save(path).unwrap();
                 }
             }
         }
