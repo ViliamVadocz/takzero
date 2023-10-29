@@ -247,13 +247,15 @@ pub fn exploitation(
             drop(lock);
             let path = replay_path.join(format!("replays_{steps:0>6}.txt"));
             std::thread::spawn(move || {
-                let mut file = OpenOptions::new()
+                match OpenOptions::new()
                     .write(true)
                     .create(true)
                     .truncate(true)
                     .open(path)
-                    .expect("replay file path should be valid and writable");
-                file.write_all(s.as_bytes()).unwrap();
+                {
+                    Some(mut file) => file.write_all(s.as_bytes()).unwrap(),
+                    Err(err) => log::error!("Could not save replays: {err}"),
+                }
             });
             log::info!("saved replays to file");
         }
@@ -278,13 +280,15 @@ pub fn exploitation(
             drop(lock);
             let path = replay_path.join(format!("exploitation_targets_{steps:0>6}.txt"));
             std::thread::spawn(move || {
-                let mut file = OpenOptions::new()
+                match OpenOptions::new()
                     .write(true)
                     .create(true)
                     .truncate(true)
                     .open(path)
-                    .expect("target file path should be valid and writable");
-                file.write_all(s.as_bytes()).unwrap();
+                {
+                    Some(mut file) => file.write_all(s.as_bytes()).unwrap(),
+                    Err(err) => log::error!("Could not save replays: {err}"),
+                }
             });
             log::info!("saved targets to file");
         }
@@ -445,13 +449,15 @@ pub fn exploration(
             drop(lock);
             let path = replay_path.join(format!("replays_{steps:0>6}.txt"));
             std::thread::spawn(move || {
-                let mut file = OpenOptions::new()
+                match OpenOptions::new()
                     .write(true)
                     .create(true)
                     .truncate(true)
                     .open(path)
-                    .expect("replay file path should be valid and writable");
-                file.write_all(s.as_bytes()).unwrap();
+                {
+                    Some(mut file) => file.write_all(s.as_bytes()).unwrap(),
+                    Err(err) => log::error!("Could not save replays: {err}"),
+                }
             });
             log::info!("saved replays to file");
         }
