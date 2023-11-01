@@ -1,6 +1,12 @@
 #![warn(clippy::pedantic, clippy::style)]
 
-use std::{array, collections::HashMap, fmt::Write, fs::read_dir, path::PathBuf};
+use std::{
+    array,
+    collections::HashMap,
+    fmt::Write,
+    fs::{read_dir, read_to_string},
+    path::PathBuf,
+};
 
 use clap::Parser;
 use evaluation::Evaluation;
@@ -41,9 +47,9 @@ struct Args {
     /// Path to models
     #[arg(long)]
     model_path: PathBuf,
-    /// Seed for match-ups
-    #[arg(long, default_value_t = 42)]
-    seed: u64,
+    /// Path to RND
+    #[arg(long)]
+    rnd_path: PathBuf,
     /// Number of games to play
     #[arg(long)]
     games: u32,
@@ -57,8 +63,16 @@ fn main() {
 
 fn real_main() {
     let args = Args::parse();
-    let mut rng = StdRng::seed_from_u64(args.seed);
+    let seed: u64 = thread_rng().gen();
+    log::info!("seed: {seed}");
+    let mut rng = StdRng::seed_from_u64(seed);
 
+    let rnd_losses: Vec<f64> = read_to_string(args.rnd_path)
+        .unwrap()
+        .lines()
+        .map(str::parse)
+        .collect::<Result<_, _>>()
+        .unwrap();
     let mut paths: Vec<_> = read_dir(args.model_path)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -84,17 +98,19 @@ fn real_main() {
         };
         let name_a = path_a.file_name().unwrap().to_string_lossy().to_string();
         let name_b = path_b.file_name().unwrap().to_string_lossy().to_string();
+        let rnd_loss_a = extract_rnd(&rnd_losses, &name_a);
+        let rnd_loss_b = extract_rnd(&rnd_losses, &name_b);
 
         let games: [Env; BATCH_SIZE] =
             array::from_fn(|_| get_opening(rng.gen::<usize>() % OPENINGS));
 
         log::info!("{name_a} vs. {name_b}");
-        let a_as_white = compete(&a, &b, &games);
+        let a_as_white = compete(&a, rnd_loss_a, &b, rnd_loss_b, &games);
         log::info!("{a_as_white:?}");
         *results.entry((name_a.clone(), name_b.clone())).or_default() += a_as_white;
 
         log::info!("{name_b} vs. {name_a}");
-        let b_as_white = compete(&b, &a, &games);
+        let b_as_white = compete(&b, rnd_loss_b, &a, rnd_loss_a, &games);
         log::info!("{b_as_white:?}");
         *results.entry((name_b, name_a)).or_default() += b_as_white;
     }
@@ -107,16 +123,20 @@ fn real_main() {
 
 /// Pit two networks against each other in the given games. Evaluation is from
 /// the perspective of white.
-fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
+fn compete(
+    white: &Net,
+    white_rnd_loss: f64,
+    black: &Net,
+    black_rnd_loss: f64,
+    games: &[Env],
+) -> Evaluation {
     let mut evaluation = Evaluation::default();
 
     let mut games = games.to_owned();
     let mut white_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
     let mut black_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
-    let mut white_context =
-        <Net as Agent<Env>>::Context::new(i64::try_from(BATCH_SIZE).unwrap(), DEVICE);
-    let mut black_context =
-        <Net as Agent<Env>>::Context::new(i64::try_from(BATCH_SIZE).unwrap(), DEVICE);
+    let mut white_context = <Net as Agent<Env>>::Context::new(white_rnd_loss);
+    let mut black_context = <Net as Agent<Env>>::Context::new(black_rnd_loss);
 
     let mut actions: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
     let mut trajectories: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
@@ -223,4 +243,16 @@ fn get_opening(i: usize) -> Env {
 
     env.step(action);
     env
+}
+
+const RND_SMOOTHING: usize = 100;
+
+#[allow(clippy::cast_precision_loss)]
+fn extract_rnd(rnd_losses: &[f64], name: &str) -> f64 {
+    let (steps, _) = name.split_once('_').expect("unexpected file name format");
+    let steps: usize = steps.parse().unwrap();
+    rnd_losses[steps.saturating_sub(RND_SMOOTHING)..steps]
+        .iter()
+        .sum::<f64>()
+        / RND_SMOOTHING as f64
 }
