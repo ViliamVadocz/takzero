@@ -76,6 +76,7 @@ fn real_main() {
     let mut paths: Vec<_> = read_dir(args.model_path)
         .unwrap()
         .map(|entry| entry.unwrap().path())
+        .filter(|path| path.ends_with(".ot"))
         .collect();
     paths.sort();
 
