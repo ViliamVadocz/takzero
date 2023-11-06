@@ -15,7 +15,8 @@ pub enum Forward<E: Environment> {
 
 pub struct Propagated {
     eval: Eval,
-    #[cfg(not(feature = "baseline"))] uncertainty: NotNan<f32>,
+    #[cfg(not(feature = "baseline"))]
+    uncertainty: NotNan<f32>,
 }
 
 impl<E: Environment> Node<E> {
@@ -37,29 +38,44 @@ impl<E: Environment> Node<E> {
     #[cfg(not(feature = "baseline"))]
     #[inline]
     fn update_variance(&mut self, uncertainty: NotNan<f32>) {
-        self.variance = (self.variance * ((self.visit_count - 1) as f32) + uncertainty) / (self.visit_count as f32);
+        self.variance = (self.variance * ((self.visit_count - 1) as f32) + uncertainty)
+            / (self.visit_count as f32);
     }
 
-    fn propagate_child_eval(&mut self, child_eval: Eval, #[cfg(not(feature = "baseline"))] child_uncertainty: NotNan<f32>) -> Propagated {
+    fn propagate_child_eval(
+        &mut self,
+        child_eval: Eval,
+        #[cfg(not(feature = "baseline"))] child_uncertainty: NotNan<f32>,
+    ) -> Propagated {
         let evaluations = self.children.iter().map(|(_, node)| node.evaluation);
         match child_eval {
             // This move made the opponent lose, so this position is a win.
             Eval::Loss(_) => {
                 self.evaluation = child_eval.negate();
-                #[cfg(not(feature = "baseline"))] {
+                #[cfg(not(feature = "baseline"))]
+                {
                     self.variance = NotNan::default();
                 }
-                Propagated { eval: self.evaluation, #[cfg(not(feature = "baseline"))] uncertainty: self.variance }
+                Propagated {
+                    eval: self.evaluation,
+                    #[cfg(not(feature = "baseline"))]
+                    uncertainty: self.variance,
+                }
             }
 
             // If all moves lead to wins for the opponent, this node is a loss.
             // If all moves lead to wins or draws for the opponent, we choose to draw.
             Eval::Draw(_) | Eval::Win(_) if evaluations.clone().all(|e| e.is_known()) => {
                 self.evaluation = evaluations.min().unwrap().negate();
-                #[cfg(not(feature = "baseline"))] {
+                #[cfg(not(feature = "baseline"))]
+                {
                     self.variance = NotNan::default();
                 }
-                Propagated { eval: self.evaluation, #[cfg(not(feature = "baseline"))] uncertainty: self.variance }
+                Propagated {
+                    eval: self.evaluation,
+                    #[cfg(not(feature = "baseline"))]
+                    uncertainty: self.variance,
+                }
             }
 
             // Otherwise this position is not know and we just back-propagate the child result.
@@ -69,9 +85,10 @@ impl<E: Environment> Node<E> {
                 #[cfg(not(feature = "baseline"))]
                 self.update_variance(child_uncertainty);
 
-                Propagated { 
+                Propagated {
                     eval: Eval::new_value(negated * DISCOUNT_FACTOR).unwrap(),
-                    #[cfg(not(feature = "baseline"))] uncertainty: child_uncertainty * DISCOUNT_FACTOR * DISCOUNT_FACTOR
+                    #[cfg(not(feature = "baseline"))]
+                    uncertainty: child_uncertainty * DISCOUNT_FACTOR * DISCOUNT_FACTOR,
                 }
             }
         }
@@ -116,23 +133,30 @@ impl<E: Environment> Node<E> {
             let Propagated { eval: child_eval } =
                 self.children[index].1.backward_known_eval(trajectory, eval);
             #[cfg(not(feature = "baseline"))]
-            let Propagated { eval: child_eval, uncertainty: child_uncertainty } =
-                self.children[index].1.backward_known_eval(trajectory, eval);
-            self.propagate_child_eval(child_eval, #[cfg(not(feature = "baseline"))] child_uncertainty)
+            let Propagated {
+                eval: child_eval,
+                uncertainty: child_uncertainty,
+            } = self.children[index].1.backward_known_eval(trajectory, eval);
+            self.propagate_child_eval(
+                child_eval,
+                #[cfg(not(feature = "baseline"))]
+                child_uncertainty,
+            )
         } else {
             // Leaf reached, time to propagate upwards.
             Propagated {
                 eval,
-                #[cfg(not(feature = "baseline"))] uncertainty: NotNan::default()
+                #[cfg(not(feature = "baseline"))]
+                uncertainty: NotNan::default(),
             }
         }
     }
 
     /// Initialize a leaf node and propagate a network evaluation
     /// through the tree.
-    /// 
+    ///
     /// # Panics
-    /// 
+    ///
     /// Panics if any of the policies is NaN.
     pub fn backward_network_eval(
         &mut self,
@@ -143,29 +167,41 @@ impl<E: Environment> Node<E> {
     ) -> Propagated {
         if let Some(index) = trajectory.next() {
             #[cfg(feature = "baseline")]
-            let Propagated { eval: child_eval } =self.children[index].1.backward_network_eval(
-                trajectory,
-                policy,
-                value,
-            );
+            let Propagated { eval: child_eval } = self.children[index]
+                .1
+                .backward_network_eval(trajectory, policy, value);
             #[cfg(not(feature = "baseline"))]
-            let Propagated { eval: child_eval, uncertainty: child_uncertainty } =
-                self.children[index].1.backward_network_eval(
+            let Propagated {
+                eval: child_eval,
+                uncertainty: child_uncertainty,
+            } = self.children[index].1.backward_network_eval(
                 trajectory,
                 policy,
                 value,
                 uncertainty,
             );
-            self.propagate_child_eval(child_eval, #[cfg(not(feature = "baseline"))] child_uncertainty)
+            self.propagate_child_eval(
+                child_eval,
+                #[cfg(not(feature = "baseline"))]
+                child_uncertainty,
+            )
         } else {
             // Finish leaf initialization.
-            self.children = policy.map(|(a, p)| (a, Self::from_policy(NotNan::new(p).expect("policy should not be NaN")))).collect();
+            self.children = policy
+                .map(|(a, p)| {
+                    (
+                        a,
+                        Self::from_policy(NotNan::new(p).expect("policy should not be NaN")),
+                    )
+                })
+                .collect();
             self.propagate_child_eval(
                 Eval::new_value(value).unwrap_or_else(|_| {
                     log::warn!("value NaN");
                     Eval::default()
                 }),
-                #[cfg(not(feature = "baseline"))] NotNan::new(uncertainty).expect("uncertainty should not be NaN"),
+                #[cfg(not(feature = "baseline"))]
+                NotNan::new(uncertainty).expect("uncertainty should not be NaN"),
             )
         }
     }
@@ -203,7 +239,8 @@ impl<E: Environment> Node<E> {
                         .into_iter()
                         .map(|a| (a.clone(), policy[a])),
                     value,
-                    #[cfg(not(feature = "baseline"))] uncertainty,
+                    #[cfg(not(feature = "baseline"))]
+                    uncertainty,
                 )
             }
         }
@@ -214,12 +251,11 @@ impl<E: Environment> Node<E> {
 mod tests {
     use fast_tak::Game;
 
-    use crate::search::node::mcts::Propagated;
-
     use super::super::{
         super::{agent::dummy::Dummy, eval::Eval},
         Node,
     };
+    use crate::search::node::mcts::Propagated;
 
     #[test]
     fn find_tinue_easy() {
@@ -233,7 +269,10 @@ mod tests {
             .find(|_| {
                 matches!(
                     root.simulate_simple(&Dummy, game.clone(), 1.0, &mut ()),
-                    Propagated { eval: Eval::Win(_), .. }
+                    Propagated {
+                        eval: Eval::Win(_),
+                        ..
+                    }
                 )
             })
             .expect("This position is solvable with MAX_VISITS.");
@@ -261,7 +300,10 @@ mod tests {
             .find(|_| {
                 matches!(
                     root.simulate_simple(&Dummy, game.clone(), 1.0, &mut ()),
-                    Propagated { eval: Eval::Win(_), .. }
+                    Propagated {
+                        eval: Eval::Win(_),
+                        ..
+                    }
                 )
             })
             .expect("This position is solvable with MAX_VISITS.");
