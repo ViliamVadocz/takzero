@@ -22,8 +22,8 @@ use tch::{
 
 use crate::{file_name, reanalyze, Env, Net, SharedNet, TargetBuffer, N};
 
-pub const LEARNING_RATE: f64 = 1e-4;
-pub const EFFECTIVE_BATCH_SIZE: usize = 512;
+pub const LEARNING_RATE: f64 = 1e-5;
+pub const EFFECTIVE_BATCH_SIZE: usize = 256;
 pub const EXPLOITATION_PARTS: usize = 1;
 pub const STEPS_BETWEEN_PUBLISH: u32 = 100;
 pub const PUBLISHES_BETWEEN_SAVE: u32 = 10;

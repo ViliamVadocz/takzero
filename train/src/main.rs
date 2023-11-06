@@ -19,7 +19,7 @@ use clap::Parser;
 use fast_tak::Game;
 use rand::{distributions::Uniform, prelude::*};
 use takzero::{
-    network::{net5::Net5, Network},
+    network::{net4::Net4, Network},
     search::{agent::Agent, env::Environment, eval::Eval, DISCOUNT_FACTOR, STEP},
     target::{Augment, Replay, Target},
 };
@@ -70,14 +70,14 @@ struct Args {
 }
 
 // The environment to learn.
-const N: usize = 5;
+const N: usize = 4;
 const HALF_KOMI: i8 = 4;
 type Env = Game<N, HALF_KOMI>;
 #[rustfmt::skip] #[allow(dead_code)] const fn assert_env<E: Environment>() where Replay<E>: Augment + fmt::Display {}
 const _: () = assert_env::<Env>();
 
 // The network architecture.
-type Net = Net5;
+type Net = Net4;
 #[rustfmt::skip] #[allow(dead_code)] const fn assert_net<NET: Network + Agent<Env>>() {}
 const _: () = assert_net::<Net>();
 

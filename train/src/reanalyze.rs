@@ -16,7 +16,7 @@ use tch::Device;
 use crate::{Env, Net, ReplayBuffer, SharedNet};
 
 pub const BATCH_SIZE: usize = 128;
-pub const SAMPLED: usize = 16;
+pub const SAMPLED: usize = 32;
 pub const SIMULATIONS: u32 = 512;
 
 // TODO: Less n-step for older replays
