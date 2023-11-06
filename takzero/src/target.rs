@@ -1,4 +1,4 @@
-use std::{fmt, str::FromStr};
+use std::{fmt, num::ParseFloatError, str::FromStr};
 
 use arrayvec::ArrayVec;
 use fast_tak::{
@@ -64,6 +64,39 @@ where
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ParseReplayError {
+    #[error("missing delimiter between TPS and moves")]
+    MissingDelimiter,
+    #[error("{0}")]
+    Tps(#[from] ParseTpsError),
+    #[error("{0}")]
+    Actions(#[from] ParseMoveError),
+}
+
+impl<const N: usize, const HALF_KOMI: i8> FromStr for Replay<Game<N, HALF_KOMI>>
+where
+    Reserves<N>: Default,
+{
+    type Err = ParseReplayError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (tps, actions) = s
+            .trim()
+            .split_once(';')
+            .ok_or(ParseReplayError::MissingDelimiter)?;
+        let tps: Tps = tps.parse()?;
+        let actions = actions
+            .split(',')
+            .map(str::parse)
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            env: tps.into(),
+            actions,
+        })
+    }
+}
+
 impl<const N: usize, const HALF_KOMI: i8> Augment for Target<Game<N, HALF_KOMI>>
 where
     Reserves<N>: Default,
@@ -108,34 +141,55 @@ where
 }
 
 #[derive(Error, Debug)]
-pub enum ParseReplayError {
-    #[error("missing delimiter between TPS and moves")]
-    MissingDelimiter,
+pub enum ParseTargetError {
+    #[error("missing TPS")]
+    MissingTps,
+    #[error("missing value")]
+    MissingValue,
+    #[error("missing UBE")]
+    MissingUbe,
+    #[error("missing policy")]
+    MissingPolicy,
+    #[error("policy format is wrong")]
+    WrongPolicyFormat,
     #[error("{0}")]
     Tps(#[from] ParseTpsError),
     #[error("{0}")]
     Actions(#[from] ParseMoveError),
+    #[error("{0}")]
+    Float(#[from] ParseFloatError),
 }
 
-impl<const N: usize, const HALF_KOMI: i8> FromStr for Replay<Game<N, HALF_KOMI>>
+impl<const N: usize, const HALF_KOMI: i8> FromStr for Target<Game<N, HALF_KOMI>>
 where
     Reserves<N>: Default,
 {
-    type Err = ParseReplayError;
+    type Err = ParseTargetError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (tps, actions) = s
-            .trim()
-            .split_once(';')
-            .ok_or(ParseReplayError::MissingDelimiter)?;
-        let tps: Tps = tps.parse()?;
-        let actions = actions
+        //{tps};{value};{ube};{policy}
+        let mut iter = s.trim().split(';');
+        let tps: Tps = iter.next().ok_or(ParseTargetError::MissingTps)?.parse()?;
+        let value = iter.next().ok_or(ParseTargetError::MissingValue)?.parse()?;
+        #[cfg(not(feature = "baseline"))]
+        let ube = iter.next().ok_or(ParseTargetError::MissingUbe)?.parse()?;
+        let policy = iter
+            .next()
+            .ok_or(ParseTargetError::MissingPolicy)?
             .split(',')
-            .map(str::parse)
+            .map(|s| {
+                s.split_once(':')
+                    .ok_or(ParseTargetError::WrongPolicyFormat)
+                    .and_then(|(a, p)| Ok((a.parse()?, p.parse()?)))
+            })
             .collect::<Result<_, _>>()?;
+
         Ok(Self {
             env: tps.into(),
-            actions,
+            policy,
+            value,
+            #[cfg(not(feature = "baseline"))]
+            ube,
         })
     }
 }

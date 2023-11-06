@@ -4,10 +4,7 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::Path,
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        RwLock,
-    },
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 use arrayvec::ArrayVec;
@@ -32,6 +29,7 @@ use crate::{
     Net,
     ReplayBuffer,
     SharedNet,
+    TargetBuffer,
     MAXIMUM_EXPLOITATION_BUFFER_SIZE,
     MAXIMUM_REPLAY_BUFFER_SIZE,
     STEP,
@@ -65,8 +63,8 @@ pub fn exploitation(
     device: Device,
     seed: u64,
     shared_net: &SharedNet,
-    exploitation_buffer: &RwLock<VecDeque<Target<Env>>>,
-    exploration_buffer: &RwLock<VecDeque<Replay<Env>>>,
+    exploitation_buffer: &TargetBuffer,
+    exploration_buffer: &ReplayBuffer,
     training_steps: &AtomicU32,
     replay_path: &Path,
 ) {

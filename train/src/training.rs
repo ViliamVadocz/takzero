@@ -1,15 +1,16 @@
 use std::{
     path::Path,
-    sync::{atomic::{AtomicU32, Ordering}, RwLock}, collections::VecDeque,
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 use crossbeam::channel::Receiver;
+use rand::prelude::*;
 use takzero::{
     network::{
         repr::{game_to_tensor, move_mask, output_size, policy_tensor},
         Network,
     },
-    target::{Target, Augment},
+    target::{Augment, Target},
 };
 use tch::{
     nn::{Adam, OptimizerConfig},
@@ -18,17 +19,16 @@ use tch::{
     Reduction,
     Tensor,
 };
-use rand::prelude::*;
 
-use crate::{file_name, reanalyze, Env, Net, SharedNet, N};
+use crate::{file_name, reanalyze, Env, Net, SharedNet, TargetBuffer, N};
 
 pub const LEARNING_RATE: f64 = 1e-4;
 pub const EFFECTIVE_BATCH_SIZE: usize = 512;
-pub const EXPLOITATION_PARTS: usize = 3;
+pub const EXPLOITATION_PARTS: usize = 1;
 pub const STEPS_BETWEEN_PUBLISH: u32 = 100;
 pub const PUBLISHES_BETWEEN_SAVE: u32 = 10;
 
-const BATCH_SIZE: usize = reanalyze::BATCH_SIZE * (1 + EXPLOITATION_PARTS); 
+const BATCH_SIZE: usize = reanalyze::BATCH_SIZE * (1 + EXPLOITATION_PARTS);
 #[allow(clippy::assertions_on_constants)]
 const _: () = assert!(
     EFFECTIVE_BATCH_SIZE % BATCH_SIZE == 0,
@@ -40,13 +40,13 @@ const BATCHES_PER_STEP: usize = EFFECTIVE_BATCH_SIZE.div_ceil(BATCH_SIZE);
 
 /// Improve the network by training on batches from the re-analyze thread.
 /// Save checkpoints and distribute the newest model.
-#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
 pub fn run(
     device: Device,
     seed: u64,
     shared_net: &SharedNet,
     rx: Receiver<Vec<Target<Env>>>,
-    exploitation_buffer: &RwLock<VecDeque<Target<Env>>>,
+    exploitation_buffer: &TargetBuffer,
     training_steps: &AtomicU32,
     model_path: &Path,
 ) {
@@ -63,29 +63,34 @@ pub fn run(
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
     let mut batches = 0;
     let mut accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
-    while let Ok(mut batch) = rx.recv() { 
+    while let Ok(mut batch) = rx.recv() {
         // Sample some targets from the exploitation buffer.
         batch.extend(
-            exploitation_buffer.read().unwrap()
-            .iter()
-            .choose_multiple(&mut rng, reanalyze::BATCH_SIZE * EXPLOITATION_PARTS)
-            .into_iter()
-            .map(|target| target.augment(&mut rng))
+            exploitation_buffer
+                .read()
+                .unwrap()
+                .iter()
+                .choose_multiple(&mut rng, reanalyze::BATCH_SIZE * EXPLOITATION_PARTS)
+                .into_iter()
+                .map(|target| target.augment(&mut rng)),
         );
         assert!(batch.iter().all(|target| target.value.is_finite()));
-        #[cfg(not(feature = "baseline"))] assert!(batch.iter().all(|target| target.ube.is_finite()));
+        #[cfg(not(feature = "baseline"))]
+        assert!(batch.iter().all(|target| target.ube.is_finite()));
         let batch_size = batch.len();
         log::info!("batch size is {batch_size}");
 
         let mut inputs = Vec::with_capacity(batch_size);
         let mut value_targets = Vec::with_capacity(batch_size);
-        #[cfg(not(feature = "baseline"))] let mut ube_targets = Vec::with_capacity(batch_size);
+        #[cfg(not(feature = "baseline"))]
+        let mut ube_targets = Vec::with_capacity(batch_size);
         let mut policy_targets = Vec::with_capacity(batch_size);
         let mut masks = Vec::with_capacity(batch_size);
         for target in batch {
             inputs.push(game_to_tensor(&target.env, device));
             value_targets.push(target.value);
-            #[cfg(not(feature = "baseline"))] ube_targets.push(target.ube);
+            #[cfg(not(feature = "baseline"))]
+            ube_targets.push(target.ube);
             policy_targets.push(policy_tensor::<N>(&target.policy, device));
             masks.push(move_mask::<N>(
                 &target.policy.iter().map(|(m, _)| *m).collect::<Vec<_>>(),
@@ -109,24 +114,28 @@ pub fn run(
         // Get the target.
         let p = Tensor::stack(&policy_targets, 0).view(policy.size().as_slice());
         let z = Tensor::from_slice(&value_targets).unsqueeze(1).to(device);
-        #[cfg(not(feature = "baseline"))] let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to(device);
+        #[cfg(not(feature = "baseline"))]
+        let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to(device);
 
         // Calculate loss.
         let loss_p = policy.kl_div(&p, Reduction::Sum, false) / i64::try_from(batch_size).unwrap();
         let loss_z = (z - values).square().mean(Kind::Float);
 
-        #[cfg(feature = "baseline")] {
+        #[cfg(feature = "baseline")]
+        {
             log::info!("p={loss_p:?}\t z={loss_z:?}");
             accumulated_total_loss += loss_z + loss_p;
         }
-        #[cfg(not(feature = "baseline"))] {
+        #[cfg(not(feature = "baseline"))]
+        {
             let loss_u = (u - ube_uncertainty).square().mean(Kind::Float);
             log::info!("p={loss_p:?}\t z={loss_z:?}\t u={loss_u:?}"); // FIXME: This forces synchronization!
             accumulated_total_loss += loss_z + loss_p + loss_u;
         }
 
         // RND
-        #[cfg(not(feature = "baseline"))] {
+        #[cfg(not(feature = "baseline"))]
+        {
             let loss_rnd = net.forward_rnd(&input, true).mean(Kind::Float);
             log::info!("rnd={loss_rnd:?}");
             latest_rnd_losses.push((&loss_rnd).try_into().unwrap());
@@ -152,7 +161,8 @@ pub fn run(
                 shared_net.0.fetch_add(1, Ordering::Relaxed);
                 let mean_rnd_loss_over_batch = {
                     let len = latest_rnd_losses.len();
-                    latest_rnd_losses.drain(..).sum::<f64>() / f64::from(u32::try_from(len).unwrap())
+                    latest_rnd_losses.drain(..).sum::<f64>()
+                        / f64::from(u32::try_from(len).unwrap())
                 };
                 *shared_net.2.write().unwrap() = mean_rnd_loss_over_batch;
                 // Save checkpoint.
@@ -160,7 +170,10 @@ pub fn run(
                     // FIXME: This will stall until write is complete, which might be a long time
                     // because we are writing to a different computer.
                     let path = model_path.join(file_name(training_steps));
-                    log::info!("Saving model at {}, with rnd_loss = {mean_rnd_loss_over_batch}", path.display());
+                    log::info!(
+                        "Saving model at {}, with rnd_loss = {mean_rnd_loss_over_batch}",
+                        path.display()
+                    );
                     net.save(path).unwrap();
                 }
             }
@@ -171,11 +184,12 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::VecDeque,
         path::PathBuf,
         sync::{
             atomic::{AtomicU32, AtomicUsize},
             RwLock,
-        }, collections::VecDeque,
+        },
     };
 
     use fast_tak::Game;
@@ -193,7 +207,11 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
 
         let mut net = Net::new(Device::Cpu, Some(rng.gen()));
-        let shared_net: SharedNet = (AtomicUsize::new(0), RwLock::new(net.vs_mut()), RwLock::new(0.0));
+        let shared_net: SharedNet = (
+            AtomicUsize::new(0),
+            RwLock::new(net.vs_mut()),
+            RwLock::new(0.0),
+        );
 
         let (batch_tx, batch_rx) = crossbeam::channel::unbounded();
 
@@ -205,14 +223,16 @@ mod tests {
                     policy: vec![("a1".parse().unwrap(), 0.2), ("a2".parse().unwrap(), 0.8)]
                         .into_boxed_slice(),
                     value: -0.4,
-                    #[cfg(not(feature = "baseline"))] ube: 1.0,
+                    #[cfg(not(feature = "baseline"))]
+                    ube: 1.0,
                 },
                 Target {
                     env: Game::default(),
                     policy: vec![("a3".parse().unwrap(), 0.4), ("a4".parse().unwrap(), 0.6)]
                         .into_boxed_slice(),
                     value: 0.3,
-                    #[cfg(not(feature = "baseline"))] ube: 0.05,
+                    #[cfg(not(feature = "baseline"))]
+                    ube: 0.05,
                 },
             ])
             .unwrap();

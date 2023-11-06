@@ -20,7 +20,7 @@ use fast_tak::Game;
 use rand::{distributions::Uniform, prelude::*};
 use takzero::{
     network::{net5::Net5, Network},
-    search::{agent::Agent, env::Environment, DISCOUNT_FACTOR, STEP},
+    search::{agent::Agent, env::Environment, eval::Eval, DISCOUNT_FACTOR, STEP},
     target::{Augment, Replay, Target},
 };
 use tch::{nn::VarStore, Device};
@@ -61,6 +61,9 @@ struct Args {
     /// Load an existing replay file
     #[arg(long)]
     load_replay: Option<PathBuf>,
+    /// Load an existing target file
+    #[arg(long)]
+    load_target: Option<PathBuf>,
     /// Path to model to resume training
     #[arg(long)]
     resume: Option<PathBuf>,
@@ -78,8 +81,9 @@ type Net = Net5;
 #[rustfmt::skip] #[allow(dead_code)] const fn assert_net<NET: Network + Agent<Env>>() {}
 const _: () = assert_net::<Net>();
 
-// RW-lock to the replay buffer.
+// RW-locks for the replay and target buffers.
 type ReplayBuffer = RwLock<VecDeque<Replay<Env>>>;
+type TargetBuffer = RwLock<VecDeque<Target<Env>>>;
 // For sharing network weights.
 type SharedNet<'a> = (AtomicUsize, RwLock<&'a mut VarStore>, RwLock<f64>);
 
@@ -117,10 +121,12 @@ fn assert_paths_are_correct(args: &Args) {
     }
 }
 
-fn make_replay_buffer(args: &Args, rng: &mut impl Rng) -> ReplayBuffer {
+fn make_replay_buffers(args: &Args, rng: &mut impl Rng) -> (ReplayBuffer, TargetBuffer) {
     let replay_buffer: ReplayBuffer =
         RwLock::new(VecDeque::with_capacity(MAXIMUM_REPLAY_BUFFER_SIZE + 1000));
-    #[allow(clippy::option_if_let_else)]
+    let target_buffer = RwLock::new(VecDeque::with_capacity(
+        MAXIMUM_EXPLOITATION_BUFFER_SIZE + 1000,
+    ));
     if let Some(path) = args.load_replay.as_ref() {
         // Initialize replay buffer from file.
         let file = OpenOptions::new().read(true).open(path).unwrap();
@@ -129,10 +135,22 @@ fn make_replay_buffer(args: &Args, rng: &mut impl Rng) -> ReplayBuffer {
             let replay: Replay<Env> = line.unwrap().parse().unwrap();
             lock.push_front(replay);
         }
-    } else {
-        initialize_buffer_with_random_moves(&replay_buffer, rng);
     }
-    replay_buffer
+    if let Some(path) = args.load_target.as_ref() {
+        // Initialize target buffer from file.
+        let file = OpenOptions::new().read(true).open(path).unwrap();
+        let mut lock = target_buffer.write().unwrap();
+        for line in BufReader::new(file).lines() {
+            let target: Target<Env> = line.unwrap().parse().unwrap();
+            lock.push_front(target);
+        }
+    }
+    if replay_buffer.read().unwrap().len() < MINIMUM_REPLAY_BUFFER_SIZE
+        || target_buffer.read().unwrap().len() < MINIMUM_REPLAY_BUFFER_SIZE
+    {
+        initialize_buffer_with_random_moves(&replay_buffer, &target_buffer, rng);
+    }
+    (replay_buffer, target_buffer)
 }
 
 fn main() {
@@ -173,8 +191,7 @@ fn main() {
         RwLock::new(0.0),
     );
     let (batch_tx, batch_rx) = crossbeam::channel::bounded::<Vec<Target<Env>>>(64);
-    let exploitation_buffer = RwLock::new(VecDeque::new());
-    let exploration_buffer = make_replay_buffer(&args, &mut rng);
+    let (exploration_buffer, exploitation_buffer) = make_replay_buffers(&args, &mut rng);
     let training_steps = AtomicU32::new(0);
 
     log::info!("Begin.");
@@ -240,15 +257,31 @@ fn file_name(n: u32) -> String {
     format!("{n:0>6}_steps.ot")
 }
 
-fn initialize_buffer_with_random_moves(replay_buffer: &ReplayBuffer, rng: &mut impl Rng) {
+fn initialize_buffer_with_random_moves(
+    replay_buffer: &ReplayBuffer,
+    target_buffer: &TargetBuffer,
+    rng: &mut impl Rng,
+) {
     let mut actions = Vec::new();
     let mut replays = Vec::new();
+    let mut targets = Vec::new();
     let mut env = Env::default();
     while replay_buffer.read().unwrap().len() < MINIMUM_REPLAY_BUFFER_SIZE {
         new_opening(&mut env, &mut actions, rng);
         while env.terminal().is_none() {
             // Choose random action.
             env.populate_actions(&mut actions);
+            // Push incomplete target.
+            #[allow(clippy::cast_precision_loss)]
+            targets.push(Target {
+                env: env.clone(),
+                policy: actions
+                    .iter()
+                    .map(|a| (*a, 1.0 / actions.len() as f32))
+                    .collect(),
+                value: f32::NAN,
+                ube: 1.0,
+            });
             let action = actions.drain(..).choose(rng).unwrap();
             // Push start of fresh replay.
             replays.push(Replay {
@@ -263,9 +296,20 @@ fn initialize_buffer_with_random_moves(replay_buffer: &ReplayBuffer, rng: &mut i
             // Take a step in the environment.
             env.step(action);
         }
+        let mut value = f32::from(Eval::from(env.terminal().unwrap()));
+        while let Some(mut target) = targets.pop() {
+            value *= -DISCOUNT_FACTOR;
+            target.value = value;
+            target_buffer.write().unwrap().push_front(target);
+        }
         replay_buffer.write().unwrap().extend(replays.drain(..));
     }
     log::debug!("generated random data to fill the replay buffer");
+    assert!(target_buffer
+        .read()
+        .unwrap()
+        .iter()
+        .all(|target| target.value.is_finite()));
 }
 
 fn new_opening<E: Environment>(env: &mut E, actions: &mut Vec<E::Action>, rng: &mut impl Rng) {
