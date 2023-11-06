@@ -82,5 +82,5 @@ pub fn sigma(
     #[cfg(feature = "baseline")]
     return q * (C_VISIT + visit_count) * C_SCALE;
     #[cfg(not(feature = "baseline"))]
-    return (q + variance * beta) * (C_VISIT + visit_count) * C_SCALE;
+    return (q + variance.sqrt() * beta) * (C_VISIT + visit_count) * C_SCALE;
 }
