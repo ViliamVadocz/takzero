@@ -148,7 +148,7 @@ fn reanalyze(
                     beta,
                 )
                 .zip(node.children.iter())
-                .map(|(p, (a, _))| (*a, p))
+                .map(|(p, (a, _))| (*a, p.into()))
                 .collect(),
             value: node.evaluation.into(),
             #[cfg(not(feature = "baseline"))]

@@ -12,7 +12,7 @@ use super::{
     policy::sigma,
     Node,
 };
-use crate::search::eval::Eval;
+use crate::search::{eval::Eval, node::policy::softmax};
 
 // TODO: avoid allocating new tensor or moving between cpu/gpu?
 fn batched_simulate<E: Environment, A: Agent<E>>(
@@ -133,12 +133,12 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
         trajectories,
     );
 
-    let before_policy_batch: Vec<Vec<_>> = nodes
+    let original_logits_batch: Vec<Vec<_>> = nodes
         .iter()
         .map(|node| {
             node.children
                 .iter()
-                .map(|(a, child)| (a.clone(), child.policy))
+                .map(|(a, child)| (a.clone(), child.logit))
                 .collect()
         })
         .collect();
@@ -152,7 +152,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
             node.children
                 .iter_mut()
                 .zip(gumbel_distr.sample_iter(&mut rng))
-                .for_each(|((_, child), g)| child.policy += g);
+                .for_each(|((_, child), g)| child.logit += g);
         });
     }
 
@@ -162,7 +162,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
         // Sort and sample.
         .map(|node| {
             node.children.sort_unstable_by_key(|(_, child)| {
-                Reverse(child.evaluation.negate().map(|_| child.policy))
+                Reverse(child.evaluation.negate().map(|_| child.logit))
             });
             let len = sampled.min(node.children.len());
             &mut node.children[..len]
@@ -229,7 +229,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                             #[cfg(not(feature = "baseline"))]
                             *beta,
                             fake_visit_count,
-                        ) + child.policy
+                        ) + child.logit
                     }))
                 });
                 let len = search_set.len().div(2).max(1);
@@ -243,22 +243,22 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
         .map(|search_set| search_set.iter().next().unwrap().0.clone())
         .collect();
 
-    // Remove Gumbel noise from policies
+    // Remove Gumbel noise from logits
     nodes
         .par_iter_mut()
-        .zip(before_policy_batch)
-        .for_each(|(node, before_policy)| {
+        .zip(original_logits_batch)
+        .for_each(|(node, original_logits)| {
             node.children.iter_mut().for_each(|(action, child)| {
-                let p = before_policy
+                let p = original_logits
                     .iter()
                     .find_map(|(a, p)| (a == action).then_some(p))
                     .unwrap();
-                child.policy = *p;
+                child.logit = *p;
             });
         });
 
     // Recompute root node statistics.
-    nodes.par_iter_mut().for_each(|node| {
+    nodes.par_iter_mut().zip(betas).for_each(|(node, beta)| {
         node.visit_count = node
             .children
             .iter()
@@ -280,16 +280,18 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
             // Here we are ignoring the original network eval because we no longer have
             // access to it. node.evaluation could be used, but that already includes
             // child evaluations because of tree re-use.
+            let policy = softmax(node.children.iter().map(|(_, c)| c.logit));
             let visited_children = node
                 .children
                 .iter()
                 .map(|(_, child)| child)
-                .filter(|child| child.visit_count > 0);
+                .zip(policy)
+                .filter(|(child, _)| child.visit_count > 0);
             let sum_policies: NotNan<f32> =
-                visited_children.clone().map(|child| child.policy).sum();
+                visited_children.clone().map(|(_, policy)| policy).sum();
             let weighted_q: NotNan<f32> = visited_children
                 .clone()
-                .map(|child| child.policy * f32::from(child.evaluation.negate()))
+                .map(|(child, policy)| policy * f32::from(child.evaluation.negate()))
                 .sum();
             node.evaluation = Eval::new_not_nan_value(weighted_q / sum_policies);
 
@@ -299,17 +301,17 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                 // We take the mean of variances of children with highest value + variance.
                 // TODO: Figure out whether this makes any sense.
                 let mut visited_children: Vec<_> = visited_children.collect();
-                visited_children.sort_unstable_by_key(|child| {
+                visited_children.sort_unstable_by_key(|(child, _policy)| {
                     child
                         .evaluation
                         .negate()
-                        .map(|value| value + child.variance)
+                        .map(|value| value + beta * child.variance.sqrt())
                 });
                 let len = visited_children.len();
                 node.variance = visited_children
                     .into_iter()
                     .skip(len / 2)
-                    .map(|child| child.variance)
+                    .map(|(child, _policy)| child.variance)
                     .sum::<NotNan<f32>>()
                     / (len / 2) as f32;
             }

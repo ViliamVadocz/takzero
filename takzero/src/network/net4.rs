@@ -288,7 +288,7 @@ impl Agent<Env> for Net4 {
         let masked_policy: Vec<Vec<_>> = policy
             .masked_fill(&move_mask, f64::from(f32::MIN))
             .view([-1, output_size::<N>() as i64])
-            .softmax(1, Kind::Float)
+            // .softmax(1, Kind::Float)
             .try_into()
             .unwrap();
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
@@ -355,7 +355,7 @@ impl Agent<Env> for Net4 {
         let masked_policy: Vec<Vec<_>> = policy
             .masked_fill(&move_mask, f64::from(f32::MIN))
             .view([-1, output_size::<N>() as i64])
-            .softmax(1, Kind::Float)
+            // .softmax(1, Kind::Float) // use logits instead
             .try_into()
             .unwrap();
         let values: Vec<_> = values.view([-1]).try_into().unwrap();

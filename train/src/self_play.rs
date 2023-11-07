@@ -158,7 +158,7 @@ pub fn exploitation(
                             0.0,
                         )
                         .zip(node.children.iter())
-                        .map(|(p, (a, _))| (*a, p))
+                        .map(|(p, (a, _))| (*a, p.into()))
                         .collect(),
                     value: f32::NAN, // Value still needs to be filled.
                     #[cfg(not(feature = "baseline"))]

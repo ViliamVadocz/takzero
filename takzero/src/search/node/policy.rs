@@ -1,6 +1,24 @@
-use ordered_float::{NotNan, OrderedFloat};
+use ordered_float::NotNan;
 
 use super::{super::env::Environment, Node};
+
+// TODO: Test
+
+/// Perform the softmax on an iterator.
+///
+/// # Panics
+///
+/// Panics if any exponent results in NaN.
+pub fn softmax(
+    logits: impl Iterator<Item = NotNan<f32>> + Clone,
+) -> impl Iterator<Item = NotNan<f32>> + Clone {
+    let max = logits.clone().max().unwrap_or_default();
+    let exp = logits.map(move |x| {
+        NotNan::new((x - max).exp()).expect("exponent should not create NaN in softmax")
+    });
+    let sum: NotNan<f32> = exp.clone().sum();
+    exp.map(move |x| x / sum)
+}
 
 impl<E: Environment> Node<E> {
     #[must_use]
@@ -20,7 +38,7 @@ impl<E: Environment> Node<E> {
     pub fn improved_policy(
         &self,
         #[cfg(not(feature = "baseline"))] beta: f32,
-    ) -> impl Iterator<Item = f32> + '_ {
+    ) -> impl Iterator<Item = NotNan<f32>> + '_ {
         let most_visited_count = self.most_visited_count();
         let p = self.children.iter().map(move |(_, node)| -> NotNan<f32> {
             let completed_value: NotNan<f32> = NotNan::new(
@@ -39,14 +57,10 @@ impl<E: Environment> Node<E> {
                 #[cfg(not(feature = "baseline"))]
                 beta,
                 most_visited_count,
-            ) + node.policy
+            ) + node.logit
         });
 
-        // Softmax
-        let max = p.clone().max().unwrap_or_default();
-        let exp = p.map(move |x| (x - max).exp());
-        let sum: f32 = exp.clone().sum();
-        exp.map(move |x| x / sum)
+        softmax(p)
     }
 
     /// Get index of child which maximizes the improved policy.
@@ -62,7 +76,7 @@ impl<E: Environment> Node<E> {
         .filter(|(_, (_, (_, node)))| !node.evaluation.is_win())
         // Minimize mean-squared-error between visits and improved policy
         .max_by_key(|(_, (pi, (_, node)))| {
-            OrderedFloat(pi - node.visit_count as f32 / ((self.visit_count + 1) as f32))
+            pi - node.visit_count as f32 / ((self.visit_count + 1) as f32)
         })
         .map(|(i, _)| i)
         .expect("there should always be a child to simulate")

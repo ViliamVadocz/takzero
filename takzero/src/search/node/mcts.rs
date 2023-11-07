@@ -191,7 +191,7 @@ impl<E: Environment> Node<E> {
                 .map(|(a, p)| {
                     (
                         a,
-                        Self::from_policy(NotNan::new(p).expect("policy should not be NaN")),
+                        Self::from_logit(NotNan::new(p).expect("logit should not be NaN")),
                     )
                 })
                 .collect();
