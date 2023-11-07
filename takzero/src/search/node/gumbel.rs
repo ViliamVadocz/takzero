@@ -308,12 +308,13 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                         .map(|value| value + beta * child.variance.sqrt())
                 });
                 let len = visited_children.len();
+                let take = len / 4; // TODO: Make into hyperparameter
                 node.variance = visited_children
                     .into_iter()
-                    .skip(len / 2)
+                    .skip(len - take)
                     .map(|(child, _policy)| child.variance)
                     .sum::<NotNan<f32>>()
-                    / (len / 2) as f32;
+                    / take as f32;
             }
         }
     });

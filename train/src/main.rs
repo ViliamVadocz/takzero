@@ -280,6 +280,7 @@ fn initialize_buffer_with_random_moves(
                     .map(|a| (*a, 1.0 / actions.len() as f32))
                     .collect(),
                 value: f32::NAN,
+                #[cfg(not(feature = "baseline"))]
                 ube: 1.0,
             });
             let action = actions.drain(..).choose(rng).unwrap();

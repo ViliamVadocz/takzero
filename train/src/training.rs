@@ -112,7 +112,7 @@ pub fn run(
             .log_softmax(1, Kind::Float);
 
         // Get the target.
-        let p = Tensor::stack(&policy_targets, 0).view(policy.size().as_slice());
+        let p = Tensor::stack(&policy_targets, 0).view(policy.size().as_slice()); // TODO: Investigate if this is correct
         let z = Tensor::from_slice(&value_targets).unsqueeze(1).to(device);
         #[cfg(not(feature = "baseline"))]
         let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to(device);
