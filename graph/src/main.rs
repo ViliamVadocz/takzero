@@ -7,7 +7,7 @@ use std::{
 
 use charming::{
     component::{Axis, Title},
-    series::Scatter,
+    series::Line,
     theme::Theme,
     Chart,
     HtmlRenderer,
@@ -22,7 +22,7 @@ struct Match {
     draws: u32,
 }
 
-const STEPS_PER_MODEL: u32 = 100;
+const STEPS_PER_MODEL: u32 = 1000;
 
 fn main() {
     let mut chart = Chart::new()
@@ -35,12 +35,17 @@ fn main() {
         .x_axis(Axis::new().name("training steps"))
         .y_axis(Axis::new().name("estimated Elo"));
 
+    assert!(
+        env::args().count() > 1,
+        "maybe you forgot to supply a path to the match results"
+    );
+
     for path in env::args().skip(1) {
         let matches = get_matches(path);
         let players = get_unique_players(&matches);
-        let player_elo = get_bayes_elo(players, matches).unwrap();
+        let player_elo = get_bayes_elo(players, matches).expect("Could not calculate Bayes Elo");
         chart = chart.series(
-            Scatter::new().data(
+            Line::new().data(
                 player_elo
                     .into_iter()
                     .map(|(p, e)| vec![p as f64, e as f64])
@@ -141,6 +146,7 @@ fn get_bayes_elo(players: Vec<u32>, matches: Vec<Match>) -> Result<Vec<(u32, i32
 
     let min = player_elo.iter().map(|v| v.1).min().unwrap();
     player_elo.iter_mut().for_each(|v| v.1 -= min);
+    player_elo.sort_by_key(|(i, _)| *i);
 
     Ok(player_elo)
 }
