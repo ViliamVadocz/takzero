@@ -156,14 +156,12 @@ fn compete(
     let mut games = games.to_owned();
     let mut white_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
     let mut black_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
-    let mut white_context = <Net as Agent<Env>>::Context::new(
-        #[cfg(not(feature = "baseline"))]
-        white_rnd_loss,
-    );
-    let mut black_context = <Net as Agent<Env>>::Context::new(
-        #[cfg(not(feature = "baseline"))]
-        black_rnd_loss,
-    );
+    #[cfg(not(feature = "baseline"))]
+    let mut white_context = <Net as Agent<Env>>::Context::new(white_rnd_loss);
+    #[cfg(not(feature = "baseline"))]
+    let mut black_context = <Net as Agent<Env>>::Context::new(black_rnd_loss);
+    #[cfg(feature = "baseline")]
+    let mut context = <Net as Agent<Env>>::Context::new(0.0);
 
     let mut actions: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
     let mut trajectories: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
@@ -193,11 +191,14 @@ fn compete(
                 SAMPLED,
                 SIMULATIONS,
                 &BETA,
+                #[cfg(not(feature = "baseline"))]
                 if is_white {
                     &mut white_context
                 } else {
                     &mut black_context
                 },
+                #[cfg(feature = "baseline")]
+                &mut context,
                 &mut actions,
                 &mut trajectories,
                 None::<&mut ThreadRng>,
