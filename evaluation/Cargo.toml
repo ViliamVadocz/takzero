@@ -13,3 +13,6 @@ rand.workspace = true
 rayon.workspace = true
 takzero.workspace = true
 tch.workspace = true
+
+[features]
+baseline = ["takzero/baseline"]

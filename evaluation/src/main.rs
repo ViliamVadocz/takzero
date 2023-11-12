@@ -17,7 +17,7 @@ use fast_tak::{
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use rayon::prelude::*;
 use takzero::{
-    network::{net5::Net5, Network},
+    network::{net4::Net4, Network},
     search::{
         agent::Agent,
         env::{Environment, Terminal},
@@ -28,10 +28,10 @@ use tch::Device;
 
 mod evaluation;
 
-const N: usize = 5;
+const N: usize = 4;
 const HALF_KOMI: i8 = 4;
 type Env = Game<N, HALF_KOMI>;
-type Net = Net5;
+type Net = Net4;
 
 const DEVICE: Device = Device::Cuda(0);
 
@@ -48,6 +48,7 @@ struct Args {
     #[arg(long)]
     model_path: PathBuf,
     /// Path to RND
+    #[cfg(not(feature = "baseline"))]
     #[arg(long)]
     rnd_path: PathBuf,
     /// Number of games to play
@@ -67,6 +68,7 @@ fn real_main() {
     log::info!("seed: {seed}");
     let mut rng = StdRng::seed_from_u64(seed);
 
+    #[cfg(not(feature = "baseline"))]
     let rnd_losses: Vec<f64> = read_to_string(args.rnd_path)
         .unwrap()
         .lines()
@@ -99,19 +101,37 @@ fn real_main() {
         };
         let name_a = path_a.file_name().unwrap().to_string_lossy().to_string();
         let name_b = path_b.file_name().unwrap().to_string_lossy().to_string();
+        #[cfg(not(feature = "baseline"))]
         let rnd_loss_a = extract_rnd(&rnd_losses, &name_a);
+        #[cfg(not(feature = "baseline"))]
         let rnd_loss_b = extract_rnd(&rnd_losses, &name_b);
 
         let games: [Env; BATCH_SIZE] =
             array::from_fn(|_| get_opening(rng.gen::<usize>() % OPENINGS));
 
         log::info!("{name_a} vs. {name_b}");
-        let a_as_white = compete(&a, rnd_loss_a, &b, rnd_loss_b, &games);
+        let a_as_white = compete(
+            &a,
+            #[cfg(not(feature = "baseline"))]
+            rnd_loss_a,
+            &b,
+            #[cfg(not(feature = "baseline"))]
+            rnd_loss_b,
+            &games,
+        );
         log::info!("{a_as_white:?}");
         *results.entry((name_a.clone(), name_b.clone())).or_default() += a_as_white;
 
         log::info!("{name_b} vs. {name_a}");
-        let b_as_white = compete(&b, rnd_loss_b, &a, rnd_loss_a, &games);
+        let b_as_white = compete(
+            &b,
+            #[cfg(not(feature = "baseline"))]
+            rnd_loss_b,
+            &a,
+            #[cfg(not(feature = "baseline"))]
+            rnd_loss_a,
+            &games,
+        );
         log::info!("{b_as_white:?}");
         *results.entry((name_b, name_a)).or_default() += b_as_white;
     }
@@ -126,9 +146,9 @@ fn real_main() {
 /// the perspective of white.
 fn compete(
     white: &Net,
-    white_rnd_loss: f64,
+    #[cfg(not(feature = "baseline"))] white_rnd_loss: f64,
     black: &Net,
-    black_rnd_loss: f64,
+    #[cfg(not(feature = "baseline"))] black_rnd_loss: f64,
     games: &[Env],
 ) -> Evaluation {
     let mut evaluation = Evaluation::default();
@@ -136,8 +156,14 @@ fn compete(
     let mut games = games.to_owned();
     let mut white_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
     let mut black_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
-    let mut white_context = <Net as Agent<Env>>::Context::new(white_rnd_loss);
-    let mut black_context = <Net as Agent<Env>>::Context::new(black_rnd_loss);
+    let mut white_context = <Net as Agent<Env>>::Context::new(
+        #[cfg(not(feature = "baseline"))]
+        white_rnd_loss,
+    );
+    let mut black_context = <Net as Agent<Env>>::Context::new(
+        #[cfg(not(feature = "baseline"))]
+        black_rnd_loss,
+    );
 
     let mut actions: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
     let mut trajectories: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
