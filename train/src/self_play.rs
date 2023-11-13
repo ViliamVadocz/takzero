@@ -244,7 +244,9 @@ pub fn exploitation(
                 temp_replay_buffer.len()
             );
             let mut lock = exploration_buffer.write().unwrap();
-            lock.append(&mut temp_replay_buffer);
+            for replay in temp_replay_buffer.drain(..) {
+                lock.push_front(replay);
+            }
 
             // Truncate replay buffer if it gets too long.
             if lock.len() > MAXIMUM_REPLAY_BUFFER_SIZE {
@@ -277,7 +279,9 @@ pub fn exploitation(
                 temp_target_buffer.len()
             );
             let mut lock = exploitation_buffer.write().unwrap();
-            lock.append(&mut temp_target_buffer);
+            for target in temp_target_buffer.drain(..) {
+                lock.push_front(target);
+            }
 
             // Truncate target buffer if it gets too long.
             if lock.len() > MAXIMUM_EXPLOITATION_BUFFER_SIZE {
@@ -446,7 +450,9 @@ pub fn exploration(
                 temp_replay_buffer.len()
             );
             let mut lock = exploration_buffer.write().unwrap();
-            lock.append(&mut temp_replay_buffer);
+            for replay in temp_replay_buffer.drain(..) {
+                lock.push_front(replay);
+            }
 
             // Truncate replay buffer if it gets too long.
             if lock.len() > MAXIMUM_REPLAY_BUFFER_SIZE {
