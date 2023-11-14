@@ -20,7 +20,14 @@ use fast_tak::Game;
 use rand::{distributions::Uniform, prelude::*};
 use takzero::{
     network::{net4::Net4, Network},
-    search::{agent::Agent, env::Environment, eval::Eval, DISCOUNT_FACTOR, STEP},
+    search::{
+        agent::Agent,
+        env::Environment,
+        eval::Eval,
+        node::policy::{C_SCALE, C_VISIT},
+        DISCOUNT_FACTOR,
+        STEP,
+    },
     target::{Augment, Replay, Target},
 };
 use tch::{nn::VarStore, Device};
@@ -332,6 +339,8 @@ fn print_hyper_parameters(net: &Net, seed: u64, args: &Args) {
     println!("=== Search ===");
     println!("DISCOUNT_FACTOR = {DISCOUNT_FACTOR}");
     println!("TEMPORAL_DIFFERENCE_STEP = {STEP}");
+    println!("C_SCALE = {C_SCALE}");
+    println!("C_VISIT = {C_VISIT}");
 
     println!("=== Devices ===");
     println!("SELF_PLAY_DEVICE = {SELF_PLAY_DEVICE:?}");

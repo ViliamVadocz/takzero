@@ -2,8 +2,6 @@ use ordered_float::NotNan;
 
 use super::{super::env::Environment, Node};
 
-// TODO: Test
-
 /// Perform the softmax on an iterator.
 ///
 /// # Panics
@@ -83,6 +81,9 @@ impl<E: Environment> Node<E> {
     }
 }
 
+pub const C_VISIT: f32 = 50.0; // Paper used 50, but 30 solves tests
+pub const C_SCALE: f32 = 0.1; // Paper used 1, but 0.1 solves tests
+
 #[must_use]
 #[allow(clippy::suboptimal_flops)]
 pub fn sigma(
@@ -91,8 +92,6 @@ pub fn sigma(
     #[cfg(not(feature = "baseline"))] beta: f32,
     visit_count: f32,
 ) -> NotNan<f32> {
-    const C_VISIT: f32 = 50.0; // Paper used 50, but 30 solves tests
-    const C_SCALE: f32 = 1.0; // Paper used 1, but 0.1 solves tests
     #[cfg(feature = "baseline")]
     return q * (C_VISIT + visit_count) * C_SCALE;
     #[cfg(not(feature = "baseline"))]
