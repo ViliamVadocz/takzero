@@ -21,13 +21,13 @@ where
         #[cfg(feature = "baseline")]
         writeln!(
             f,
-            "root: c:{: >8} e:{:+.4}",
+            "[root]   c:{: >8} e:{:+.4}",
             self.visit_count, self.evaluation
         )?;
         #[cfg(not(feature = "baseline"))]
         writeln!(
             f,
-            "root: c:{: >8} v:{:+.4} e:{:+.4}",
+            "[root]   c:{: >8} v:{:+.4} e:{:+.4}",
             self.visit_count, self.variance, self.evaluation
         )?;
         for a in action_info {
@@ -77,7 +77,7 @@ impl<A: fmt::Display> fmt::Display for ActionInfo<A> {
         write!(
             f,
             "{: >8} c:{: >8} l:{:+.4} i:{:+.4} e:{:+.4?}",
-            self.action,
+            self.action.to_string(),
             self.visit_count,
             f32::from(self.logit),
             f32::from(self.improved_policy),
@@ -90,7 +90,7 @@ impl<A: fmt::Display> fmt::Display for ActionInfo<A> {
         write!(
             f,
             "{: >8} c:{: >8} l:{:+.4} i:{:+.4} v:{:.4} e:{:+.4?}",
-            self.action,
+            self.action.to_string(),
             self.visit_count,
             f32::from(self.logit),
             f32::from(self.improved_policy),
