@@ -1,4 +1,9 @@
-use std::{array, cmp::Ordering, fs::read_dir, path::PathBuf};
+use std::{
+    array,
+    cmp::Ordering,
+    fs::{read_dir, read_to_string},
+    path::PathBuf,
+};
 
 use clap::Parser;
 use fast_tak::{
@@ -9,7 +14,7 @@ use fast_tak::{
 use rayon::prelude::*;
 use sqlite::{Connection, Value};
 use takzero::{
-    network::{net5::Net5, Network},
+    network::{net4::Net4, Network},
     search::{
         agent::Agent,
         node::{gumbel::gumbel_sequential_halving, Node},
@@ -22,14 +27,18 @@ struct Args {
     /// Path where models are stored
     #[arg(long)]
     model_path: PathBuf,
+    /// Path to RND
+    #[cfg(not(feature = "baseline"))]
+    #[arg(long)]
+    rnd_path: PathBuf,
     /// Path to puzzle database
     #[arg(long)]
     puzzle_db_path: PathBuf,
 }
 
-const N: usize = 5;
+const N: usize = 4;
 const HALF_KOMI: i8 = 4;
-type Net = Net5;
+type Net = Net4;
 type Env = Game<N, HALF_KOMI>;
 const BATCH_SIZE: usize = 256;
 const SAMPLED: usize = usize::MAX;
@@ -54,20 +63,48 @@ fn real_main() {
         .collect();
     paths.sort();
 
+    #[cfg(not(feature = "baseline"))]
+    let rnd_losses: Vec<f64> = read_to_string(args.rnd_path)
+        .unwrap()
+        .lines()
+        .map(str::parse)
+        .collect::<Result<_, _>>()
+        .unwrap();
+
     for path in paths {
         let Ok(net) = Net::load(&path, DEVICE) else {
             log::warn!("Cannot load {}", path.display());
             continue;
         };
+        let rnd_loss = extract_rnd(&rnd_losses, &path.file_name().unwrap().to_string_lossy());
         log::info!("Benchmarking {}", path.display());
         let connection = sqlite::open(&args.puzzle_db_path).unwrap();
-        run_benchmark(&connection, 3, DEPTH_3_LIMIT, &net);
-        run_benchmark(&connection, 5, DEPTH_5_LIMIT, &net);
+        run_benchmark(
+            &connection,
+            3,
+            DEPTH_3_LIMIT,
+            &net,
+            #[cfg(not(feature = "baseline"))]
+            rnd_loss,
+        );
+        run_benchmark(
+            &connection,
+            5,
+            DEPTH_5_LIMIT,
+            &net,
+            #[cfg(not(feature = "baseline"))]
+            rnd_loss,
+        );
     }
 }
 
-fn run_benchmark(connection: &Connection, depth: i64, limit: Option<i64>, agent: &Net)
-where
+fn run_benchmark(
+    connection: &Connection,
+    depth: i64,
+    limit: Option<i64>,
+    agent: &Net,
+    #[cfg(not(feature = "baseline"))] rnd_loss: f64,
+) where
     Reserves<N>: Default,
 {
     let query = "SELECT * FROM tinues t
@@ -118,10 +155,14 @@ where
     // Attempt to solve puzzles.
     let mut wins = 0;
     for envs in puzzles.chunks(BATCH_SIZE) {
+        #[cfg(not(feature = "baseline"))]
+        let mut context = <Net as Agent<Env>>::Context::new(rnd_loss);
+        #[cfg(feature = "baseline")]
+        let mut context = <Net as Agent<Env>>::Context::new(0.0);
+
         let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
         let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
         let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-        let mut context = <Net as Agent<Env>>::Context::new(BATCH_SIZE as i64, DEVICE);
         let _top_actions = gumbel_sequential_halving(
             &mut nodes[..envs.len()],
             envs,
@@ -182,4 +223,16 @@ fn parse_piece(s: Option<&str>) -> Piece {
         Some("C") => Piece::Cap,
         _ => panic!("unknown piece"),
     }
+}
+
+const RND_SMOOTHING: usize = 100;
+
+#[allow(clippy::cast_precision_loss)]
+fn extract_rnd(rnd_losses: &[f64], name: &str) -> f64 {
+    let (steps, _) = name.split_once('_').expect("unexpected file name format");
+    let steps: usize = steps.parse().unwrap();
+    rnd_losses[steps.saturating_sub(RND_SMOOTHING)..steps]
+        .iter()
+        .sum::<f64>()
+        / RND_SMOOTHING as f64
 }
