@@ -97,3 +97,18 @@ pub fn sigma(
     #[cfg(not(feature = "baseline"))]
     return (q + variance.sqrt() * beta) * (C_VISIT + visit_count) * C_SCALE;
 }
+
+const EXPLORATION_BASE: f32 = 500.0;
+const EXPLORATION_INIT: f32 = 4.0;
+
+fn exploration_rate(visit_count: f32) -> f32 {
+    ((1.0 + visit_count + EXPLORATION_BASE) / EXPLORATION_BASE).ln() + EXPLORATION_INIT
+}
+
+/// U(s, a) = C(s) * P(s, a) * sqrt(N(s)) / (1 + N(s, a))
+#[must_use]
+pub fn upper_confidence_bound(parent_visit_count: f32, visit_count: f32, policy: f32) -> f32 {
+    exploration_rate(parent_visit_count) * policy * parent_visit_count / (1.0 + visit_count)
+}
+
+// TODO: don't forget to add Q(s, a) when taking the argmax with PUCT
