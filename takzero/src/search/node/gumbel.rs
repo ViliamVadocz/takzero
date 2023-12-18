@@ -15,7 +15,7 @@ use super::{
 use crate::search::{eval::Eval, node::policy::softmax};
 
 // TODO: avoid allocating new tensor or moving between cpu/gpu?
-fn batched_simulate<E: Environment, A: Agent<E>>(
+pub fn batched_simulate<E: Environment, A: Agent<E>>(
     nodes: &mut [Node<E>],
     envs: &[E],
     agent: &A,

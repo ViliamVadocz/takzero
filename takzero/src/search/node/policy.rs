@@ -79,6 +79,40 @@ impl<E: Environment> Node<E> {
         .map(|(i, _)| i)
         .expect("there should always be a child to simulate")
     }
+
+    /// Get index of child which maximizes PUCT.
+    #[allow(clippy::missing_panics_doc)]
+    #[allow(clippy::suboptimal_flops)]
+    pub fn select_with_puct(&mut self, beta: f32) -> usize {
+        let policy = softmax(self.children.iter().map(|(_, child)| child.logit));
+        let parent_visit_count = self.visit_count as f32;
+
+        self.children
+            .iter()
+            .zip(policy)
+            .enumerate()
+            .filter(|(_, ((_, child), _))| !child.evaluation.is_win())
+            .max_by_key(|(_, ((_, child), policy))| {
+                child.evaluation.map(|q| {
+                    let puct = q + upper_confidence_bound(
+                        parent_visit_count,
+                        child.visit_count as f32,
+                        policy.into_inner(),
+                    );
+
+                    #[cfg(not(feature = "baseline"))]
+                    {
+                        puct + beta * child.variance.sqrt()
+                    }
+                    #[cfg(feature = "baseline")]
+                    {
+                        puct
+                    }
+                })
+            })
+            .map(|(i, _)| i)
+            .expect("there should always be a child to simulate")
+    }
 }
 
 pub const C_VISIT: f32 = 50.0; // Paper used 50, but 30 solves tests
@@ -110,5 +144,3 @@ fn exploration_rate(visit_count: f32) -> f32 {
 pub fn upper_confidence_bound(parent_visit_count: f32, visit_count: f32, policy: f32) -> f32 {
     exploration_rate(parent_visit_count) * policy * parent_visit_count / (1.0 + visit_count)
 }
-
-// TODO: don't forget to add Q(s, a) when taking the argmax with PUCT

@@ -114,7 +114,7 @@ impl<E: Environment> Node<E> {
                 break Forward::NeedsNetwork(env);
             }
 
-            let index = node.select_with_improved_policy(beta);
+            let index = node.select_with_puct(beta); // replace with .select_with_improved_policy() later
             trajectory.push(index);
             let (action, child) = &mut node.children[index];
             env.step(action.clone());
