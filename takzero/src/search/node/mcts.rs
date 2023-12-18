@@ -78,7 +78,7 @@ impl<E: Environment> Node<E> {
                 }
             }
 
-            // Otherwise this position is not know and we just back-propagate the child result.
+            // Otherwise this position is not known and we just back-propagate the child result.
             _ => {
                 let negated = child_eval.negate().into();
                 self.update_mean_value(negated);
