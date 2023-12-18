@@ -94,7 +94,14 @@ fn main() {
             .iter_mut()
             .zip(&envs)
             .map(|(node, env)| {
-                if env.steps() < WEIGHTED_RANDOM_PLIES {
+                println!("{node}");
+                if node.evaluation.is_win() {
+                    node.children
+                        .iter()
+                        .min_by_key(|(_, child)| child.evaluation)
+                        .expect("there should be at least one child")
+                        .0
+                } else if env.steps() < WEIGHTED_RANDOM_PLIES {
                     let weighted_index = WeightedIndex::new(
                         node.children.iter().map(|(_, child)| child.visit_count),
                     )
