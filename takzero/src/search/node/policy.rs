@@ -93,7 +93,7 @@ impl<E: Environment> Node<E> {
             .enumerate()
             .filter(|(_, ((_, child), _))| !child.evaluation.is_win())
             .max_by_key(|(_, ((_, child), policy))| {
-                child.evaluation.map(|q| {
+                child.evaluation.negate().map(|q| {
                     let puct = q + upper_confidence_bound(
                         parent_visit_count,
                         child.visit_count as f32,
