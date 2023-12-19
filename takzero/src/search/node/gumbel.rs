@@ -37,7 +37,12 @@ pub fn batched_simulate<E: Environment, A: Agent<E>>(
         .zip(trajectories.par_iter_mut())
         .zip(betas.par_iter())
         .map(|(((((node, env), mask), actions), trajectory), beta)| {
-            match node.forward(trajectory, env.clone(), *beta) {
+            match node.forward(
+                trajectory,
+                env.clone(),
+                #[cfg(not(feature = "baseline"))]
+                *beta,
+            ) {
                 Forward::Known(eval) => {
                     // If the result is known just propagate it now.
                     node.backward_known_eval(trajectory.drain(..), eval);

@@ -31,7 +31,7 @@ impl<E: Environment> Node<E> {
             )
             .expect("value should not be nan");
         } else {
-            unreachable!("updating the mean value doesn't make sense if the result is known");
+            // unreachable!("updating the mean value doesn't make sense if the result is known");
         };
     }
 
@@ -51,7 +51,7 @@ impl<E: Environment> Node<E> {
         match child_eval {
             // This move made the opponent lose, so this position is a win.
             Eval::Loss(_) => {
-                self.evaluation = child_eval.negate();
+                self.evaluation = evaluations.min().unwrap().negate(); // child_eval.negate();
                 #[cfg(not(feature = "baseline"))]
                 {
                     self.variance = NotNan::default();
@@ -97,13 +97,13 @@ impl<E: Environment> Node<E> {
     /// Run the forward part of MCTS.
     /// One of `backward_known_eval` and `backward_network_eval`
     /// must be called afterwards.
-    pub fn forward(&mut self, trajectory: &mut Vec<usize>, mut env: E, beta: f32) -> Forward<E> {
+    pub fn forward(&mut self, trajectory: &mut Vec<usize>, mut env: E, #[cfg(not(feature = "baseline"))] beta: f32) -> Forward<E> {
         debug_assert!(trajectory.is_empty());
         let mut node = self;
 
         loop {
             node.visit_count += 1; // TODO: virtual visit?
-            if node.evaluation.is_known() {
+            if node.evaluation.ply().is_some_and(|x| x == 0) {
                 break Forward::Known(node.evaluation);
             }
             if node.needs_initialization() {
@@ -114,7 +114,7 @@ impl<E: Environment> Node<E> {
                 break Forward::NeedsNetwork(env);
             }
 
-            let index = node.select_with_puct(beta); // replace with .select_with_improved_policy() later
+            let index = node.select_with_puct(#[cfg(not(feature = "baseline"))] beta); // replace with .select_with_improved_policy() later
             trajectory.push(index);
             let (action, child) = &mut node.children[index];
             env.step(action.clone());
@@ -211,11 +211,11 @@ impl<E: Environment> Node<E> {
         &mut self,
         agent: &A,
         env: E,
-        beta: f32,
+        #[cfg(not(feature = "baseline"))] beta: f32,
         context: &mut A::Context,
     ) -> Propagated {
         let mut trajectory = Vec::new();
-        match self.forward(&mut trajectory, env, beta) {
+        match self.forward(&mut trajectory, env, #[cfg(not(feature = "baseline"))] beta) {
             Forward::Known(eval) => self.backward_known_eval(trajectory.into_iter(), eval),
             Forward::NeedsNetwork(env) => {
                 let mut actions = [Vec::new()];
@@ -268,7 +268,7 @@ mod tests {
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut ()),
+                    root.simulate_simple(&Dummy, game.clone(), #[cfg(not(feature = "baseline"))] 1.0, &mut ()),
                     Propagated {
                         eval: Eval::Win(_),
                         ..
@@ -299,7 +299,7 @@ mod tests {
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut ()),
+                    root.simulate_simple(&Dummy, game.clone(), #[cfg(not(feature = "baseline"))] 1.0, &mut ()),
                     Propagated {
                         eval: Eval::Win(_),
                         ..

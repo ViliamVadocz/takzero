@@ -103,6 +103,17 @@ impl From<Eval> for f32 {
     }
 }
 
+impl From<Eval> for NotNan<f32> {
+    fn from(value: Eval) -> Self {
+        match value {
+            Eval::Value(x) => x,
+            Eval::Win(_) => Self::new(1.0).expect("The literal is not NaN"),
+            Eval::Loss(_) => Self::new(-1.0).expect("The literal is not NaN"),
+            Eval::Draw(_) => Self::new(0.0).expect("The literal is not NaN"),
+        }
+    }
+}
+
 impl From<Terminal> for Eval {
     fn from(value: Terminal) -> Self {
         match value {

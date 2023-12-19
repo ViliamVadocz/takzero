@@ -63,7 +63,10 @@ impl<E: Environment> Node<E> {
 
     /// Get index of child which maximizes the improved policy.
     #[allow(clippy::missing_panics_doc)]
-    pub fn select_with_improved_policy(&mut self, beta: f32) -> usize {
+    pub fn select_with_improved_policy(
+        &mut self,
+        #[cfg(not(feature = "baseline"))] beta: f32,
+    ) -> usize {
         self.improved_policy(
             #[cfg(not(feature = "baseline"))]
             beta,
@@ -83,7 +86,7 @@ impl<E: Environment> Node<E> {
     /// Get index of child which maximizes PUCT.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::suboptimal_flops)]
-    pub fn select_with_puct(&mut self, beta: f32) -> usize {
+    pub fn select_with_puct(&mut self, #[cfg(not(feature = "baseline"))] beta: f32) -> usize {
         let policy = softmax(self.children.iter().map(|(_, child)| child.logit));
         let parent_visit_count = self.visit_count as f32;
 
@@ -91,24 +94,24 @@ impl<E: Environment> Node<E> {
             .iter()
             .zip(policy)
             .enumerate()
-            .filter(|(_, ((_, child), _))| !child.evaluation.is_win())
+            // FIXME: Add back pruning once policy target does not depend on visits
+            // .filter(|(_, ((_, child), _))| !child.evaluation.is_win())
             .max_by_key(|(_, ((_, child), policy))| {
-                child.evaluation.negate().map(|q| {
-                    let puct = q + upper_confidence_bound(
-                        parent_visit_count,
-                        child.visit_count as f32,
-                        policy.into_inner(),
-                    );
+                let q = NotNan::from(child.evaluation.negate());
+                let puct = upper_confidence_bound(
+                    parent_visit_count,
+                    child.visit_count as f32,
+                    policy.into_inner(),
+                );
 
-                    #[cfg(not(feature = "baseline"))]
-                    {
-                        puct + beta * child.variance.sqrt()
-                    }
-                    #[cfg(feature = "baseline")]
-                    {
-                        puct
-                    }
-                })
+                #[cfg(not(feature = "baseline"))]
+                {
+                    q + puct + beta * child.variance.sqrt()
+                }
+                #[cfg(feature = "baseline")]
+                {
+                    q + puct
+                }
             })
             .map(|(i, _)| i)
             .expect("there should always be a child to simulate")

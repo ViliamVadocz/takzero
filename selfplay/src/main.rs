@@ -30,7 +30,7 @@ const _: () = assert_env::<Env>();
 const _: () = assert_net::<Net>();
 
 const BATCH_SIZE: usize = 256;
-const VISITS: u32 = 1000;
+const VISITS: u32 = 800;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const WEIGHTED_RANDOM_PLIES: u16 = 30;
 const NOISE_ALPHA: f32 = 0.2;
@@ -94,7 +94,7 @@ fn main() {
             .iter_mut()
             .zip(&envs)
             .map(|(node, env)| {
-                println!("{node}");
+                // println!("{node}");
                 if node.evaluation.is_win() {
                     node.children
                         .iter()
@@ -117,26 +117,19 @@ fn main() {
             })
             .collect::<Vec<_>>();
 
-        // Take a step.
+        // Take a step and generate target policy.
         nodes
             .iter_mut()
             .zip(&mut envs)
             .zip(selected_actions)
             .zip(&mut replays)
             .for_each(|(((node, env), action), replay)| {
-                replay.push((
-                    env.clone(),
-                    node.children
-                        .iter()
-                        .map(|(a, child)| (*a, child.visit_count as f32 / node.visit_count as f32))
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                ));
+                replay.push((env.clone(), policy_target(node)));
                 node.descend(&action);
                 env.step(action);
             });
 
-        // Restart finished games. Collect replays.
+        // Restart finished games. Complete targets with value.
         nodes
             .iter_mut()
             .zip(&mut envs)
@@ -184,4 +177,12 @@ fn new_opening(rng: &mut impl Rng, actions: &mut Vec<Move>) -> Env {
     env.populate_actions(actions);
     env.step(actions.drain(..).choose(rng).unwrap());
     env
+}
+
+fn policy_target(node: &Node<Env>) -> Box<[(Move, f32)]> {
+    node.children
+        .iter()
+        .map(|(a, child)| (*a, child.visit_count as f32 / node.visit_count as f32))
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
 }
