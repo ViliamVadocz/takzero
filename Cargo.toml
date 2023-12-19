@@ -8,6 +8,7 @@ members = [
     "analysis",
     "rnd_experiment",
     "selfplay",
+    "learn",
 ]
 resolver = "2"
 
@@ -38,3 +39,4 @@ rayon = "1.7.0"
 # misc
 arrayvec = "0.7.4"
 thiserror = "1.0.47"
+ordered-float = "3.7.0"

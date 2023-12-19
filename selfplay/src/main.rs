@@ -47,7 +47,7 @@ fn main() {
     let mut nodes: [_; BATCH_SIZE] = std::array::from_fn(|_| Node::default());
     let mut envs: [_; BATCH_SIZE] = actions
         .iter_mut()
-        .map(|actions| new_opening(&mut rng, actions))
+        .map(|actions| Env::new_opening(&mut rng, actions))
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
@@ -138,7 +138,7 @@ fn main() {
             .for_each(|(((node, env), replay), actions)| {
                 if let Some(terminal) = env.terminal() {
                     // Reset game.
-                    *env = new_opening(&mut rng, actions);
+                    *env = Env::new_opening(&mut rng, actions);
                     *node = Node::default();
 
                     let mut eval = f32::from(Eval::from(terminal).negate());
@@ -168,15 +168,6 @@ fn main() {
             }
         }
     }
-}
-
-fn new_opening(rng: &mut impl Rng, actions: &mut Vec<Move>) -> Env {
-    let mut env = Env::default();
-    env.populate_actions(actions);
-    env.step(actions.drain(..).choose(rng).unwrap());
-    env.populate_actions(actions);
-    env.step(actions.drain(..).choose(rng).unwrap());
-    env
 }
 
 fn policy_target(node: &Node<Env>) -> Box<[(Move, f32)]> {

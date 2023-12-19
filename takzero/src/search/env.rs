@@ -1,4 +1,5 @@
 use fast_tak::{takparse::Move, Game, Reserves};
+use rand::{seq::IteratorRandom, Rng};
 
 pub trait Environment: Send + Sync + Clone + Default {
     type Action: Send + Sync + Clone + PartialEq;
@@ -7,6 +8,8 @@ pub trait Environment: Send + Sync + Clone + Default {
     fn step(&mut self, action: Self::Action);
     fn terminal(&self) -> Option<Terminal>;
     fn steps(&self) -> u16;
+
+    fn new_opening(rng: &mut impl Rng, actions: &mut Vec<Move>) -> Self;
 }
 
 pub enum Terminal {
@@ -45,6 +48,15 @@ where
 
     fn steps(&self) -> u16 {
         self.ply
+    }
+
+    fn new_opening(rng: &mut impl Rng, actions: &mut Vec<Move>) -> Self {
+        let mut env = Self::default();
+        env.populate_actions(actions);
+        env.step(actions.drain(..).choose(rng).unwrap());
+        env.populate_actions(actions);
+        env.step(actions.drain(..).choose(rng).unwrap());
+        env
     }
 }
 
