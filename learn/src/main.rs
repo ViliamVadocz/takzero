@@ -80,7 +80,7 @@ fn main() {
         let mut policy_targets = Vec::with_capacity(BATCH_SIZE);
         let mut masks = Vec::with_capacity(BATCH_SIZE);
         for target in batch {
-            let target = target.augment(&mut rng);
+            // let target = target.augment(&mut rng);
             inputs.push(game_to_tensor(&target.env, DEVICE));
             value_targets.push(target.value);
             policy_targets.push(policy_tensor::<N>(&target.policy, DEVICE));
