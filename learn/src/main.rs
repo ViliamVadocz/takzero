@@ -43,23 +43,26 @@ const _: () = assert_env::<Env>();
 const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
-const LEARNING_RATE: f64 = 1e-4;
 const BATCH_SIZE: usize = 512;
-const STEPS: u32 = 200;
 
 const GAME_COUNT: usize = 128;
 const VISITS: usize = 200;
 const BETA: [f32; GAME_COUNT] = [0.0; GAME_COUNT];
-const MAX_PLIES: usize = 40;
+const MAX_PLIES: usize = 30;
 
 fn main() {
+    let mut args = std::env::args();
+    let _program = args.next();
+    let steps: usize = args.next().unwrap().parse().unwrap();
+    let learning_rate: f64 = args.next().unwrap().parse().unwrap();
+
     let seed: u64 = rand::thread_rng().gen();
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = Net::new(DEVICE, Some(rng.gen()));
-    net.save("before.ot").unwrap();
+    net.save(format!("before-{seed}.ot")).unwrap();
 
-    let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
+    let mut opt = Adam::default().build(net.vs_mut(), learning_rate).unwrap();
 
     let file = OpenOptions::new().read(true).open("./targets.txt").unwrap();
     let targets = BufReader::new(file)
@@ -68,7 +71,7 @@ fn main() {
         .collect::<Vec<Target<Env>>>();
     println!("loaded {} targets", targets.len());
 
-    for step in 0..STEPS {
+    for step in 0..steps {
         let batch = targets.choose_multiple(&mut rng, BATCH_SIZE);
 
         // Create input tensors.
@@ -111,14 +114,14 @@ fn main() {
         opt.backward_step(&loss);
 
         println!(
-            "value={loss_value:?}, policy={loss_policy:?}, total={loss:?}, {} / {STEPS}",
+            "value={loss_value:?}, policy={loss_policy:?}, total={loss:?}, {} / {steps}",
             step + 1
         );
     }
 
-    net.save("after.ot").unwrap();
+    net.save(format!("after-{seed}.ot")).unwrap();
 
-    let before = Net::load("before.ot", DEVICE).unwrap();
+    let before = Net::load(format!("before-{seed}.ot"), DEVICE).unwrap();
     let after = net;
 
     let mut actions = Vec::new();
