@@ -130,9 +130,10 @@ pub const fn board_size<const N: usize>() -> usize {
 #[inline]
 #[must_use]
 pub fn input_channels<const N: usize>() -> usize {
-    let reserves = 2; // stones + caps
-    let to_move = 1;
-    2 * (stack_size::<N>() + reserves) + to_move
+    const RESERVES: usize = 2; // stones + caps
+    const TO_MOVE: usize = 1;
+    const FCD: usize = 1;
+    2 * (stack_size::<N>() + RESERVES) + TO_MOVE + FCD
 }
 
 #[inline]
@@ -215,6 +216,12 @@ where
             buffer[2 * board_size::<N>() + 4 * N * N + i] = 1.0;
         }
     }
+
+    let fcd = f32::from(game.board.flat_diff()) - f32::from(HALF_KOMI) / 2.0;
+    let fcd_per_square = fcd / (N * N) as f32;
+    for i in 0..N * N {
+        buffer[2 * board_size::<N>() + 5 * N * N + i] = fcd_per_square;
+    }
 }
 
 /// Create a CUDA tensor which represent the game.
@@ -273,6 +280,8 @@ mod tests {
             o, o, o, o, o, o, o, o, o, // caps
             // white to move
             o, o, o, o, o, o, o, o, o,
+            // no komi, no pieces
+            o, o, o, o, o, o, o, o, o,
         ];
         assert_eq!(handmade.len(), input_size::<3>());
         let mut buffer = vec![0.0; input_size::<3>()];
@@ -281,11 +290,13 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::many_single_char_names)]
     fn complicated_position() {
         let x = 1.0;
         let o = 0.0;
         let p = 5.0 / 21.0;
         let q = 10.0 / 21.0;
+        let d = -3.0 / 25.0;
         #[rustfmt::skip]
         let handmade = vec![
             // my pieces
@@ -324,23 +335,27 @@ mod tests {
             o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, // caps
             // black to move
             x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x,
+            // -3 fcd split over 25 squares
+            d, d, d, d, d, d, d, d, d, d, d, d, d, d, d, d, d, d, d, d, d, d, d, d, d,
         ];
         assert_eq!(handmade.len(), input_size::<5>());
         let tps: Tps = "x2,1221,x,1S/2,2C,2,1,x/x,212,21C,2S,2/2211S,2,21,1,1/x2,221S,2,x 2 23"
             .parse()
             .unwrap();
-        let game: Game<5, 0> = tps.into();
+        let game: Game<5, 4> = tps.into();
         let mut buffer = vec![0.0; input_size::<5>()];
         game_repr(&mut buffer, &game);
         assert_eq!(buffer, handmade);
     }
 
     #[test]
+    #[allow(clippy::many_single_char_names)]
     fn tall_stack() {
         let x = 1.0;
         let o = 0.0;
         let p = 5.0 / 10.0;
         let q = 4.0 / 10.0;
+        let d = 0.5 / 9.0;
         #[rustfmt::skip]
         let handmade = vec![
             // my pieces
@@ -371,10 +386,12 @@ mod tests {
             o, o, o, o, o, o, o, o, o, // caps
             // white to move
             o, o, o, o, o, o, o, o, o,
+            // +0.5 fcd split over 9
+            d, d, d, d, d, d, d, d, d,
         ];
         assert_eq!(handmade.len(), input_size::<3>());
         let tps: Tps = "x3/x,21212112212S,x/x3 1 12".parse().unwrap();
-        let game: Game<3, 0> = tps.into();
+        let game: Game<3, -1> = tps.into();
         let mut buffer = vec![0.0; input_size::<3>()];
         game_repr(&mut buffer, &game);
         assert_eq!(buffer, handmade);
