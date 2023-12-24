@@ -40,3 +40,16 @@ rayon = "1.7.0"
 arrayvec = "0.7.4"
 thiserror = "1.0.47"
 ordered-float = "3.7.0"
+
+[workspace.lints.clippy]
+pedantic = "warn"
+style = "warn"
+nursery = "warn"
+# https://github.com/rust-lang/rust-clippy/issues/8538
+iter_with_drain = "allow"
+# this one is just annoying
+module_name_repetitions = "allow"
+# comment these out once in a while to check
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"

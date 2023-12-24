@@ -17,3 +17,6 @@ ordered-float.workspace = true
 
 [features]
 baseline = []
+
+[lints]
+workspace = true
