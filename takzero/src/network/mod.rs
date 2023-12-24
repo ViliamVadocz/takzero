@@ -1,5 +1,4 @@
 pub mod net4;
-pub mod net5;
 pub mod repr;
 mod residual;
 
@@ -8,13 +7,8 @@ pub trait Network: Sized {
     fn vs(&self) -> &tch::nn::VarStore;
     fn vs_mut(&mut self) -> &mut tch::nn::VarStore;
 
-    #[cfg(feature = "baseline")]
-    fn forward_t(&self, xs: &tch::Tensor, train: bool) -> (tch::Tensor, tch::Tensor);
-
-    #[cfg(not(feature = "baseline"))]
     fn forward_t(&self, xs: &tch::Tensor, train: bool) -> (tch::Tensor, tch::Tensor, tch::Tensor);
 
-    #[cfg(not(feature = "baseline"))]
     fn forward_rnd(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor;
 
     #[allow(clippy::missing_errors_doc)]

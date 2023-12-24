@@ -22,8 +22,7 @@ pub struct Target<E: Environment> {
     pub env: E,                          // s_t
     pub policy: Box<[(E::Action, f32)]>, // \pi'(s_t)
     pub value: f32,                      // discounted N-step value
-    #[cfg(not(feature = "baseline"))]
-    pub ube: f32, // sum of RND + discounted N-step UBE
+    pub ube: f32,                        // sum of RND + discounted N-step UBE
 }
 
 pub trait Augment {
@@ -106,7 +105,6 @@ where
         Self {
             env: self.env.symmetries().into_iter().nth(index).unwrap(),
             value: self.value,
-            #[cfg(not(feature = "baseline"))]
             ube: self.ube,
             policy: self
                 .policy
@@ -124,7 +122,6 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let tps: Tps = self.env.clone().into();
         let value = self.value;
-        #[cfg(not(feature = "baseline"))]
         let ube = self.ube;
         let policy = self
             .policy
@@ -133,10 +130,7 @@ where
             .collect::<Vec<_>>()
             .join(",");
 
-        #[cfg(feature = "baseline")]
-        return writeln!(f, "{tps};{value};{policy}");
-        #[cfg(not(feature = "baseline"))]
-        return writeln!(f, "{tps};{value};{ube};{policy}");
+        writeln!(f, "{tps};{value};{ube};{policy}")
     }
 }
 
@@ -171,7 +165,6 @@ where
         let mut iter = s.trim().split(';');
         let tps: Tps = iter.next().ok_or(ParseTargetError::MissingTps)?.parse()?;
         let value = iter.next().ok_or(ParseTargetError::MissingValue)?.parse()?;
-        #[cfg(not(feature = "baseline"))]
         let ube = iter.next().ok_or(ParseTargetError::MissingUbe)?.parse()?;
         let policy = iter
             .next()
@@ -188,7 +181,6 @@ where
             env: tps.into(),
             policy,
             value,
-            #[cfg(not(feature = "baseline"))]
             ube,
         })
     }

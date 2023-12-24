@@ -12,9 +12,13 @@ use super::{
     policy::sigma,
     Node,
 };
-use crate::search::{eval::Eval, node::policy::softmax};
+use crate::search::{
+    eval::Eval,
+    node::{mcts::ActionPolicy, policy::softmax},
+};
 
 // TODO: avoid allocating new tensor or moving between cpu/gpu?
+#[allow(clippy::missing_panics_doc)]
 pub fn batched_simulate<E: Environment, A: Agent<E>>(
     nodes: &mut [Node<E>],
     envs: &[E],
@@ -37,12 +41,7 @@ pub fn batched_simulate<E: Environment, A: Agent<E>>(
         .zip(trajectories.par_iter_mut())
         .zip(betas.par_iter())
         .map(|(((((node, env), mask), actions), trajectory), beta)| {
-            match node.forward(
-                trajectory,
-                env.clone(),
-                #[cfg(not(feature = "baseline"))]
-                *beta,
-            ) {
+            match node.forward(trajectory, env.clone(), *beta) {
                 Forward::Known(eval) => {
                     // If the result is known just propagate it now.
                     node.backward_known_eval(trajectory.drain(..), eval);
@@ -57,9 +56,6 @@ pub fn batched_simulate<E: Environment, A: Agent<E>>(
             }
         })
         .unzip();
-    #[cfg(feature = "baseline")]
-    let output = agent.policy_value(&env_batch, &actions_batch, &mask, context);
-    #[cfg(not(feature = "baseline"))]
     let output = agent.policy_value_uncertainty(&env_batch, &actions_batch, &mask, context);
     debug_assert_eq!(output.len(), mask.iter().filter(|x| **x).count());
 
@@ -79,15 +75,22 @@ pub fn batched_simulate<E: Environment, A: Agent<E>>(
         .par_bridge()
         .for_each(
             |(node, trajectory, old_actions, mut moved_actions, output)| {
-                #[cfg(feature = "baseline")]
-                let (policy, value) = output;
-                #[cfg(not(feature = "baseline"))]
                 let (policy, value, uncertainty) = output;
+                let logits = moved_actions
+                    .iter()
+                    .map(|a| NotNan::new(policy[a.clone()]).expect("logit should not be NaN"))
+                    .collect::<Vec<_>>();
+                let probabilities = softmax(logits.clone().into_iter());
                 node.backward_network_eval(
                     trajectory.drain(..),
-                    moved_actions.drain(..).map(|a| (a.clone(), policy[a])),
+                    moved_actions.drain(..).zip(logits).zip(probabilities).map(
+                        |((action, logit), probability)| ActionPolicy {
+                            action,
+                            logit,
+                            probability,
+                        },
+                    ),
                     value,
-                    #[cfg(not(feature = "baseline"))]
                     uncertainty,
                 );
                 // Restore old actions.
@@ -226,16 +229,11 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
             .for_each(|(search_set, beta)| {
                 let fake_visit_count = (iteration * simulations_per_halving / sampled) as f32;
                 search_set.sort_unstable_by_key(|(_, child)| {
-                    Reverse(child.evaluation.negate().map(|q| {
-                        sigma(
-                            q,
-                            #[cfg(not(feature = "baseline"))]
-                            child.variance,
-                            #[cfg(not(feature = "baseline"))]
-                            *beta,
-                            fake_visit_count,
-                        ) + child.logit
-                    }))
+                    Reverse(
+                        child.evaluation.negate().map(|q| {
+                            sigma(q, child.variance, *beta, fake_visit_count) + child.logit
+                        }),
+                    )
                 });
                 let len = search_set.len().div(2).max(1);
                 *search_set = unsafe { std::mem::transmute(&mut search_set[..len]) };
@@ -276,7 +274,6 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
         if evaluations.clone().any(Eval::is_loss) || evaluations.clone().all(Eval::is_known) {
             // Node is solved.
             node.evaluation = evaluations.min().unwrap().negate();
-            #[cfg(not(feature = "baseline"))]
             {
                 node.variance = NotNan::default();
             }
@@ -300,7 +297,6 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                 .sum();
             node.evaluation = Eval::new_not_nan_value(weighted_q / sum_policies);
 
-            #[cfg(not(feature = "baseline"))]
             {
                 // For variance we use a completely different formula.
                 // We take the mean of variances of children with highest value + variance.

@@ -2,7 +2,7 @@ use ordered_float::NotNan;
 
 use super::{
     super::{agent::Agent, env::Environment, eval::Eval, DISCOUNT_FACTOR},
-    Node,
+    Node, policy::softmax,
 };
 
 /// Return value from [`Node::forward`] indicating if the evaluation is known
@@ -15,8 +15,13 @@ pub enum Forward<E: Environment> {
 
 pub struct Propagated {
     eval: Eval,
-    #[cfg(not(feature = "baseline"))]
     uncertainty: NotNan<f32>,
+}
+
+pub struct ActionPolicy<E: Environment> {
+    pub action: E::Action,
+    pub logit: NotNan<f32>,
+    pub probability: NotNan<f32>,
 }
 
 impl<E: Environment> Node<E> {
@@ -31,11 +36,11 @@ impl<E: Environment> Node<E> {
             )
             .expect("value should not be nan");
         } else {
-            // unreachable!("updating the mean value doesn't make sense if the result is known");
+            // unreachable!("updating the mean value doesn't make sense if the
+            // result is known");
         };
     }
 
-    #[cfg(not(feature = "baseline"))]
     #[inline]
     fn update_variance(&mut self, uncertainty: NotNan<f32>) {
         self.variance = (self.variance * ((self.visit_count - 1) as f32) + uncertainty)
@@ -45,20 +50,18 @@ impl<E: Environment> Node<E> {
     fn propagate_child_eval(
         &mut self,
         child_eval: Eval,
-        #[cfg(not(feature = "baseline"))] child_uncertainty: NotNan<f32>,
+        child_uncertainty: NotNan<f32>,
     ) -> Propagated {
         let evaluations = self.children.iter().map(|(_, node)| node.evaluation);
         match child_eval {
             // This move made the opponent lose, so this position is a win.
             Eval::Loss(_) => {
                 self.evaluation = evaluations.min().unwrap().negate(); // child_eval.negate();
-                #[cfg(not(feature = "baseline"))]
                 {
                     self.variance = NotNan::default();
                 }
                 Propagated {
                     eval: self.evaluation,
-                    #[cfg(not(feature = "baseline"))]
                     uncertainty: self.variance,
                 }
             }
@@ -67,13 +70,11 @@ impl<E: Environment> Node<E> {
             // If all moves lead to wins or draws for the opponent, we choose to draw.
             Eval::Draw(_) | Eval::Win(_) if evaluations.clone().all(|e| e.is_known()) => {
                 self.evaluation = evaluations.min().unwrap().negate();
-                #[cfg(not(feature = "baseline"))]
                 {
                     self.variance = NotNan::default();
                 }
                 Propagated {
                     eval: self.evaluation,
-                    #[cfg(not(feature = "baseline"))]
                     uncertainty: self.variance,
                 }
             }
@@ -82,12 +83,10 @@ impl<E: Environment> Node<E> {
             _ => {
                 let negated = child_eval.negate().into();
                 self.update_mean_value(negated);
-                #[cfg(not(feature = "baseline"))]
                 self.update_variance(child_uncertainty);
 
                 Propagated {
                     eval: Eval::new_value(negated * DISCOUNT_FACTOR).unwrap(),
-                    #[cfg(not(feature = "baseline"))]
                     uncertainty: child_uncertainty * DISCOUNT_FACTOR * DISCOUNT_FACTOR,
                 }
             }
@@ -97,7 +96,7 @@ impl<E: Environment> Node<E> {
     /// Run the forward part of MCTS.
     /// One of `backward_known_eval` and `backward_network_eval`
     /// must be called afterwards.
-    pub fn forward(&mut self, trajectory: &mut Vec<usize>, mut env: E, #[cfg(not(feature = "baseline"))] beta: f32) -> Forward<E> {
+    pub fn forward(&mut self, trajectory: &mut Vec<usize>, mut env: E, beta: f32) -> Forward<E> {
         debug_assert!(trajectory.is_empty());
         let mut node = self;
 
@@ -114,7 +113,7 @@ impl<E: Environment> Node<E> {
                 break Forward::NeedsNetwork(env);
             }
 
-            let index = node.select_with_puct(#[cfg(not(feature = "baseline"))] beta); // replace with .select_with_improved_policy() later
+            let index = node.select_with_puct(beta); // replace with .select_with_improved_policy() later
             trajectory.push(index);
             let (action, child) = &mut node.children[index];
             env.step(action.clone());
@@ -129,24 +128,15 @@ impl<E: Environment> Node<E> {
         eval: Eval,
     ) -> Propagated {
         if let Some(index) = trajectory.next() {
-            #[cfg(feature = "baseline")]
-            let Propagated { eval: child_eval } =
-                self.children[index].1.backward_known_eval(trajectory, eval);
-            #[cfg(not(feature = "baseline"))]
             let Propagated {
                 eval: child_eval,
                 uncertainty: child_uncertainty,
             } = self.children[index].1.backward_known_eval(trajectory, eval);
-            self.propagate_child_eval(
-                child_eval,
-                #[cfg(not(feature = "baseline"))]
-                child_uncertainty,
-            )
+            self.propagate_child_eval(child_eval, child_uncertainty)
         } else {
             // Leaf reached, time to propagate upwards.
             Propagated {
                 eval,
-                #[cfg(not(feature = "baseline"))]
                 uncertainty: NotNan::default(),
             }
         }
@@ -161,16 +151,11 @@ impl<E: Environment> Node<E> {
     pub fn backward_network_eval(
         &mut self,
         mut trajectory: impl Iterator<Item = usize>,
-        policy: impl Iterator<Item = (E::Action, f32)>,
+        policy: impl Iterator<Item = ActionPolicy<E>>,
         value: f32,
-        #[cfg(not(feature = "baseline"))] uncertainty: f32,
+        uncertainty: f32,
     ) -> Propagated {
         if let Some(index) = trajectory.next() {
-            #[cfg(feature = "baseline")]
-            let Propagated { eval: child_eval } = self.children[index]
-                .1
-                .backward_network_eval(trajectory, policy, value);
-            #[cfg(not(feature = "baseline"))]
             let Propagated {
                 eval: child_eval,
                 uncertainty: child_uncertainty,
@@ -180,18 +165,14 @@ impl<E: Environment> Node<E> {
                 value,
                 uncertainty,
             );
-            self.propagate_child_eval(
-                child_eval,
-                #[cfg(not(feature = "baseline"))]
-                child_uncertainty,
-            )
+            self.propagate_child_eval(child_eval, child_uncertainty)
         } else {
             // Finish leaf initialization.
             self.children = policy
-                .map(|(a, p)| {
+                .map(|ActionPolicy{ action, logit, probability}| {
                     (
-                        a,
-                        Self::from_logit(NotNan::new(p).expect("logit should not be NaN")),
+                        action,
+                        Self::from_logit_and_probability(logit, probability),
                     )
                 })
                 .collect();
@@ -200,7 +181,6 @@ impl<E: Environment> Node<E> {
                     log::warn!("value NaN");
                     Eval::default()
                 }),
-                #[cfg(not(feature = "baseline"))]
                 NotNan::new(uncertainty).expect("uncertainty should not be NaN"),
             )
         }
@@ -211,25 +191,21 @@ impl<E: Environment> Node<E> {
         &mut self,
         agent: &A,
         env: E,
-        #[cfg(not(feature = "baseline"))] beta: f32,
+        beta: f32,
         context: &mut A::Context,
     ) -> Propagated {
         let mut trajectory = Vec::new();
-        match self.forward(&mut trajectory, env, #[cfg(not(feature = "baseline"))] beta) {
+        match self.forward(&mut trajectory, env, beta) {
             Forward::Known(eval) => self.backward_known_eval(trajectory.into_iter(), eval),
             Forward::NeedsNetwork(env) => {
                 let mut actions = [Vec::new()];
                 env.populate_actions(&mut actions[0]);
-                #[cfg(feature = "baseline")]
-                let (policy, value) = agent
-                    .policy_value(&[env], &actions, &[true], context)
-                    .pop()
-                    .unwrap();
-                #[cfg(not(feature = "baseline"))]
                 let (policy, value, uncertainty) = agent
                     .policy_value_uncertainty(&[env], &actions, &[true], context)
                     .pop()
                     .unwrap();
+                let logits = actions[0].iter().map(|a| NotNan::new(policy[a.clone()]).expect("logit should not be NaN")).collect::<Vec<_>>();
+                let probabilities = softmax(logits.clone().into_iter());
                 self.backward_network_eval(
                     trajectory.into_iter(),
                     actions
@@ -237,9 +213,10 @@ impl<E: Environment> Node<E> {
                         .next()
                         .unwrap()
                         .into_iter()
-                        .map(|a| (a.clone(), policy[a])),
+                        .zip(logits)
+                        .zip(probabilities)
+                        .map(|((action, logit), probability)| ActionPolicy{action, logit, probability}),
                     value,
-                    #[cfg(not(feature = "baseline"))]
                     uncertainty,
                 )
             }
@@ -268,7 +245,7 @@ mod tests {
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate_simple(&Dummy, game.clone(), #[cfg(not(feature = "baseline"))] 1.0, &mut ()),
+                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut ()),
                     Propagated {
                         eval: Eval::Win(_),
                         ..
@@ -299,7 +276,7 @@ mod tests {
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate_simple(&Dummy, game.clone(), #[cfg(not(feature = "baseline"))] 1.0, &mut ()),
+                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut ()),
                     Propagated {
                         eval: Eval::Win(_),
                         ..
