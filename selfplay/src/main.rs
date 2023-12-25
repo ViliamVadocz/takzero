@@ -34,9 +34,10 @@ const VISITS: u32 = 800;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const WEIGHTED_RANDOM_PLIES: u16 = 30;
 const NOISE_ALPHA: f32 = 0.2;
+const NOISE_RATIO: f32 = 0.1;
 const NOISE_PLIES: u16 = 20;
 
-fn main() {
+fn main_() {
     let seed: u64 = rand::thread_rng().gen();
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
@@ -74,7 +75,7 @@ fn main() {
             .iter_mut()
             .zip(&envs)
             .filter(|(_, env)| env.ply < NOISE_PLIES)
-            .for_each(|(node, _)| node.apply_dirichlet(&mut rng, NOISE_ALPHA));
+            .for_each(|(node, _)| node.apply_dirichlet(&mut rng, NOISE_ALPHA, NOISE_RATIO));
 
         // Search.
         for _ in 0..VISITS {
@@ -146,6 +147,7 @@ fn main() {
                         targets.push(Target {
                             env,
                             value: eval,
+                            ube: 0.0,
                             policy,
                         });
                         eval *= -DISCOUNT_FACTOR;

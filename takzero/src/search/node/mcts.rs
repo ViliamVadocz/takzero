@@ -2,7 +2,8 @@ use ordered_float::NotNan;
 
 use super::{
     super::{agent::Agent, env::Environment, eval::Eval, DISCOUNT_FACTOR},
-    Node, policy::softmax,
+    policy::softmax,
+    Node,
 };
 
 /// Return value from [`Node::forward`] indicating if the evaluation is known
@@ -169,12 +170,15 @@ impl<E: Environment> Node<E> {
         } else {
             // Finish leaf initialization.
             self.children = policy
-                .map(|ActionPolicy{ action, logit, probability}| {
-                    (
-                        action,
-                        Self::from_logit_and_probability(logit, probability),
-                    )
-                })
+                .map(
+                    |ActionPolicy {
+                         action,
+                         logit,
+                         probability,
+                     }| {
+                        (action, Self::from_logit_and_probability(logit, probability))
+                    },
+                )
                 .collect();
             self.propagate_child_eval(
                 Eval::new_value(value).unwrap_or_else(|_| {
@@ -204,7 +208,10 @@ impl<E: Environment> Node<E> {
                     .policy_value_uncertainty(&[env], &actions, &[true], context)
                     .pop()
                     .unwrap();
-                let logits = actions[0].iter().map(|a| NotNan::new(policy[a.clone()]).expect("logit should not be NaN")).collect::<Vec<_>>();
+                let logits = actions[0]
+                    .iter()
+                    .map(|a| NotNan::new(policy[a.clone()]).expect("logit should not be NaN"))
+                    .collect::<Vec<_>>();
                 let probabilities = softmax(logits.clone().into_iter());
                 self.backward_network_eval(
                     trajectory.into_iter(),
@@ -215,7 +222,11 @@ impl<E: Environment> Node<E> {
                         .into_iter()
                         .zip(logits)
                         .zip(probabilities)
-                        .map(|((action, logit), probability)| ActionPolicy{action, logit, probability}),
+                        .map(|((action, logit), probability)| ActionPolicy {
+                            action,
+                            logit,
+                            probability,
+                        }),
                     value,
                     uncertainty,
                 )

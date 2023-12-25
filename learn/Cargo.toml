@@ -18,4 +18,4 @@ rayon.workspace = true
 ordered-float.workspace = true
 
 [features]
-baseline = ["takzero/baseline"]
+baseline = []

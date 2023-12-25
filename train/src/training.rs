@@ -117,7 +117,7 @@ pub fn run(
         let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to(device);
 
         // Calculate loss.
-        let loss_p = - (policy * &p).sum(Kind::Float) / i64::try_from(batch_size).unwrap();
+        let loss_p = -(policy * &p).sum(Kind::Float) / i64::try_from(batch_size).unwrap();
         let loss_z = (z - values).square().mean(Kind::Float);
 
         #[cfg(feature = "baseline")]
