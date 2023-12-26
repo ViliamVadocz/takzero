@@ -74,8 +74,13 @@ fn main() {
     let mut targets = Vec::new();
     let mut context = RndNormalizationContext::new(0.0);
 
+    let mut prev_steps = 0;
     for steps in 0.. {
-        if let Some(model_path) = get_model_path_with_most_steps(&args.directory) {
+        if let Some((new_steps, model_path)) = get_model_path_with_most_steps(&args.directory) {
+            if new_steps == prev_steps {
+                continue;
+            }
+            prev_steps = new_steps;
             log::info!("Loading new model: {}", model_path.display());
             net = Net::load(model_path, DEVICE).expect("Path should lead to a valid model file");
         }
@@ -140,19 +145,23 @@ fn policy_target(node: &Node<Env>) -> Box<[(Move, f32)]> {
 /// Get the path to the model file (ending with ".ot")
 /// which has the highest number of steps (number after '_')
 /// in the given directory.
-fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<PathBuf> {
+fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(u32, PathBuf)> {
     read_dir(directory)
         .unwrap()
         .filter_map(|res| res.ok().map(|entry| entry.path()))
         .filter(|p| p.extension().map(|ext| ext == "ot").unwrap_or_default())
-        .max_by_key(|p| {
-            p.file_stem()?
-                .to_str()?
-                .split_once('_')?
-                .1
-                .parse::<u32>()
-                .ok()
+        .filter_map(|p| {
+            Some((
+                p.file_stem()?
+                    .to_str()?
+                    .split_once('_')?
+                    .1
+                    .parse::<u32>()
+                    .ok()?,
+                p,
+            ))
         })
+        .max_by_key(|(s, _)| *s)
 }
 
 /// Select which actions to take in environments.
