@@ -44,14 +44,10 @@ const NOISE_RATIO: f32 = 0.1;
 const NOISE_PLIES: u16 = 20;
 const DEVICE: Device = Device::Cuda(0);
 
-// TODO:
-// - look for newer models
-// - switch to using exploration after X steps
-// - save to different locations
-
 #[derive(Parser, Debug)]
 struct Args {
-    /// Directory
+    /// Directory where to find models
+    /// and also where to save targets.
     #[arg(long)]
     directory: PathBuf,
 }
