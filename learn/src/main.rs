@@ -50,7 +50,7 @@ const STEPS_BETWEEN_PUBLISH: u32 = 200;
 const LEARNING_RATE: f64 = 1e-4;
 
 const GAME_COUNT: usize = 64;
-const VISITS: usize = 800;
+const VISITS: usize = 400;
 const BETA: [f32; GAME_COUNT] = [0.0; GAME_COUNT];
 const MAX_PLIES: usize = 60;
 

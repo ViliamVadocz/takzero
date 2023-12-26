@@ -80,18 +80,17 @@ fn main() {
     for steps in 0.. {
         log::debug!("Step: {steps}");
         if let Some((new_steps, model_path)) = get_model_path_with_most_steps(&args.directory) {
-            if new_steps == prev_steps {
-                continue;
-            }
-            prev_steps = new_steps;
-            log::info!("Loading new model: {}", model_path.display());
+            if new_steps != prev_steps {
+                prev_steps = new_steps;
+                log::info!("Loading new model: {}", model_path.display());
 
-            net = loop {
-                match Net::load(&model_path, DEVICE) {
-                    Ok(net) => break net,
-                    Err(err) => {
-                        log::error!("Cannot load model: {err}");
-                        std::thread::sleep(std::time::Duration::from_secs(1));
+                net = loop {
+                    match Net::load(&model_path, DEVICE) {
+                        Ok(net) => break net,
+                        Err(err) => {
+                            log::error!("Cannot load model: {err}");
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                        }
                     }
                 }
             }
