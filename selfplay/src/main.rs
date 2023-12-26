@@ -82,8 +82,16 @@ fn main() {
             }
             prev_steps = new_steps;
             log::info!("Loading new model: {}", model_path.display());
-            net = Net::load(model_path, Device::Cuda(0))
-                .expect("Path should lead to a valid model file");
+
+            net = loop {
+                match Net::load(&model_path, Device::Cuda(0)) {
+                    Ok(net) => break net,
+                    Err(err) => {
+                        log::error!("Cannot load model: {err}");
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                    }
+                }
+            }
         }
 
         // One simulation batch to initialize root policy if it has not been done yet.
