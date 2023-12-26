@@ -49,9 +49,9 @@ const STEPS_BETWEEN_PUBLISH: u32 = 200;
 const LEARNING_RATE: f64 = 1e-4;
 
 const GAME_COUNT: usize = 64;
-const VISITS: usize = 400;
+const VISITS: usize = 800;
 const BETA: [f32; GAME_COUNT] = [0.0; GAME_COUNT];
-const MAX_PLIES: usize = 30;
+const MAX_PLIES: usize = 60;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -185,6 +185,10 @@ fn main() {
             let loss_value = (target_value - network_value).square().mean(Kind::Float);
             let loss_ube = (target_ube - network_ube).square().mean(Kind::Float);
             let loss = &loss_policy + &loss_value + &loss_ube;
+            log::info!(
+                "loss = {loss:?}, loss_policy = {loss_policy:?}, loss_value = {loss_value:?},  \
+                 loss_ube = {loss_ube:?}"
+            );
 
             // Take step.
             opt.backward_step(&loss);
@@ -287,7 +291,7 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                             *done = true;
                             let (tps, moves) =
                                 std::mem::replace(replay, (Tps::starting_position(N), Vec::new()));
-                            println!(
+                            log::debug!(
                                 "{tps} {}",
                                 moves.into_iter().fold(String::new(), |mut s, m| {
                                     let _ = write!(s, "{m} ");
