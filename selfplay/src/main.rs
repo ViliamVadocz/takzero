@@ -42,7 +42,6 @@ const WEIGHTED_RANDOM_PLIES: u16 = 30;
 const NOISE_ALPHA: f32 = 0.2;
 const NOISE_RATIO: f32 = 0.1;
 const NOISE_PLIES: u16 = 20;
-const DEVICE: Device = Device::Cuda(0);
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -58,7 +57,7 @@ fn main() {
     let seed: u64 = rand::thread_rng().gen();
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
-    let mut net = Net::new(DEVICE, Some(rng.gen()));
+    let mut net = Net::new(Device::Cuda(0), Some(rng.gen()));
 
     // Initialize buffers.
     let mut actions: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());
@@ -82,7 +81,8 @@ fn main() {
             }
             prev_steps = new_steps;
             log::info!("Loading new model: {}", model_path.display());
-            net = Net::load(model_path, DEVICE).expect("Path should lead to a valid model file");
+            net = Net::load(model_path, Device::Cuda(0))
+                .expect("Path should lead to a valid model file");
         }
 
         // One simulation batch to initialize root policy if it has not been done yet.
