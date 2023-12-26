@@ -46,7 +46,7 @@ const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 512;
-const STEPS_BETWEEN_PUBLISH: u32 = 200;
+const STEPS_BETWEEN_PUBLISH: u32 = 500;
 const LEARNING_RATE: f64 = 1e-4;
 
 const GAME_COUNT: usize = 64;
@@ -136,7 +136,7 @@ fn main() {
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
 
     loop {
-        let targets = get_targets(&args.directory, 0);
+        let targets = get_targets(&args.directory, steps / 20);
         log::info!("Target buffer contains {} targets", targets.len());
 
         let mut before = net.clone(DEVICE);
@@ -152,7 +152,7 @@ fn main() {
             let mut policy_targets = Vec::with_capacity(BATCH_SIZE);
             let mut masks = Vec::with_capacity(BATCH_SIZE);
             let mut value_targets = Vec::with_capacity(BATCH_SIZE);
-            let mut ube_targets = Vec::with_capacity(BATCH_SIZE);
+            // let mut ube_targets = Vec::with_capacity(BATCH_SIZE);
             for target in batch {
                 let target = target.augment(&mut rng);
                 inputs.push(game_to_tensor(&target.env, DEVICE));
@@ -162,13 +162,13 @@ fn main() {
                     DEVICE,
                 ));
                 value_targets.push(target.value);
-                ube_targets.push(target.ube);
+                // ube_targets.push(target.ube);
             }
 
             // Get network output.
             let input = Tensor::cat(&inputs, 0);
             let mask = Tensor::cat(&masks, 0);
-            let (policy, network_value, network_ube) = net.forward_t(&input, true);
+            let (policy, network_value, _network_ube) = net.forward_t(&input, true);
             let log_softmax_network_policy = policy
                 .masked_fill(&mask, f64::from(f32::MIN))
                 .view([-1, output_size::<N>() as i64])
@@ -178,22 +178,23 @@ fn main() {
             let target_policy = Tensor::stack(&policy_targets, 0)
                 .view(log_softmax_network_policy.size().as_slice());
             let target_value = Tensor::from_slice(&value_targets).unsqueeze(1).to(DEVICE);
-            let target_ube = Tensor::from_slice(&ube_targets).unsqueeze(1).to(DEVICE);
+            // let target_ube = Tensor::from_slice(&ube_targets).unsqueeze(1).to(DEVICE);
 
             // Calculate loss.
             let loss_policy = -(log_softmax_network_policy * &target_policy).sum(Kind::Float)
                 / i64::try_from(BATCH_SIZE).unwrap();
             let loss_value = (target_value - network_value).square().mean(Kind::Float);
-            let loss_ube = (target_ube - network_ube).square().mean(Kind::Float);
-            let loss = &loss_policy + &loss_value + &loss_ube;
+            // TODO: Add UBE back later.
+            // let loss_ube = (target_ube - network_ube).square().mean(Kind::Float); //
+            let loss = &loss_policy + &loss_value; //+ &loss_ube;
             log::info!(
-                "loss = {loss:?}, loss_policy = {loss_policy:?}, loss_value = {loss_value:?},  \
-                 loss_ube = {loss_ube:?}"
+                "loss = {loss:?}, loss_policy = {loss_policy:?}, loss_value = {loss_value:?}"
             );
 
             // Take step.
             opt.backward_step(&loss);
         }
+        opt.zero_grad();
 
         steps += STEPS_BETWEEN_PUBLISH;
         net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
