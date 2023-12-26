@@ -44,6 +44,7 @@ const _: () = assert_env::<Env>();
 #[rustfmt::skip] #[allow(dead_code)] const fn assert_net<NET: Network + Agent<Env>>() {}
 const _: () = assert_net::<Net>();
 
+const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 512;
 const STEPS_BETWEEN_PUBLISH: u32 = 200;
 const LEARNING_RATE: f64 = 1e-4;
@@ -113,7 +114,7 @@ fn get_targets(directory: &PathBuf, step_cutoff: u32) -> Vec<Target<Env>> {
 }
 
 fn main() {
-    let device = Device::Cuda(0);
+    env_logger::init();
     let args = Args::parse();
 
     let seed: u64 = rand::thread_rng().gen();
@@ -124,12 +125,12 @@ fn main() {
         if let Some((steps, model_path)) = get_model_path_with_most_steps(&args.directory) {
             log::info!("Resuming at {steps} steps with {}", model_path.display());
             (
-                Net::load(model_path, device).expect("Model file should be loadable"),
+                Net::load(model_path, DEVICE).expect("Model file should be loadable"),
                 steps,
             )
         } else {
             log::info!("Creating new model");
-            (Net::new(device, Some(rng.gen())), 0)
+            (Net::new(DEVICE, Some(rng.gen())), 0)
         };
 
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
@@ -138,7 +139,7 @@ fn main() {
         let targets = get_targets(&args.directory, 0);
         log::info!("Target buffer contains {} targets", targets.len());
 
-        let mut before = net.clone(device);
+        let mut before = net.clone(DEVICE);
         before.vs_mut().freeze();
         let before_steps = steps;
 
@@ -154,11 +155,11 @@ fn main() {
             let mut ube_targets = Vec::with_capacity(BATCH_SIZE);
             for target in batch {
                 let target = target.augment(&mut rng);
-                inputs.push(game_to_tensor(&target.env, device));
-                policy_targets.push(policy_tensor::<N>(&target.policy, device));
+                inputs.push(game_to_tensor(&target.env, DEVICE));
+                policy_targets.push(policy_tensor::<N>(&target.policy, DEVICE));
                 masks.push(move_mask::<N>(
                     &target.policy.iter().map(|(m, _)| *m).collect::<Vec<_>>(),
-                    device,
+                    DEVICE,
                 ));
                 value_targets.push(target.value);
                 ube_targets.push(target.ube);
@@ -176,8 +177,8 @@ fn main() {
             // Get the target.
             let target_policy = Tensor::stack(&policy_targets, 0)
                 .view(log_softmax_network_policy.size().as_slice());
-            let target_value = Tensor::from_slice(&value_targets).unsqueeze(1).to(device);
-            let target_ube = Tensor::from_slice(&ube_targets).unsqueeze(1).to(device);
+            let target_value = Tensor::from_slice(&value_targets).unsqueeze(1).to(DEVICE);
+            let target_ube = Tensor::from_slice(&ube_targets).unsqueeze(1).to(DEVICE);
 
             // Calculate loss.
             let loss_policy = -(log_softmax_network_policy * &target_policy).sum(Kind::Float)

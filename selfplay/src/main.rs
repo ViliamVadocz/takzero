@@ -35,6 +35,7 @@ const _: () = assert_env::<Env>();
 #[rustfmt::skip] #[allow(dead_code)] const fn assert_net<NET: Network + Agent<Env>>() {}
 const _: () = assert_net::<Net>();
 
+const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 256;
 const VISITS: u32 = 800;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
@@ -52,13 +53,14 @@ struct Args {
 }
 
 fn main() {
+    env_logger::init();
     let args = Args::parse();
 
     let seed: u64 = rand::thread_rng().gen();
     log::info!("seed = {seed}");
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
-    let mut net = Net::new(Device::Cuda(0), Some(rng.gen()));
+    let mut net = Net::new(DEVICE, Some(rng.gen()));
 
     // Initialize buffers.
     let mut actions: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());
@@ -85,7 +87,7 @@ fn main() {
             log::info!("Loading new model: {}", model_path.display());
 
             net = loop {
-                match Net::load(&model_path, Device::Cuda(0)) {
+                match Net::load(&model_path, DEVICE) {
                     Ok(net) => break net,
                     Err(err) => {
                         log::error!("Cannot load model: {err}");
