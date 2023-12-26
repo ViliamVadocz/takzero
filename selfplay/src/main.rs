@@ -76,6 +76,7 @@ fn main() {
 
     let mut prev_steps = 0;
     for steps in 0.. {
+        log::debug!("Step: {steps}");
         if let Some((new_steps, model_path)) = get_model_path_with_most_steps(&args.directory) {
             if new_steps == prev_steps {
                 continue;
