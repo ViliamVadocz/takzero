@@ -55,6 +55,7 @@ fn main() {
     let args = Args::parse();
 
     let seed: u64 = rand::thread_rng().gen();
+    log::info!("seed = {seed}");
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = Net::new(Device::Cuda(0), Some(rng.gen()));
