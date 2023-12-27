@@ -35,7 +35,7 @@ use tch::{
 
 // The environment to learn.
 const N: usize = 4;
-const HALF_KOMI: i8 = 4;
+const HALF_KOMI: i8 = 0;
 type Env = Game<N, HALF_KOMI>;
 #[rustfmt::skip] #[allow(dead_code)] const fn assert_env<E: Environment>() where Replay<E>: Augment + fmt::Display {}
 const _: () = assert_env::<Env>();
