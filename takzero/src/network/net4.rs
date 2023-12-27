@@ -22,15 +22,13 @@ use crate::{
 
 const N: usize = 4;
 const FILTERS: i64 = 128;
-const CORE_RES_BLOCKS: u32 = 10;
 
 #[derive(Debug)]
 pub struct Net4 {
     vs: nn::VarStore,
-    core: nn::SequentialT,
-    policy_head: nn::SequentialT,
-    value_head: nn::SequentialT,
-    ube_head: nn::SequentialT,
+    policy_net: nn::SequentialT,
+    value_net: nn::SequentialT,
+    ube_net: nn::SequentialT,
     rnd: Rnd,
 }
 
@@ -41,6 +39,7 @@ struct Rnd {
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
+    const CORE_RES_BLOCKS: u32 = 16;
     let mut core = nn::seq_t()
         .add(nn::conv2d(
             path / "input_conv2d",
@@ -70,25 +69,22 @@ fn core(path: &nn::Path) -> nn::SequentialT {
     core
 }
 
-fn policy_head(path: &nn::Path) -> nn::SequentialT {
-    nn::seq_t()
-        .add(ResidualBlock::new(&(path / "res_block"), FILTERS, FILTERS))
-        .add(nn::conv2d(
-            path / "conv2d",
-            FILTERS,
-            output_channels::<N>() as i64,
-            3,
-            nn::ConvConfig {
-                stride: 1,
-                padding: 1,
-                ..Default::default()
-            },
-        ))
+fn policy_net(path: &nn::Path) -> nn::SequentialT {
+    core(&(path / "core")).add(nn::conv2d(
+        path / "conv2d",
+        FILTERS,
+        output_channels::<N>() as i64,
+        3,
+        nn::ConvConfig {
+            stride: 1,
+            padding: 1,
+            ..Default::default()
+        },
+    ))
 }
 
-fn value_head(path: &nn::Path) -> nn::SequentialT {
-    nn::seq_t()
-        .add(ResidualBlock::new(&(path / "res_block"), FILTERS, FILTERS))
+fn value_net(path: &nn::Path) -> nn::SequentialT {
+    core(&(path / "core"))
         .add(nn::conv2d(path / "conv2d", FILTERS, 1, 1, nn::ConvConfig {
             stride: 1,
             ..Default::default()
@@ -104,9 +100,8 @@ fn value_head(path: &nn::Path) -> nn::SequentialT {
         .add_fn(Tensor::tanh)
 }
 
-fn ube_head(path: &nn::Path) -> nn::SequentialT {
-    nn::seq_t()
-        .add(ResidualBlock::new(&(path / "res_block"), FILTERS, FILTERS))
+fn ube_net(path: &nn::Path) -> nn::SequentialT {
+    core(&(path / "core"))
         .add(nn::conv2d(path / "conv2d", FILTERS, 1, 1, nn::ConvConfig {
             stride: 1,
             ..Default::default()
@@ -119,7 +114,7 @@ fn ube_head(path: &nn::Path) -> nn::SequentialT {
             1,
             nn::LinearConfig::default(),
         ))
-        .add_fn(Tensor::square)
+        .add_fn(Tensor::exp)
 }
 
 fn rnd(path: &nn::Path) -> nn::SequentialT {
@@ -157,23 +152,15 @@ impl Network for Net4 {
 
         let vs = nn::VarStore::new(device);
         let root = vs.root();
-
-        let core = core(&(&root / "core"));
-        let policy_head = policy_head(&(&root / "policy"));
-        let value_head = value_head(&(&root / "value"));
-        let ube_head = ube_head(&(&root / "ube"));
-        let rnd = Rnd {
-            learning: rnd(&(&root / "rnd_learning")),
-            target: rnd(&(&root / "rnd_target")),
-        };
-
         Self {
+            policy_net: policy_net(&(&root / "policy")),
+            value_net: value_net(&(&root / "value")),
+            ube_net: ube_net(&(&root / "ube")),
+            rnd: Rnd {
+                learning: rnd(&(&root / "rnd_learning")),
+                target: rnd(&(&root / "rnd_target")),
+            },
             vs,
-            core,
-            policy_head,
-            value_head,
-            ube_head,
-            rnd,
         }
     }
 
@@ -186,11 +173,10 @@ impl Network for Net4 {
     }
 
     fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor, Tensor) {
-        let s = self.core.forward_t(xs, train);
         (
-            self.policy_head.forward_t(&s, train),
-            self.value_head.forward_t(&s, train),
-            self.ube_head.forward_t(&s, train),
+            self.policy_net.forward_t(xs, train),
+            self.value_net.forward_t(xs, train),
+            self.ube_net.forward_t(xs, train),
         )
     }
 
