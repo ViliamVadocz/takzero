@@ -142,11 +142,14 @@ fn main() {
         let before_steps = steps;
 
         for _ in 0..EPOCHS_PER_EVALUATION {
-            let Some(targets) = get_targets(&args.directory, steps, MINIMUM_TARGETS_PER_EPOCH)
-            else {
+            let targets = loop {
+                if let Some(targets) =
+                    get_targets(&args.directory, steps, MINIMUM_TARGETS_PER_EPOCH)
+                {
+                    break targets;
+                }
                 log::info!("Not enough targets. Sleeping for 30 seconds.");
                 std::thread::sleep(std::time::Duration::from_secs(30));
-                continue;
             };
             log::info!("Target buffer contains {} targets", targets.len());
 
