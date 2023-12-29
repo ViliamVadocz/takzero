@@ -45,7 +45,7 @@ impl<E: Environment> Node<E> {
                 .into(),
             )
             .expect("completed value should not be NaN");
-            sigma(completed_value, node.variance, beta, most_visited_count) + node.logit
+            sigma(completed_value, node.std_dev, beta, most_visited_count) + node.logit
         });
 
         softmax(p)
@@ -85,7 +85,7 @@ impl<E: Environment> Node<E> {
                     child.visit_count as f32,
                     child.probability.into_inner(),
                 );
-                q + puct + beta * child.variance.sqrt()
+                q + puct + child.std_dev * beta
             })
             .map(|(i, _)| i)
             .expect("there should always be a child to simulate")

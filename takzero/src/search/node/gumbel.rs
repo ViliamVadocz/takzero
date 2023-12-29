@@ -231,7 +231,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                 search_set.sort_unstable_by_key(|(_, child)| {
                     Reverse(
                         child.evaluation.negate().map(|q| {
-                            sigma(q, child.variance, *beta, fake_visit_count) + child.logit
+                            sigma(q, child.std_dev, *beta, fake_visit_count) + child.logit
                         }),
                     )
                 });
@@ -274,9 +274,7 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
         if evaluations.clone().any(Eval::is_loss) || evaluations.clone().all(Eval::is_known) {
             // Node is solved.
             node.evaluation = evaluations.min().unwrap().negate();
-            {
-                node.variance = NotNan::default();
-            }
+            node.std_dev = NotNan::default();
         } else {
             // Slightly different formula than in the Gumbel MuZero paper.
             // Here we are ignoring the original network eval because we no longer have
@@ -306,14 +304,14 @@ pub fn gumbel_sequential_halving<E: Environment, A: Agent<E>, R: Rng>(
                     child
                         .evaluation
                         .negate()
-                        .map(|value| value + beta * child.variance.sqrt())
+                        .map(|value| value + child.std_dev * beta)
                 });
                 let len = visited_children.len();
                 let take = len / 4; // TODO: Make into hyperparameter
-                node.variance = visited_children
+                node.std_dev = visited_children
                     .into_iter()
                     .skip(len - take)
-                    .map(|(child, _policy)| child.variance)
+                    .map(|(child, _policy)| child.std_dev)
                     .sum::<NotNan<f32>>()
                     / take as f32;
             }

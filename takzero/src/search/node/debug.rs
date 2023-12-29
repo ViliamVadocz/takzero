@@ -18,7 +18,7 @@ where
         writeln!(
             f,
             "[root]   c:{: >8} v:{:+.4} e:{:+.4}",
-            self.visit_count, self.variance, self.evaluation
+            self.visit_count, self.std_dev, self.evaluation
         )?;
         for a in action_info {
             writeln!(f, "{a}")?;
@@ -38,7 +38,7 @@ impl<E: Environment> Node<E> {
                 logit: child.logit,
                 improved_policy,
                 eval: child.evaluation,
-                variance: child.variance,
+                variance: child.std_dev,
             })
             .collect()
     }

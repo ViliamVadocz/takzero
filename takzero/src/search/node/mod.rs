@@ -13,7 +13,7 @@ pub struct Node<E: Environment> {
     pub visit_count: u32,         // N(s_prev, a)
     pub logit: NotNan<f32>,       // log(P(s_prev, a)) (network output)
     pub probability: NotNan<f32>, // P(s_prev, a) (normalized)
-    pub variance: NotNan<f32>,    // clip(max(UBE(s_t), geo_sum_discount * RND(s_t)))
+    pub std_dev: NotNan<f32>,     // average sqrt(clip(max(UBE(s_t), geo_sum_discount * RND(s_t))))
     pub children: Box<[(E::Action, Self)]>,
 }
 
@@ -24,7 +24,7 @@ impl<E: Environment> Default for Node<E> {
             evaluation: Eval::default(),
             logit: NotNan::default(),
             probability: NotNan::default(),
-            variance: NotNan::default(),
+            std_dev: NotNan::default(),
             children: Box::default(),
         }
     }

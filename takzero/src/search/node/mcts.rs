@@ -29,23 +29,20 @@ impl<E: Environment> Node<E> {
     #[inline]
     fn update_mean_value(&mut self, value: f32) {
         if let Eval::Value(mean_value) = &mut self.evaluation {
-            *mean_value = NotNan::new(
-                mean_value
-                    .into_inner()
-                    .mul_add((self.visit_count - 1) as f32, value)
-                    / self.visit_count as f32,
-            )
-            .expect("value should not be nan");
+            *mean_value = (*mean_value * (self.visit_count - 1) as f32 + value) / self.visit_count as f32;
         } else {
-            // unreachable!("updating the mean value doesn't make sense if the
-            // result is known");
+            // unreachable!("updating the mean value doesn't make sense if the result is known");
         };
     }
 
     #[inline]
-    fn update_variance(&mut self, uncertainty: NotNan<f32>) {
-        self.variance = (self.variance * ((self.visit_count - 1) as f32) + uncertainty)
-            / (self.visit_count as f32);
+    fn update_standard_deviation(&mut self, variance: NotNan<f32>) {
+        if self.evaluation.is_known() {
+            // unreachable!("updating the standard deviation does not make sense if the result is known")
+            return;
+        }
+        self.std_dev = (self.std_dev * ((self.visit_count - 1) as f32) + variance.sqrt())
+            / self.visit_count as f32;
     }
 
     fn propagate_child_eval(
@@ -58,12 +55,10 @@ impl<E: Environment> Node<E> {
             // This move made the opponent lose, so this position is a win.
             Eval::Loss(_) => {
                 self.evaluation = evaluations.min().unwrap().negate(); // child_eval.negate();
-                {
-                    self.variance = NotNan::default();
-                }
+                self.std_dev = NotNan::default();
                 Propagated {
                     eval: self.evaluation,
-                    uncertainty: self.variance,
+                    uncertainty: self.std_dev,
                 }
             }
 
@@ -71,12 +66,10 @@ impl<E: Environment> Node<E> {
             // If all moves lead to wins or draws for the opponent, we choose to draw.
             Eval::Draw(_) | Eval::Win(_) if evaluations.clone().all(|e| e.is_known()) => {
                 self.evaluation = evaluations.min().unwrap().negate();
-                {
-                    self.variance = NotNan::default();
-                }
+                self.std_dev = NotNan::default();
                 Propagated {
                     eval: self.evaluation,
-                    uncertainty: self.variance,
+                    uncertainty: self.std_dev,
                 }
             }
 
@@ -84,7 +77,7 @@ impl<E: Environment> Node<E> {
             _ => {
                 let negated = child_eval.negate().into();
                 self.update_mean_value(negated);
-                self.update_variance(child_uncertainty);
+                self.update_standard_deviation(child_uncertainty);
 
                 Propagated {
                     eval: Eval::new_value(negated * DISCOUNT_FACTOR).unwrap(),
