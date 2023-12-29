@@ -93,15 +93,17 @@ fn get_targets(
     model_steps: u32,
     minimum_amount: usize,
 ) -> Option<Vec<Target<Env>>> {
-    let file = OpenOptions::new()
-        .read(true)
-        .open(directory.join(format!("targets_{model_steps:0>6}.txt")))
-        .ok()?;
-    if BufReader::new(&file).lines().count() < minimum_amount {
+    let file_name = format!("targets_{model_steps:0>6}.txt");
+    let path = directory.join(file_name);
+    let count = BufReader::new(OpenOptions::new().read(true).open(&path).ok()?)
+        .lines()
+        .count();
+    if count < minimum_amount {
+        log::debug!("Found {count} targets in the buffer.");
         return None;
     }
     Some(
-        BufReader::new(file)
+        BufReader::new(OpenOptions::new().read(true).open(&path).ok()?)
             .lines()
             .map(|line| {
                 line.unwrap()
