@@ -196,7 +196,7 @@ impl Network for Net4 {
     }
 }
 
-type Env = Game<N, 0>;
+type Env = Game<N, 4>;
 
 impl Agent<Env> for Net4 {
     type Context = RndNormalizationContext;
