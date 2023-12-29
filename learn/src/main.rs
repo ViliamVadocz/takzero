@@ -2,7 +2,7 @@ use std::{
     fmt::{self, Write},
     fs::{read_dir, OpenOptions},
     io::{BufRead, BufReader},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use clap::Parser;
@@ -45,14 +45,16 @@ const _: () = assert_env::<Env>();
 const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
-const BATCH_SIZE: usize = 512;
-const STEPS_BETWEEN_PUBLISH: u32 = 500;
+const MINIMUM_TARGETS_PER_EPOCH: usize = 10_000;
+const BATCH_SIZE: usize = 128;
+const STEPS_PER_EPOCH: u32 = 50;
+const EPOCHS_PER_EVALUATION: u32 = 10;
 const LEARNING_RATE: f64 = 1e-4;
 
 const GAME_COUNT: usize = 64;
 const VISITS: usize = 400;
 const BETA: [f32; GAME_COUNT] = [0.0; GAME_COUNT];
-const MAX_PLIES: usize = 60;
+const MAX_PLIES: usize = 30;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -84,33 +86,30 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(u32, PathBuf)>
         .max_by_key(|(s, _)| *s)
 }
 
-/// Get a Vec of targets from files in the given `directory`
-/// that appear at a later step than the given `step_cutoff`.
-fn get_targets(directory: &PathBuf, step_cutoff: u32) -> Vec<Target<Env>> {
-    read_dir(directory)
-        .unwrap()
-        .filter_map(|res| res.ok().map(|entry| entry.path()))
-        .filter(|p| p.extension().map(|ext| ext == "txt").unwrap_or_default())
-        .filter_map(|p| {
-            if p.file_stem()?
-                .to_str()?
-                .split_once('_')?
-                .1
-                .parse::<u32>()
-                .ok()?
-                >= step_cutoff
-            {
-                Some(
-                    BufReader::new(OpenOptions::new().read(true).open(p).ok()?)
-                        .lines()
-                        .map(|line| line.unwrap().parse().unwrap()),
-                )
-            } else {
-                None
-            }
-        })
-        .flatten()
-        .collect()
+/// Get a Vec of targets from `directory` for the current model step count.
+/// It will return Some only if the amount it larger than the `minimum_amount`
+fn get_targets(
+    directory: &Path,
+    model_steps: u32,
+    minimum_amount: usize,
+) -> Option<Vec<Target<Env>>> {
+    let file = OpenOptions::new()
+        .read(true)
+        .open(directory.join(format!("targets_{model_steps:0>6}.txt")))
+        .ok()?;
+    if BufReader::new(&file).lines().count() < minimum_amount {
+        return None;
+    }
+    Some(
+        BufReader::new(file)
+            .lines()
+            .map(|line| {
+                line.unwrap()
+                    .parse()
+                    .expect("Each line should have one target in the correct format.")
+            })
+            .collect(),
+    )
 }
 
 fn main() {
@@ -136,69 +135,76 @@ fn main() {
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
 
     loop {
-        let targets = get_targets(&args.directory, steps / 20);
-        log::info!("Target buffer contains {} targets", targets.len());
-
         let mut before = net.clone(DEVICE);
         before.vs_mut().freeze();
         let before_steps = steps;
 
-        // TODO: Refactor into functions
-        for _ in 0..STEPS_BETWEEN_PUBLISH {
-            let batch = targets.choose_multiple(&mut rng, BATCH_SIZE);
+        for _ in 0..EPOCHS_PER_EVALUATION {
+            let Some(targets) = get_targets(&args.directory, steps, MINIMUM_TARGETS_PER_EPOCH)
+            else {
+                log::info!("Not enough targets. Sleeping for 30 seconds.");
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                continue;
+            };
+            log::info!("Target buffer contains {} targets", targets.len());
 
-            // Create input tensors.
-            let mut inputs = Vec::with_capacity(BATCH_SIZE);
-            let mut policy_targets = Vec::with_capacity(BATCH_SIZE);
-            let mut masks = Vec::with_capacity(BATCH_SIZE);
-            let mut value_targets = Vec::with_capacity(BATCH_SIZE);
-            // let mut ube_targets = Vec::with_capacity(BATCH_SIZE);
-            for target in batch {
-                let target = target.augment(&mut rng);
-                inputs.push(game_to_tensor(&target.env, DEVICE));
-                policy_targets.push(policy_tensor::<N>(&target.policy, DEVICE));
-                masks.push(move_mask::<N>(
-                    &target.policy.iter().map(|(m, _)| *m).collect::<Vec<_>>(),
-                    DEVICE,
-                ));
-                value_targets.push(target.value);
-                // ube_targets.push(target.ube);
+            // TODO: Refactor into functions
+            for _ in 0..STEPS_PER_EPOCH {
+                let batch = targets.choose_multiple(&mut rng, BATCH_SIZE);
+
+                // Create input tensors.
+                let mut inputs = Vec::with_capacity(BATCH_SIZE);
+                let mut policy_targets = Vec::with_capacity(BATCH_SIZE);
+                let mut masks = Vec::with_capacity(BATCH_SIZE);
+                let mut value_targets = Vec::with_capacity(BATCH_SIZE);
+                // let mut ube_targets = Vec::with_capacity(BATCH_SIZE);
+                for target in batch {
+                    let target = target.augment(&mut rng);
+                    inputs.push(game_to_tensor(&target.env, DEVICE));
+                    policy_targets.push(policy_tensor::<N>(&target.policy, DEVICE));
+                    masks.push(move_mask::<N>(
+                        &target.policy.iter().map(|(m, _)| *m).collect::<Vec<_>>(),
+                        DEVICE,
+                    ));
+                    value_targets.push(target.value);
+                    // ube_targets.push(target.ube);
+                }
+
+                // Get network output.
+                let input = Tensor::cat(&inputs, 0);
+                let mask = Tensor::cat(&masks, 0);
+                let (policy, network_value, _network_ube) = net.forward_t(&input, true);
+                let log_softmax_network_policy = policy
+                    .masked_fill(&mask, f64::from(f32::MIN))
+                    .view([-1, output_size::<N>() as i64])
+                    .log_softmax(1, Kind::Float);
+
+                // Get the target.
+                let target_policy = Tensor::stack(&policy_targets, 0)
+                    .view(log_softmax_network_policy.size().as_slice());
+                let target_value = Tensor::from_slice(&value_targets).unsqueeze(1).to(DEVICE);
+                // let target_ube = Tensor::from_slice(&ube_targets).unsqueeze(1).to(DEVICE);
+
+                // Calculate loss.
+                let loss_policy = -(log_softmax_network_policy * &target_policy).sum(Kind::Float)
+                    / i64::try_from(BATCH_SIZE).unwrap();
+                let loss_value = (target_value - network_value).square().mean(Kind::Float);
+                // TODO: Add UBE back later.
+                // let loss_ube = (target_ube - network_ube).square().mean(Kind::Float); //
+                let loss = &loss_policy + &loss_value; //+ &loss_ube;
+                log::info!(
+                    "loss = {loss:?}, loss_policy = {loss_policy:?}, loss_value = {loss_value:?}"
+                );
+
+                // Take step.
+                opt.backward_step(&loss);
             }
+            opt.zero_grad();
 
-            // Get network output.
-            let input = Tensor::cat(&inputs, 0);
-            let mask = Tensor::cat(&masks, 0);
-            let (policy, network_value, _network_ube) = net.forward_t(&input, true);
-            let log_softmax_network_policy = policy
-                .masked_fill(&mask, f64::from(f32::MIN))
-                .view([-1, output_size::<N>() as i64])
-                .log_softmax(1, Kind::Float);
-
-            // Get the target.
-            let target_policy = Tensor::stack(&policy_targets, 0)
-                .view(log_softmax_network_policy.size().as_slice());
-            let target_value = Tensor::from_slice(&value_targets).unsqueeze(1).to(DEVICE);
-            // let target_ube = Tensor::from_slice(&ube_targets).unsqueeze(1).to(DEVICE);
-
-            // Calculate loss.
-            let loss_policy = -(log_softmax_network_policy * &target_policy).sum(Kind::Float)
-                / i64::try_from(BATCH_SIZE).unwrap();
-            let loss_value = (target_value - network_value).square().mean(Kind::Float);
-            // TODO: Add UBE back later.
-            // let loss_ube = (target_ube - network_ube).square().mean(Kind::Float); //
-            let loss = &loss_policy + &loss_value; //+ &loss_ube;
-            log::info!(
-                "loss = {loss:?}, loss_policy = {loss_policy:?}, loss_value = {loss_value:?}"
-            );
-
-            // Take step.
-            opt.backward_step(&loss);
+            steps += STEPS_PER_EPOCH;
+            net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
+                .unwrap();
         }
-        opt.zero_grad();
-
-        steps += STEPS_BETWEEN_PUBLISH;
-        net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
-            .unwrap();
 
         // Play some evaluation games.
         let mut actions = Vec::new();
@@ -210,7 +216,7 @@ fn main() {
         );
         log::info!(
             "{steps} vs {before_steps}: {:?}",
-            compete(&net, &before, &games)
+            compete(&net, &before, &games),
         );
     }
 }

@@ -76,12 +76,12 @@ fn main() {
     let mut targets = Vec::new();
     let mut context = RndNormalizationContext::new(0.0);
 
-    let mut prev_steps = 0;
+    let mut model_steps = 0;
     for steps in 0.. {
         log::debug!("Step: {steps}");
         if let Some((new_steps, model_path)) = get_model_path_with_most_steps(&args.directory) {
-            if new_steps != prev_steps {
-                prev_steps = new_steps;
+            if new_steps != model_steps {
+                model_steps = new_steps;
                 log::info!("Loading new model: {}", model_path.display());
 
                 net = loop {
@@ -139,7 +139,7 @@ fn main() {
         );
 
         if !targets.is_empty() {
-            save_targets_to_file(&mut targets, &args.directory, steps);
+            save_targets_to_file(&mut targets, &args.directory, model_steps);
         }
     }
 }
@@ -262,12 +262,12 @@ fn restart_envs_and_complete_targets(
 
 /// Create a new file in the given directory called targets_{steps}.txt
 /// with the new targets. Drains the target Vec.
-fn save_targets_to_file(targets: &mut Vec<Target<Env>>, directory: &Path, steps: u32) {
+fn save_targets_to_file(targets: &mut Vec<Target<Env>>, directory: &Path, model_steps: u32) {
     let contents: String = targets.drain(..).map(|target| target.to_string()).collect();
     if let Err(err) = OpenOptions::new()
         .append(true)
         .create(true)
-        .open(directory.join(format!("targets_{steps:0>6}.txt")))
+        .open(directory.join(format!("targets_{model_steps:0>6}.txt")))
         .map(|mut file| file.write_all(contents.as_bytes()))
     {
         log::error!(
