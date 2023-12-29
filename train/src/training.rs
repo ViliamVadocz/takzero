@@ -111,7 +111,8 @@ pub fn run(
             .log_softmax(1, Kind::Float);
 
         // Get the target.
-        let p = Tensor::stack(&policy_targets, 0).view(policy.size().as_slice()); // TODO: Investigate if this is correct
+        // TODO: Investigate if this is correct
+        let p = Tensor::stack(&policy_targets, 0).view(policy.size().as_slice());
         let z = Tensor::from_slice(&value_targets).unsqueeze(1).to(device);
         #[cfg(not(feature = "baseline"))]
         let u = Tensor::from_slice(&ube_targets).unsqueeze(1).to(device);
@@ -128,7 +129,8 @@ pub fn run(
         #[cfg(not(feature = "baseline"))]
         {
             let loss_u = (u - ube_uncertainty).square().mean(Kind::Float);
-            log::info!("p={loss_p:?}\t z={loss_z:?}\t u={loss_u:?}"); // FIXME: This forces synchronization!
+            // FIXME: This forces synchronization!
+            log::info!("p={loss_p:?}\t z={loss_z:?}\t u={loss_u:?}");
             accumulated_total_loss += loss_z + loss_p + loss_u;
         }
 
@@ -145,7 +147,8 @@ pub fn run(
         batches += 1;
         #[allow(clippy::modulo_one)]
         if batches % BATCHES_PER_STEP == 0 {
-            log::info!("taking step, accumulated_loss = {accumulated_total_loss:?}"); // FIXME: Forces synchronization
+            // FIXME: Forces synchronization
+            log::info!("taking step, accumulated_loss = {accumulated_total_loss:?}");
             opt.backward_step(&(accumulated_total_loss / i64::try_from(BATCHES_PER_STEP).unwrap()));
             accumulated_total_loss = Tensor::zeros([1], (Kind::Float, device));
             let training_steps = 1 + training_steps.fetch_add(1, Ordering::Relaxed);

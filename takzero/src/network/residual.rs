@@ -2,7 +2,8 @@ use std::ops::Add;
 
 use tch::{nn, Tensor};
 
-// https://medium.com/@bentou.pub/alphazero-from-scratch-in-pytorch-for-the-game-of-chain-reaction-part-3-c3fbf0d6f986
+// <https://medium.com/@bentou.pub/
+// alphazero-from-scratch-in-pytorch-for-the-game-of-chain-reaction-part-3-c3fbf0d6f986>
 
 #[derive(Debug)]
 pub struct SmallBlock {

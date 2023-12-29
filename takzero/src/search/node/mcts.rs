@@ -29,16 +29,19 @@ impl<E: Environment> Node<E> {
     #[inline]
     fn update_mean_value(&mut self, value: f32) {
         if let Eval::Value(mean_value) = &mut self.evaluation {
-            *mean_value = (*mean_value * (self.visit_count - 1) as f32 + value) / self.visit_count as f32;
+            *mean_value =
+                (*mean_value * (self.visit_count - 1) as f32 + value) / self.visit_count as f32;
         } else {
-            // unreachable!("updating the mean value doesn't make sense if the result is known");
+            // unreachable!("updating the mean value doesn't make sense if the
+            // result is known");
         };
     }
 
     #[inline]
     fn update_standard_deviation(&mut self, variance: NotNan<f32>) {
         if self.evaluation.is_known() {
-            // unreachable!("updating the standard deviation does not make sense if the result is known")
+            // unreachable!("updating the standard deviation does not make sense if the
+            // result is known")
             return;
         }
         self.std_dev = (self.std_dev * ((self.visit_count - 1) as f32) + variance.sqrt())
@@ -95,7 +98,9 @@ impl<E: Environment> Node<E> {
         let mut node = self;
 
         loop {
-            node.visit_count += 1; // TODO: virtual visit?
+            node.visit_count += 1;
+            // FIXME: Prune all known results earlier once visit count is not used for
+            // policy target
             if node.evaluation.ply().is_some_and(|x| x == 0) {
                 break Forward::Known(node.evaluation);
             }
@@ -107,7 +112,8 @@ impl<E: Environment> Node<E> {
                 break Forward::NeedsNetwork(env);
             }
 
-            let index = node.select_with_puct(beta); // replace with .select_with_improved_policy() later
+            // TODO: replace with .select_with_improved_policy() later
+            let index = node.select_with_puct(beta);
             trajectory.push(index);
             let (action, child) = &mut node.children[index];
             env.step(action.clone());
@@ -242,7 +248,9 @@ mod tests {
     fn find_tinue_easy() {
         const MAX_VISITS: usize = 5_000;
 
-        // https://ptn.ninja/NoZQlgLgpgBARABwgOwHTLMgVgQzgXQFgAoUMAL1jgGYCTgB5BKDZAc3gGcB3HBO0gBEc0eACYADGOqoJAdlQBGAGwDgAFTABbKpIBcYgBx7qAVjUAlKJwCuAGwjwLAWgkCSi1DBzUYAY0USMS8-MX9qEhkYACNfP2pnIA&name=MwD2Q&ply=5!
+        // <https://ptn.ninja/NoZQlgLgpgBARABwgOwHTLMgVgQzgXQFgAoUMAL1jgGYCTgB5BKDZAc3gGcB3
+        // HBO0gBEc0eACYADGOqoJAdlQBGAGwDgAFTABbKpIBcYgBx7qAVjUAlKJwCuAGwjwLAWgkCSi1DBzUYAY
+        // 0USMS8-MX9qEhkYACNfP2pnIA&name=MwD2Q&ply=5!>
         let game: Game<3, 0> = Game::from_ptn_moves(&["a3", "c1", "c2", "c3", "b3", "c3-"]);
         let mut root = Node::default();
 
@@ -273,7 +281,9 @@ mod tests {
     fn find_tinue_deeper() {
         const MAX_VISITS: usize = 50_000;
 
-        // https://ptn.ninja/NoZQlgLgpgBARABwgOwHTLMgVgQzgXQFgAoUMAL1jgGYCTgB5BKDZAc3gGcB3HBO0gBEc0eACYADGOqoJAdlQBGAGwDgAFTABbKpIBcYgBx7qAVjUAlKJwCuAGwjwLAWgkCSi1DBzVvikmJeAEaKMADGikA&name=MwD2Q&ply=3!
+        // <https://ptn.ninja/NoZQlgLgpgBARABwgOwHTLMgVgQzgXQFgAoUMAL1jgGYCTgB5BKDZAc3gGcB3
+        // HBO0gBEc0eACYADGOqoJAdlQBGAGwDgAFTABbKpIBcYgBx7qAVjUAlKJwCuAGwjwLAWgkCSi1DBzVvik
+        // mJeAEaKMADGikA&name=MwD2Q&ply=3!>
         let game: Game<3, 0> = Game::from_ptn_moves(&["a3", "a1", "b1", "c1"]);
         let mut root = Node::default();
 
