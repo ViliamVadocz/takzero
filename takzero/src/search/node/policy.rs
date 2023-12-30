@@ -114,7 +114,8 @@ fn exploration_rate(visit_count: f32) -> f32 {
 /// U(s, a) = C(s) * P(s, a) * sqrt(N(s)) / (1 + N(s, a))
 #[must_use]
 pub fn upper_confidence_bound(parent_visit_count: f32, visit_count: f32, probability: f32) -> f32 {
-    exploration_rate(parent_visit_count) * probability * parent_visit_count / (1.0 + visit_count)
+    exploration_rate(parent_visit_count) * probability * parent_visit_count.sqrt()
+        / (1.0 + visit_count)
 }
 
 #[cfg(test)]
