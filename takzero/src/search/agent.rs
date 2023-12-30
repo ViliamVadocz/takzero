@@ -62,7 +62,7 @@ pub mod simple {
     use std::ops::Index;
 
     use fast_tak::{
-        takparse::{Move, MoveKind, Piece},
+        takparse::{Color, Move, MoveKind, Piece},
         Game,
         Reserves,
     };
@@ -92,7 +92,10 @@ pub mod simple {
                 .zip(mask)
                 .filter(|(_, mask)| **mask)
                 .map(|((_, env), _)| {
-                    let fcd = f32::from(env.board.flat_diff() - HALF_KOMI / 2) / (N * N) as f32;
+                    let mut fcd = f32::from(env.board.flat_diff() - HALF_KOMI / 2) / (N * N) as f32;
+                    if env.to_move == Color::Black {
+                        fcd = -fcd;
+                    }
                     (Policy, fcd, 0.0)
                 })
                 .collect()
