@@ -47,7 +47,7 @@ const _: () = assert_net::<Net>();
 const DEVICE: Device = Device::Cuda(0);
 const MINIMUM_TARGETS_PER_EPOCH: usize = 10_000;
 const BATCH_SIZE: usize = 128;
-const STEPS_PER_EPOCH: u32 = 50;
+const STEPS_PER_EPOCH: u32 = 100;
 const EPOCHS_PER_EVALUATION: u32 = 10;
 const LEARNING_RATE: f64 = 1e-4;
 
