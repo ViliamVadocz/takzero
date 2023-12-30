@@ -242,7 +242,7 @@ mod tests {
         super::{agent::dummy::Dummy, eval::Eval},
         Node,
     };
-    use crate::search::node::mcts::Propagated;
+    use crate::search::{agent::simple::Simple, node::mcts::Propagated};
 
     #[test]
     fn find_tinue_easy() {
@@ -288,9 +288,12 @@ mod tests {
         let mut root = Node::default();
 
         (0..MAX_VISITS)
-            .find(|_| {
+            .find(|i| {
+                if i % 10_000 == 0 {
+                    println!("{root}");
+                }
                 matches!(
-                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut ()),
+                    root.simulate_simple(&Simple, game.clone(), 1.0, &mut ()),
                     Propagated {
                         eval: Eval::Win(_),
                         ..
@@ -300,13 +303,12 @@ mod tests {
             .expect("This position is solvable with MAX_VISITS.");
 
         println!("{root}");
-        assert_eq!(
-            root.children
-                .iter()
-                .find(|(_, node)| node.evaluation.is_loss())
-                .unwrap()
-                .0,
-            "b2".parse().unwrap(), // Maybe also c2?
-        );
+        let winning_move = root
+            .children
+            .iter()
+            .find(|(_, node)| node.evaluation.is_loss())
+            .unwrap()
+            .0;
+        assert!(winning_move == "b2".parse().unwrap() || winning_move == "c2".parse().unwrap());
     }
 }

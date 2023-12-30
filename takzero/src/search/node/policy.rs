@@ -81,8 +81,7 @@ impl<E: Environment> Node<E> {
         self.children
             .iter()
             .enumerate()
-            // FIXME: Add back pruning once policy target does not depend on visits
-            // .filter(|(_, ((_, child), _))| !child.evaluation.is_win())
+            .filter(|(_, (_, child))| self.evaluation.is_loss() || !child.evaluation.is_win())
             .max_by_key(|(_, (_, child))| {
                 let q = NotNan::from(child.evaluation.negate());
                 let puct = upper_confidence_bound(
