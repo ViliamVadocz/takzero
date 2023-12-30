@@ -198,10 +198,17 @@ impl<E: Environment> Node<E> {
                     },
                 )
                 .collect();
-            self.propagate_child_eval(
-                Eval::new_value(value).expect("value prediction should not be NaN"),
-                NotNan::new(uncertainty).expect("uncertainty should not be NaN"),
-            )
+            // Update mean value and standard deviation.
+            // Note that this is not the same as self.propagate_child_eval()
+            // because we do not negate!
+            self.update_mean_value(value);
+            let uncertainty = NotNan::new(uncertainty).expect("uncertainty should not be NaN");
+            self.update_standard_deviation(uncertainty);
+            Propagated {
+                eval: Eval::new_value(value * DISCOUNT_FACTOR)
+                    .expect("value prediction should not be NaN"),
+                uncertainty: uncertainty * DISCOUNT_FACTOR * DISCOUNT_FACTOR,
+            }
         }
     }
 
