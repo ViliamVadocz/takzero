@@ -54,7 +54,7 @@ const LEARNING_RATE: f64 = 1e-4;
 const GAME_COUNT: usize = 64;
 const VISITS: usize = 400;
 const BETA: [f32; GAME_COUNT] = [0.0; GAME_COUNT];
-const MAX_PLIES: usize = 60;
+const MAX_MOVES: usize = 40;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -243,7 +243,7 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
 
     let mut done = [false; BATCH_SIZE];
 
-    'outer: for _ in 0..MAX_PLIES {
+    'outer: for _ in 0..MAX_MOVES {
         for (agent, is_white) in [(white, true), (black, false)] {
             if done.iter().all(|x| *x) {
                 break 'outer;
