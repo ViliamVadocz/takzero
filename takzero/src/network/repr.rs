@@ -70,6 +70,8 @@ pub fn move_index<const N: usize>(m: &Move) -> usize {
     channel * N * N + row * N + column
 }
 
+/// Create a mask for all the impossible moves.
+/// Possible moves are false, impossible are true.
 pub fn move_mask<const N: usize>(moves: &[Move], device: Device) -> Tensor {
     let mut mask = vec![true; output_size::<N>()];
     for mov in moves {
@@ -82,6 +84,7 @@ pub fn move_mask<const N: usize>(moves: &[Move], device: Device) -> Tensor {
         .to(device)
 }
 
+/// Create a tensor containing the given policy.
 pub fn policy_tensor<const N: usize>(policy: &[(Move, f32)], device: Device) -> Tensor {
     let mut data = vec![0.0; output_size::<N>()];
     for (mov, p) in policy {
@@ -243,8 +246,16 @@ where
 #[cfg(test)]
 mod tests {
     use fast_tak::{takparse::Tps, Game};
+    use tch::Device;
 
     use super::{game_repr, input_size};
+    use crate::{
+        network::repr::{output_size, policy_tensor},
+        search::{
+            agent::{simple::Simple, Agent},
+            env::Environment,
+        },
+    };
 
     #[test]
     fn starting_position() {
@@ -394,6 +405,102 @@ mod tests {
         let game: Game<3, -1> = tps.into();
         let mut buffer = vec![0.0; input_size::<3>()];
         game_repr(&mut buffer, &game);
+        assert_eq!(buffer, handmade);
+    }
+
+    #[test]
+    #[allow(clippy::many_single_char_names)]
+    fn policy() {
+        let tps: Tps = "2,1,x/1S,221,x/x,2S,2 1 6".parse().unwrap();
+        let game: Game<3, 0> = tps.into();
+
+        let f = 4.0; // flats
+                     // caps
+        let w = 2.0; // walls
+        let s = 1.0; // spreads
+        let o = 0.0;
+
+        #[rustfmt::skip]
+        let handmade = vec![
+            // flat placement
+            f, o, o,
+            o, o, f,
+            o, o, f,
+            // wall placement 
+            w, o, o,
+            o, o, w,
+            o, o, w,
+            // capstone placement
+            o, o, o,
+            o, o, o,
+            o, o, o,
+            // 3#+3
+            o, o, o, o, s, o, o, o, o,
+            // 2#+2
+            o, o, o, o, s, o, o, o, o,
+            // 3#+12
+            o, o, o, o, o, o, o, o, o,
+            // 1#+1
+            o, o, o, s, s, o, o, o, o,
+            // 3#+21
+            o, o, o, o, o, o, o, o, o,
+            // 2#+11
+            o, o, o, o, o, o, o, o, o,
+            // 3#>3
+            o, o, o, o, s, o, o, o, o,
+            // 2#>2
+            o, o, o, o, s, o, o, o, o,
+            // 3#>12
+            o, o, o, o, o, o, o, o, o,
+            // 1#>1
+            o, o, o, s, s, o, o, s, o,
+            // 3#>21
+            o, o, o, o, o, o, o, o, o,
+            // 2#>11
+            o, o, o, o, o, o, o, o, o,
+            // 3#-3
+            o, o, o, o, o, o, o, o, o,
+            // 2#-2
+            o, o, o, o, o, o, o, o, o,
+            // 3#-12
+            o, o, o, o, o, o, o, o, o,
+            // 1#-1
+            o, o, o, s, o, o, o, s, o,
+            // 3#-21
+            o, o, o, o, o, o, o, o, o,
+            // 2#-11
+            o, o, o, o, o, o, o, o, o,
+            // 3#<3
+            o, o, o, o, o, o, o, o, o,          
+            // 2#<2
+            o, o, o, o, o, o, o, o, o,
+            // 3#<12
+            o, o, o, o, o, o, o, o, o,
+            // 1#<1
+            o, o, o, o, o, o, o, s, o,
+            // 3#<21
+            o, o, o, o, o, o, o, o, o,
+            // 2#<11
+            o, o, o, o, o, o, o, o, o,
+        ];
+
+        let mut actions = [Vec::new()];
+        game.populate_actions(&mut actions[0]);
+        let (policy, ..) = Simple
+            .policy_value_uncertainty(&[game], &actions, &[true], &mut ())
+            .pop()
+            .unwrap();
+        let buffer: Vec<f32> = policy_tensor::<3>(
+            &actions[0]
+                .drain(..)
+                .map(|a| (a, policy[a]))
+                .collect::<Vec<_>>(),
+            Device::Cpu,
+        )
+        .reshape([output_size::<3>() as i64])
+        .try_into()
+        .unwrap();
+
         assert_eq!(buffer, handmade);
     }
 }

@@ -43,7 +43,7 @@ impl<E: Environment> Node<E> {
     #[inline]
     #[must_use]
     pub const fn needs_initialization(&self) -> bool {
-        self.visit_count <= 1
+        self.children.is_empty()
     }
 
     /// Descend in the tree, replacing the root the sub-tree for a given action.

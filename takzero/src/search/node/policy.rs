@@ -36,15 +36,12 @@ impl<E: Environment> Node<E> {
     pub fn improved_policy(&self, beta: f32) -> impl Iterator<Item = NotNan<f32>> + '_ {
         let most_visited_count = self.most_visited_count();
         let p = self.children.iter().map(move |(_, node)| -> NotNan<f32> {
-            let completed_value: NotNan<f32> = NotNan::new(
-                if node.needs_initialization() {
-                    self.evaluation
-                } else {
-                    node.evaluation.negate()
-                }
-                .into(),
-            )
-            .expect("completed value should not be NaN");
+            let completed_value = if node.needs_initialization() {
+                self.evaluation
+            } else {
+                node.evaluation.negate()
+            }
+            .into();
             sigma(completed_value, node.std_dev, beta, most_visited_count) + node.logit
         });
 
@@ -52,6 +49,7 @@ impl<E: Environment> Node<E> {
     }
 
     /// Get index of child which maximizes the improved policy.
+    /// Losing actions are pruned unless this node is a proven loss.
     ///
     /// # Panics
     ///
@@ -61,7 +59,7 @@ impl<E: Environment> Node<E> {
             .zip(self.children.iter())
             .enumerate()
             // Prune only losing moves to preserve optimality.
-            .filter(|(_, (_, (_, node)))| !node.evaluation.is_win())
+            .filter(|(_, (_, (_, child)))| self.evaluation.is_loss() || !child.evaluation.is_win())
             // Minimize mean-squared-error between visits and improved policy
             .max_by_key(|(_, (pi, (_, node)))| {
                 pi - node.visit_count as f32 / ((self.visit_count + 1) as f32)
@@ -71,6 +69,7 @@ impl<E: Environment> Node<E> {
     }
 
     /// Get index of child which maximizes PUCT.
+    /// Losing actions are pruned unless this node is a proven loss.
     ///
     /// # Panics
     ///
@@ -116,4 +115,28 @@ fn exploration_rate(visit_count: f32) -> f32 {
 #[must_use]
 pub fn upper_confidence_bound(parent_visit_count: f32, visit_count: f32, probability: f32) -> f32 {
     exploration_rate(parent_visit_count) * probability * parent_visit_count / (1.0 + visit_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use ordered_float::NotNan;
+
+    use super::softmax;
+
+    #[test]
+    fn softmax_works() {
+        let iter = [1, 2, 3, 4, 5]
+            .into_iter()
+            .map(|x| NotNan::new(x as f32).unwrap());
+
+        softmax(iter)
+            .zip([
+                0.011_656_231,
+                0.031_684_92,
+                0.086_128_55,
+                0.234_121_65,
+                0.636_408_6,
+            ])
+            .for_each(|(a, b)| assert!((a - b).abs() < f32::EPSILON, "{a} should equal {b}"));
+    }
 }
