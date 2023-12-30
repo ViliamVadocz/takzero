@@ -1,3 +1,22 @@
+//! Monte Carlo Tree Search
+//!
+//! Each node stores the evaluation for a particular position.
+//! This means that when choosing an action we minimize
+//! the child evaluations (picking the action that results
+//! in the worst position for our opponent).
+//! During backpropagation we receive the child evalation
+//! and negate it before using it to update the parent.
+//!
+//! The search is implemented in two steps, `forward` and
+//! `backward_known_eval`+`backward_network_eval` to allow for batch
+//! evaluations.
+//!
+//! A node solver has been implemented as well. It deduces
+//! when a result (win, loss, or draw) is guaranteed.
+//! The idea behind it is that if on of the children is a loss,
+//! this node is a win, or if all children are wins then
+//! this is a loss.
+
 use ordered_float::NotNan;
 
 use super::{
@@ -180,16 +199,20 @@ impl<E: Environment> Node<E> {
                 )
                 .collect();
             self.propagate_child_eval(
-                Eval::new_value(value).unwrap_or_else(|_| {
-                    log::warn!("value NaN");
-                    Eval::default()
-                }),
+                Eval::new_value(value).expect("value prediction should not be NaN"),
                 NotNan::new(uncertainty).expect("uncertainty should not be NaN"),
             )
         }
     }
 
-    #[allow(clippy::missing_panics_doc)]
+    /// A non-batched version of simulate that does both
+    /// forward and backward steps of MCTS. This is mainly
+    /// used for testing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the agent does not return a prediction
+    /// when needed.
     pub fn simulate_simple<A: Agent<E>>(
         &mut self,
         agent: &A,
@@ -206,7 +229,7 @@ impl<E: Environment> Node<E> {
                 let (policy, value, uncertainty) = agent
                     .policy_value_uncertainty(&[env], &actions, &[true], context)
                     .pop()
-                    .unwrap();
+                    .expect("agent should return exactly one prediction");
                 let logits = actions[0]
                     .iter()
                     .map(|a| NotNan::new(policy[a.clone()]).expect("logit should not be NaN"))
