@@ -10,7 +10,7 @@ use fast_tak::{
 use rand::prelude::*;
 use thiserror::Error;
 
-use crate::search::{env::Environment, STEP};
+use crate::search::{env::Environment, node::Node, STEP};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Replay<E: Environment> {
@@ -184,6 +184,21 @@ where
             ube,
         })
     }
+}
+
+#[must_use]
+pub fn policy_target_from_proportional_visits<E: Environment>(
+    node: &Node<E>,
+) -> Box<[(E::Action, f32)]> {
+    node.children
+        .iter()
+        .map(|(action, child)| {
+            (
+                action.clone(),
+                child.visit_count as f32 / node.visit_count as f32,
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]

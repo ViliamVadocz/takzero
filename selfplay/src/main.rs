@@ -20,7 +20,7 @@ use takzero::{
         node::{gumbel::batched_simulate, Node},
         DISCOUNT_FACTOR,
     },
-    target::{Augment, Replay, Target},
+    target::{policy_target_from_proportional_visits, Augment, Replay, Target},
 };
 use tch::Device;
 
@@ -144,15 +144,6 @@ fn main() {
     }
 }
 
-/// Create a new target policy based on proportional visit counts.
-fn policy_target(node: &Node<Env>) -> Box<[(Move, f32)]> {
-    node.children
-        .iter()
-        .map(|(a, child)| (*a, child.visit_count as f32 / node.visit_count as f32))
-        .collect::<Vec<_>>()
-        .into_boxed_slice()
-}
-
 /// Get the path to the model file (ending with ".ot")
 /// which has the highest number of steps (number after '_')
 /// in the given directory.
@@ -219,7 +210,7 @@ fn take_a_step(
         .zip(selected_actions)
         .zip(replays)
         .for_each(|(((node, env), action), replay)| {
-            replay.push((env.clone(), policy_target(node)));
+            replay.push((env.clone(), policy_target_from_proportional_visits(node)));
             node.descend(&action);
             env.step(action);
         });
