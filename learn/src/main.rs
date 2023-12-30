@@ -54,7 +54,7 @@ const LEARNING_RATE: f64 = 1e-4;
 const GAME_COUNT: usize = 64;
 const VISITS: usize = 400;
 const BETA: [f32; GAME_COUNT] = [0.0; GAME_COUNT];
-const MAX_PLIES: usize = 30;
+const MAX_PLIES: usize = 60;
 
 #[derive(Parser, Debug)]
 struct Args {
