@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{cmp::Reverse, fmt};
 
 use ordered_float::NotNan;
 
@@ -8,21 +8,30 @@ use super::{
     Node,
 };
 
-// TODO: Improve this
 impl<E: Environment> fmt::Display for Node<E>
 where
     E::Action: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut action_info = self.action_info(0.0);
-        action_info.sort_by_key(|a| a.visit_count);
+        action_info.sort_by_key(|a| Reverse(a.visit_count));
         writeln!(
             f,
-            "[root]   c:{: >8} v:{:+.4} e:{:+.4}",
+            "((node))  [count: {}]  [std_dev: {:.4}]  [eval: {:+.4}]",
             self.visit_count, self.std_dev, self.evaluation
         )?;
-        for a in action_info {
-            writeln!(f, "{a}")?;
+        if self.needs_initialization() {
+            writeln!(f, "--- This node still needs to be initialized! ---")?;
+        } else {
+            // Header for action info
+            writeln!(
+                f,
+                "[ action ] [ count ] [ logit ] [ proba ] [ impol ] [ puct ] [ stdev ] [ \
+                 evaluation ]"
+            )?;
+            for a in action_info {
+                writeln!(f, "{a}")?;
+            }
         }
         Ok(())
     }
@@ -66,16 +75,15 @@ impl<A: fmt::Display> fmt::Display for ActionInfo<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{: >8} count:{: >8} logit:{:+.4} prob:{:+.4} impol:{:+.4} puct:{:+.4} stdev:{:.4} \
-             eval:{:+.4?}",
+            "{: ^10} {: ^9} {: ^9} {: ^9} {: ^9} {: ^8} {: ^9} {: ^14}",
             self.action.to_string(),
             self.visit_count,
-            self.logit.into_inner(),
-            self.probability.into_inner(),
-            self.improved_policy.into_inner(),
-            self.puct,
-            self.std_dev,
-            self.eval
+            format!("{:.4}", self.logit.into_inner()),
+            format!("{:.4}", self.probability.into_inner()),
+            format!("{:.4}", self.improved_policy.into_inner()),
+            format!("{:.4}", self.puct),
+            format!("{:.4}", self.std_dev),
+            format!("{:+.4}", self.eval)
         )
     }
 }
