@@ -48,45 +48,44 @@ impl<E: Environment> Node<E> {
             / self.visit_count as f32;
     }
 
+    // TODO: Once pruning is added back, we can skip traversing all evaluations to
+    // find min in the case of a loss because that is will be the first loss we
+    // find.
+    fn node_solver(&mut self, child_eval: Eval) {
+        let evaluations = self.children.iter().map(|(_, node)| node.evaluation);
+
+        // If we can choose a loss for the opponent, this position is a win.
+        // If all moves are wins for the opponent, this node is a loss.
+        // If all moves are wins or draws for the opponent, we choose to draw.
+        if child_eval.is_loss() || evaluations.clone().all(|e| e.is_known()) {
+            self.evaluation = evaluations.min().unwrap().negate();
+            self.std_dev = NotNan::default();
+        }
+    }
+
     fn propagate_child_eval(
         &mut self,
         child_eval: Eval,
         child_uncertainty: NotNan<f32>,
     ) -> Propagated {
-        let evaluations = self.children.iter().map(|(_, node)| node.evaluation);
-        match child_eval {
-            // This move made the opponent lose, so this position is a win.
-            Eval::Loss(_) => {
-                self.evaluation = evaluations.min().unwrap().negate(); // child_eval.negate();
-                self.std_dev = NotNan::default();
-                Propagated {
-                    eval: self.evaluation,
-                    uncertainty: self.std_dev,
-                }
-            }
+        self.node_solver(child_eval);
 
-            // If all moves lead to wins for the opponent, this node is a loss.
-            // If all moves lead to wins or draws for the opponent, we choose to draw.
-            Eval::Draw(_) | Eval::Win(_) if evaluations.clone().all(|e| e.is_known()) => {
-                self.evaluation = evaluations.min().unwrap().negate();
-                self.std_dev = NotNan::default();
-                Propagated {
-                    eval: self.evaluation,
-                    uncertainty: self.std_dev,
-                }
-            }
+        // If the position is solved, we just propagate the solved value instead.
+        if self.evaluation.is_known() {
+            return Propagated {
+                eval: self.evaluation,
+                uncertainty: self.std_dev,
+            };
+        }
+        // Otherwise this position is not known and we just
+        // back-propagate the child result.
+        let negated = child_eval.negate().into();
+        self.update_mean_value(negated);
+        self.update_standard_deviation(child_uncertainty);
 
-            // Otherwise this position is not known and we just back-propagate the child result.
-            _ => {
-                let negated = child_eval.negate().into();
-                self.update_mean_value(negated);
-                self.update_standard_deviation(child_uncertainty);
-
-                Propagated {
-                    eval: Eval::new_value(negated * DISCOUNT_FACTOR).unwrap(),
-                    uncertainty: child_uncertainty * DISCOUNT_FACTOR * DISCOUNT_FACTOR,
-                }
-            }
+        Propagated {
+            eval: Eval::new_value(negated * DISCOUNT_FACTOR).unwrap(),
+            uncertainty: child_uncertainty * DISCOUNT_FACTOR * DISCOUNT_FACTOR,
         }
     }
 
@@ -99,8 +98,9 @@ impl<E: Environment> Node<E> {
 
         loop {
             node.visit_count += 1;
-            // FIXME: Prune all known results earlier once visit count is not used for
-            // policy target
+            // TODO: Prune all known results earlier
+            // once visit count is not used for policy target.
+            // Or don't - searching can still help find slower losses.
             if node.evaluation.ply().is_some_and(|x| x == 0) {
                 break Forward::Known(node.evaluation);
             }

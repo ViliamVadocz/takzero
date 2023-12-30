@@ -52,7 +52,10 @@ impl<E: Environment> Node<E> {
     }
 
     /// Get index of child which maximizes the improved policy.
-    #[allow(clippy::missing_panics_doc)]
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are no children.
     pub fn select_with_improved_policy(&mut self, beta: f32) -> usize {
         self.improved_policy(beta)
             .zip(self.children.iter())
@@ -68,8 +71,10 @@ impl<E: Environment> Node<E> {
     }
 
     /// Get index of child which maximizes PUCT.
-    #[allow(clippy::missing_panics_doc)]
-    #[allow(clippy::suboptimal_flops)]
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are no children.
     pub fn select_with_puct(&mut self, beta: f32) -> usize {
         let parent_visit_count = self.visit_count as f32;
 
