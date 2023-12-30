@@ -2,7 +2,7 @@ use std::{cmp::Ordering, fmt};
 
 use ordered_float::{FloatIsNan, NotNan};
 
-use super::env::Terminal;
+use super::{env::Terminal, DISCOUNT_FACTOR};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Eval {
@@ -104,12 +104,13 @@ impl From<Eval> for f32 {
 }
 
 impl From<Eval> for NotNan<f32> {
-    fn from(value: Eval) -> Self {
-        match value {
+    fn from(eval: Eval) -> Self {
+        match eval {
             Eval::Value(x) => x,
-            Eval::Win(_) => Self::new(1.0).expect("The literal is not NaN"),
-            Eval::Loss(_) => Self::new(-1.0).expect("The literal is not NaN"),
-            Eval::Draw(_) => Self::new(0.0).expect("The literal is not NaN"),
+            Eval::Win(ply) | Eval::Draw(ply) | Eval::Loss(ply) => {
+                Self::new(f32::from(eval) * DISCOUNT_FACTOR.powi(ply as i32))
+                    .expect("known evaluations cannot give NaN")
+            }
         }
     }
 }
@@ -150,7 +151,7 @@ impl Ord for Eval {
             Self::Draw(left) => match other {
                 Self::Value(right) => CONTEMPT.cmp(right),
                 Self::Win(_) => Ordering::Less,
-                Self::Draw(right) => left.cmp(right),
+                Self::Draw(right) => right.cmp(left),
                 Self::Loss(_) => Ordering::Greater,
             },
             Self::Loss(left) => match other {
@@ -183,8 +184,8 @@ mod tests {
             Eval::Loss(5),
             Eval::Loss(10),
             Eval::new_value(-1.0).unwrap(),
-            Eval::Draw(5),
             Eval::Draw(10),
+            Eval::Draw(5),
             Eval::Value(CONTEMPT + 0.1),
             Eval::new_value(1.0).unwrap(),
             Eval::Win(10),
