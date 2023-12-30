@@ -19,10 +19,10 @@ const DEVICE: Device = Device::Cuda(0);
 const BETA: f32 = 0.0;
 
 fn main() {
-    let net = Net::load(".\\033000_steps.ot", DEVICE).unwrap();
+    let agent = Net::load(".\\model_001000.ot", DEVICE).unwrap();
     let mut env = Env::default();
     let mut node = Node::default();
-    let mut context = RndNormalizationContext::new(4.038908004760742);
+    let mut context = RndNormalizationContext::new(0.0);
 
     let mut input = String::new();
     loop {
@@ -30,7 +30,8 @@ fn main() {
         print!(">>> ");
         std::io::stdout().flush().unwrap();
         std::io::stdin().lock().read_line(&mut input).unwrap();
-        if let Ok(mov) = input.trim().parse::<Move>() {
+        let trim = input.trim();
+        if let Ok(mov) = trim.parse::<Move>() {
             match env.play(mov) {
                 Ok(()) => {}
                 Err(e) => {
@@ -41,9 +42,10 @@ fn main() {
             node.descend(&mov);
             println!("{node}");
         } else {
-            println!("simulating");
-            for _ in 0..128 {
-                node.simulate_simple(&net, env.clone(), BETA, &mut context);
+            let visits: u32 = trim.parse().unwrap_or(1);
+            println!("simulating {visits} visits");
+            for _ in 0..visits {
+                node.simulate_simple(&agent, env.clone(), BETA, &mut context);
             }
             println!("{node}");
         }
