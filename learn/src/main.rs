@@ -105,11 +105,7 @@ fn get_targets(
     Some(
         BufReader::new(OpenOptions::new().read(true).open(&path).ok()?)
             .lines()
-            .map(|line| {
-                line.unwrap()
-                    .parse()
-                    .expect("Each line should have one target in the correct format.")
-            })
+            .filter_map(|line| line.unwrap().parse().ok())
             .collect(),
     )
 }
