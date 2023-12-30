@@ -181,7 +181,7 @@ fn select_actions(nodes: &mut [Node<Env>], envs: &[Env], rng: &mut impl Rng) -> 
         .iter_mut()
         .zip(envs)
         .map(|(node, env)| {
-            if node.evaluation.is_win() {
+            if node.evaluation.is_known() {
                 node.children
                     .iter()
                     .min_by_key(|(_, child)| child.evaluation)
