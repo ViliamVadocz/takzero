@@ -272,7 +272,11 @@ mod tests {
         super::{agent::dummy::Dummy, eval::Eval},
         Node,
     };
-    use crate::search::{agent::simple::Simple, node::mcts::Propagated};
+    use crate::search::{
+        agent::simple::Simple,
+        env::safecrack::{SafeCrack, SafeCracker},
+        node::mcts::Propagated,
+    };
 
     #[test]
     fn find_tinue_easy() {
@@ -340,5 +344,39 @@ mod tests {
             .unwrap()
             .0;
         assert!(winning_move == "b2".parse().unwrap() || winning_move == "c2".parse().unwrap());
+    }
+
+    #[test]
+    fn safe_cracker_value_propagation() {
+        const VISITS: usize = 100_000;
+        const KEY: [u8; 5] = [0, 1, 2, 3, 4];
+        let env = SafeCrack::new(KEY.to_vec());
+        let mut root = Node::default();
+
+        assert!(f32::from(root.evaluation) == 0.0);
+        for _ in 0..VISITS {
+            root.simulate_simple(&SafeCracker, env.clone(), 0.0, &mut ());
+        }
+
+        for k in KEY {
+            println!("eval: {}", root.evaluation);
+            for (action, child) in root.children.iter() {
+                println!("\t{}: eval: {}", action.unwrap(), child.evaluation);
+            }
+            assert!(f32::from(root.evaluation) > 0.0);
+
+            for (action, child) in root.children.iter() {
+                if action.is_some_and(|x| x == k) {
+                    assert!(f32::from(child.evaluation) < 0.0);
+                } else {
+                    assert!(f32::from(child.evaluation) == 0.0);
+                }
+            }
+
+            root.descend(&Some(k));
+            root.descend(&None);
+        }
+
+        assert!(f32::from(root.evaluation) > 0.0);
     }
 }
