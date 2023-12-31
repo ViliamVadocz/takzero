@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-arrayvec.workspace = true
 fast-tak.workspace = true
 log.workspace = true
 rand_chacha.workspace = true
