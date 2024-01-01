@@ -86,6 +86,13 @@ fn main() {
         }
 
         let mut replays = get_replays(&args.directory, model_steps, &mut rng);
+        if replays.len() < BATCH_SIZE {
+            let time = std::time::Duration::from_secs(30);
+            log::info!("Not enough replays. Sleeping for {time:?}.");
+            std::thread::sleep(time);
+            continue;
+        }
+
         // Randomly pick a position from each replay.
         replays
             .iter_mut()
