@@ -187,7 +187,7 @@ fn get_replays(directory: &Path, model_steps: u32, rng: &mut impl Rng) -> Vec<Re
                 Some(
                     p.extension()? == "txt" && {
                         let (before, after) = p.file_stem()?.to_str()?.split_once('_')?;
-                        before == "replays" && after.parse::<u32>().ok()? < model_steps
+                        before == "replays" && after.parse::<u32>().ok()? <= model_steps
                     },
                 )
             })()
