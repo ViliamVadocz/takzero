@@ -1,15 +1,12 @@
 use std::{
-    fmt::{self, Write},
+    fmt,
     fs::{read_dir, OpenOptions},
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
 };
 
 use clap::Parser;
-use fast_tak::{
-    takparse::{Move, Tps},
-    Game,
-};
+use fast_tak::Game;
 use ordered_float::NotNan;
 use rand::prelude::*;
 use rayon::prelude::*;
@@ -24,7 +21,7 @@ use takzero::{
         env::{Environment, Terminal},
         node::{gumbel::batched_simulate, Node},
     },
-    target::{Augment, Target},
+    target::{Augment, Replay, Target},
 };
 use tch::{
     nn::{Adam, OptimizerConfig},
@@ -37,7 +34,8 @@ use tch::{
 const N: usize = 4;
 const HALF_KOMI: i8 = 4;
 type Env = Game<N, HALF_KOMI>;
-#[rustfmt::skip] #[allow(dead_code)] const fn assert_env<E: Environment>() where Target<E>: Augment + fmt::Display {}
+#[rustfmt::skip] #[allow(dead_code)]
+const fn assert_env<E: Environment>() where Target<E>: Augment + fmt::Display {}
 const _: () = assert_env::<Env>();
 
 // The network architecture.
@@ -235,11 +233,7 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
     let mut actions: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
     let mut trajectories: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
 
-    let mut game_replays: Vec<(Tps, Vec<Move>)> = games
-        .iter()
-        .cloned()
-        .map(|game| (game.into(), Vec::new()))
-        .collect();
+    let mut game_replays: Vec<_> = games.iter().cloned().map(Replay::new).collect();
 
     let mut done = [false; BATCH_SIZE];
 
@@ -291,22 +285,14 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                     |(((((action, game), white_node), black_node), replay), done)| {
                         let action = action.unwrap();
                         game.step(action);
-                        replay.1.push(action);
+                        replay.push(action);
 
                         if let Some(terminal) = game.terminal() {
                             *game = Env::default();
                             *white_node = Node::default();
                             *black_node = Node::default();
                             *done = true;
-                            let (tps, moves) =
-                                std::mem::replace(replay, (Tps::starting_position(N), Vec::new()));
-                            log::debug!(
-                                "{tps} {}",
-                                moves.into_iter().fold(String::new(), |mut s, m| {
-                                    let _ = write!(s, "{m} ");
-                                    s
-                                })
-                            );
+                            log::debug!("{replay}");
                             Some(terminal)
                         } else {
                             white_node.descend(&action);

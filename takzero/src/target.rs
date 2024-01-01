@@ -77,7 +77,7 @@ pub enum ParseTargetError {
     #[error("{0}")]
     Tps(#[from] ParseTpsError),
     #[error("{0}")]
-    Actions(#[from] ParseMoveError),
+    Action(#[from] ParseMoveError),
     #[error("{0}")]
     Float(#[from] ParseFloatError),
 }
@@ -127,6 +127,64 @@ pub fn policy_target_from_proportional_visits<E: Environment>(
             )
         })
         .collect()
+}
+
+pub struct Replay<E: Environment> {
+    env: E,
+    actions: Vec<E::Action>,
+}
+
+impl<E: Environment> Replay<E> {
+    pub fn new(env: E) -> Self {
+        Self {
+            env,
+            actions: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, action: E::Action) {
+        self.actions.push(action);
+    }
+}
+
+impl<const N: usize, const HALF_KOMI: i8> fmt::Display for Replay<Game<N, HALF_KOMI>>
+where
+    Reserves<N>: Default,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", Tps::from(self.env.clone()),)?;
+        for action in &self.actions {
+            write!(f, " {action}")?;
+        }
+        writeln!(f)
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ParseReplayError {
+    #[error("missing TPS")]
+    MissingTps,
+    #[error("{0}")]
+    Tps(#[from] ParseTpsError),
+    #[error("{0}")]
+    Action(#[from] ParseMoveError),
+}
+
+impl<const N: usize, const HALF_KOMI: i8> FromStr for Replay<Game<N, HALF_KOMI>>
+where
+    Reserves<N>: Default,
+{
+    type Err = ParseReplayError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut iter = s.split_whitespace();
+        let tps: Tps = iter.next().ok_or(ParseReplayError::MissingTps)?.parse()?;
+        let env = tps.into();
+        Ok(Self {
+            env,
+            actions: iter.map(str::parse).collect::<Result<_, _>>()?,
+        })
+    }
 }
 
 #[cfg(test)]

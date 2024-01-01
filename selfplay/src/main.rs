@@ -20,7 +20,7 @@ use takzero::{
         node::{gumbel::batched_simulate, Node},
         DISCOUNT_FACTOR,
     },
-    target::{policy_target_from_proportional_visits, Augment, Target},
+    target::{policy_target_from_proportional_visits, Augment, Replay, Target},
 };
 use tch::Device;
 
@@ -72,8 +72,10 @@ fn main() {
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
-    let mut replays: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());
+    let mut policy_targets: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());
+    let mut replays: Vec<_> = envs.iter().cloned().map(Replay::new).collect();
     let mut targets = Vec::new();
+    let mut complete_replays = Vec::new();
     let mut context = RndNormalizationContext::new(0.0);
 
     let mut model_steps = 0;
@@ -128,18 +130,29 @@ fn main() {
         }
 
         let selected_actions = select_actions(&mut nodes, &envs, &mut rng);
-        take_a_step(&mut nodes, &mut envs, &mut replays, selected_actions);
+        take_a_step(
+            &mut nodes,
+            &mut envs,
+            &mut policy_targets,
+            &mut replays,
+            selected_actions,
+        );
         restart_envs_and_complete_targets(
             &mut nodes,
             &mut envs,
+            &mut policy_targets,
             &mut replays,
             &mut actions,
             &mut targets,
+            &mut complete_replays,
             &mut rng,
         );
 
         if !targets.is_empty() {
             save_targets_to_file(&mut targets, &args.directory, model_steps);
+        }
+        if !complete_replays.is_empty() {
+            save_replays_to_file(&mut complete_replays, &args.directory, model_steps);
         }
     }
 }
@@ -201,7 +214,8 @@ type PolicyTarget = (Env, Box<[(Move, f32)]>);
 fn take_a_step(
     nodes: &mut [Node<Env>],
     envs: &mut [Env],
-    replays: &mut [Vec<PolicyTarget>],
+    policy_targets: &mut [Vec<PolicyTarget>],
+    replays: &mut [Replay<Env>],
     selected_actions: impl IntoIterator<Item = Move>,
 ) {
     nodes
@@ -209,36 +223,42 @@ fn take_a_step(
         .zip(envs)
         .zip(selected_actions)
         .zip(replays)
-        .for_each(|(((node, env), action), replay)| {
-            replay.push((env.clone(), policy_target_from_proportional_visits(node)));
+        .zip(policy_targets)
+        .for_each(|((((node, env), action), replay), policy_targets)| {
+            policy_targets.push((env.clone(), policy_target_from_proportional_visits(node)));
             node.descend(&action);
+            replay.push(action);
             env.step(action);
         });
 }
 
 /// Restart any finished environments.
 /// Complete targets of finished games using the game result.
+#[allow(clippy::too_many_arguments)]
 fn restart_envs_and_complete_targets(
     nodes: &mut [Node<Env>],
     envs: &mut [Env],
-    replays: &mut [Vec<PolicyTarget>],
+    policy_targets: &mut [Vec<PolicyTarget>],
+    replays: &mut [Replay<Env>],
     actions: &mut [Vec<Move>],
     targets: &mut Vec<Target<Env>>,
+    finished_replays: &mut Vec<Replay<Env>>,
     rng: &mut impl Rng,
 ) {
     nodes
         .iter_mut()
         .zip(envs)
-        .zip(replays)
+        .zip(policy_targets)
         .zip(actions)
-        .for_each(|(((node, env), replay), actions)| {
+        .zip(replays)
+        .for_each(|((((node, env), policy_targets), actions), replay)| {
             if let Some(terminal) = env.terminal() {
                 // Reset game.
                 *env = Env::new_opening(rng, actions);
                 *node = Node::default();
 
                 let mut eval = f32::from(Eval::from(terminal).negate());
-                for (env, policy) in replay.drain(..).rev() {
+                for (env, policy) in policy_targets.drain(..).rev() {
                     targets.push(Target {
                         env,
                         value: eval,
@@ -247,18 +267,34 @@ fn restart_envs_and_complete_targets(
                     });
                     eval *= -DISCOUNT_FACTOR;
                 }
+
+                finished_replays.push(std::mem::replace(replay, Replay::new(env.clone())));
             }
         });
 }
 
-/// Create a new file in the given directory called targets_{steps}.txt
-/// with the new targets. Drains the target Vec.
+/// Save targets to a file. Drains the target Vec.
 fn save_targets_to_file(targets: &mut Vec<Target<Env>>, directory: &Path, model_steps: u32) {
     let contents: String = targets.drain(..).map(|target| target.to_string()).collect();
     if let Err(err) = OpenOptions::new()
         .append(true)
         .create(true)
         .open(directory.join(format!("targets_{model_steps:0>6}.txt")))
+        .map(|mut file| file.write_all(contents.as_bytes()))
+    {
+        log::error!(
+            "Could not save targets to file [{err}], so here they are instead:\n{contents}"
+        );
+    }
+}
+
+/// Save replays to a file. Drains the replays Vec.
+fn save_replays_to_file(replays: &mut Vec<Replay<Env>>, directory: &Path, model_steps: u32) {
+    let contents: String = replays.drain(..).map(|target| target.to_string()).collect();
+    if let Err(err) = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(directory.join(format!("replays_{model_steps:0>6}.txt")))
         .map(|mut file| file.write_all(contents.as_bytes()))
     {
         log::error!(
