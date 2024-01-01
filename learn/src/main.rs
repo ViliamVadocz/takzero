@@ -146,6 +146,7 @@ struct Tensors {
     mask: Tensor,
     target_value: Tensor,
     target_policy: Tensor,
+    #[allow(dead_code)]
     target_ube: Tensor,
 }
 
@@ -175,12 +176,8 @@ fn create_input_and_target_tensors<'a>(
     let input = Tensor::cat(&inputs, 0);
     let mask = Tensor::cat(&masks, 0);
     // Get the target.
-    let target_policy = Tensor::stack(&policy_targets, 0).view([
-        BATCH_SIZE as i64,
-        output_channels::<N>() as i64,
-        N as i64,
-        N as i64,
-    ]);
+    let target_policy =
+        Tensor::stack(&policy_targets, 0).view([BATCH_SIZE as i64, output_size::<N>() as i64]);
     let target_value = Tensor::from_slice(&value_targets).unsqueeze(1);
     let target_ube = Tensor::from_slice(&ube_targets).unsqueeze(1);
 
