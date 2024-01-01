@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use takzero::{
     network::{
         net4::Net4 as Net,
-        repr::{game_to_tensor, move_mask, output_size, policy_tensor},
+        repr::{game_to_tensor, move_mask, output_channels, output_size, policy_tensor},
         Network,
     },
     search::{
@@ -48,6 +48,7 @@ const BATCH_SIZE: usize = 128;
 const STEPS_PER_EPOCH: u32 = 100;
 const EPOCHS_PER_EVALUATION: u32 = 10;
 const LEARNING_RATE: f64 = 1e-4;
+const STEPS_BEFORE_REANALYZE: u32 = 500;
 
 const GAME_COUNT: usize = 64;
 const VISITS: usize = 400;
@@ -90,8 +91,13 @@ fn get_targets(
     directory: &Path,
     model_steps: u32,
     minimum_amount: usize,
+    self_play: bool,
 ) -> Option<Vec<Target<Env>>> {
-    let file_name = format!("targets_{model_steps:0>6}.txt");
+    let file_name = if self_play {
+        format!("targets-selfplay_{model_steps:0>6}.txt")
+    } else {
+        format!("targets-reanalyze_{model_steps:0>6}.txt")
+    };
     let path = directory.join(file_name);
     let count = BufReader::new(OpenOptions::new().read(true).open(&path).ok()?)
         .lines()
@@ -106,6 +112,85 @@ fn get_targets(
             .filter_map(|line| line.unwrap().parse().ok())
             .collect(),
     )
+}
+
+fn wait_until_targets(directory: &Path, steps: u32) -> Vec<Target<Env>> {
+    loop {
+        let time = std::time::Duration::from_secs(30);
+        log::info!("Sleeping for {time:?} before checking targets.");
+        std::thread::sleep(time);
+
+        // Sample only from fresh selfplay data.
+        if steps < STEPS_BEFORE_REANALYZE {
+            match get_targets(directory, steps, MINIMUM_TARGETS_PER_EPOCH, true) {
+                None => continue,
+                Some(targets) => break targets,
+            }
+        }
+        // Half of the targets are from selfplay, half from reanalyze.
+        if let Some(mut self_play_targets) =
+            get_targets(directory, steps, MINIMUM_TARGETS_PER_EPOCH / 2, true)
+        {
+            if let Some(mut reanalyze_targets) =
+                get_targets(directory, steps, MINIMUM_TARGETS_PER_EPOCH / 2, false)
+            {
+                self_play_targets.append(&mut reanalyze_targets);
+                break self_play_targets;
+            }
+        }
+    }
+}
+
+struct Tensors {
+    input: Tensor,
+    mask: Tensor,
+    target_value: Tensor,
+    target_policy: Tensor,
+    target_ube: Tensor,
+}
+
+fn create_input_and_target_tensors<'a>(
+    batch: impl Iterator<Item = &'a Target<Env>>,
+    rng: &mut impl Rng,
+) -> Tensors {
+    // Create input tensors.
+    let mut inputs = Vec::with_capacity(BATCH_SIZE);
+    let mut policy_targets = Vec::with_capacity(BATCH_SIZE);
+    let mut masks = Vec::with_capacity(BATCH_SIZE);
+    let mut value_targets = Vec::with_capacity(BATCH_SIZE);
+    let mut ube_targets = Vec::with_capacity(BATCH_SIZE);
+    for target in batch {
+        let target = target.augment(rng);
+        inputs.push(game_to_tensor(&target.env, DEVICE));
+        policy_targets.push(policy_tensor::<N>(&target.policy, DEVICE));
+        masks.push(move_mask::<N>(
+            &target.policy.iter().map(|(m, _)| *m).collect::<Vec<_>>(),
+            DEVICE,
+        ));
+        value_targets.push(target.value);
+        ube_targets.push(target.ube);
+    }
+
+    // Get network output.
+    let input = Tensor::cat(&inputs, 0);
+    let mask = Tensor::cat(&masks, 0);
+    // Get the target.
+    let target_policy = Tensor::stack(&policy_targets, 0).view([
+        BATCH_SIZE as i64,
+        output_channels::<N>() as i64,
+        N as i64,
+        N as i64,
+    ]);
+    let target_value = Tensor::from_slice(&value_targets).unsqueeze(1);
+    let target_ube = Tensor::from_slice(&ube_targets).unsqueeze(1);
+
+    Tensors {
+        input,
+        mask,
+        target_value,
+        target_policy,
+        target_ube,
+    }
 }
 
 fn main() {
@@ -136,60 +221,28 @@ fn main() {
         let before_steps = steps;
 
         for _ in 0..EPOCHS_PER_EVALUATION {
-            let targets = loop {
-                if let Some(targets) =
-                    get_targets(&args.directory, steps, MINIMUM_TARGETS_PER_EPOCH)
-                {
-                    break targets;
-                }
-                log::info!("Not enough targets. Sleeping for 30 seconds.");
-                std::thread::sleep(std::time::Duration::from_secs(30));
-            };
+            let targets = wait_until_targets(&args.directory, steps);
             log::info!("Target buffer contains {} targets", targets.len());
 
-            // TODO: Refactor into functions
             for _ in 0..STEPS_PER_EPOCH {
                 let batch = targets.choose_multiple(&mut rng, BATCH_SIZE);
+                let tensors = create_input_and_target_tensors(batch, &mut rng);
 
-                // Create input tensors.
-                let mut inputs = Vec::with_capacity(BATCH_SIZE);
-                let mut policy_targets = Vec::with_capacity(BATCH_SIZE);
-                let mut masks = Vec::with_capacity(BATCH_SIZE);
-                let mut value_targets = Vec::with_capacity(BATCH_SIZE);
-                // let mut ube_targets = Vec::with_capacity(BATCH_SIZE);
-                for target in batch {
-                    let target = target.augment(&mut rng);
-                    inputs.push(game_to_tensor(&target.env, DEVICE));
-                    policy_targets.push(policy_tensor::<N>(&target.policy, DEVICE));
-                    masks.push(move_mask::<N>(
-                        &target.policy.iter().map(|(m, _)| *m).collect::<Vec<_>>(),
-                        DEVICE,
-                    ));
-                    value_targets.push(target.value);
-                    // ube_targets.push(target.ube);
-                }
-
-                // Get network output.
-                let input = Tensor::cat(&inputs, 0);
-                let mask = Tensor::cat(&masks, 0);
-                let (policy, network_value, _network_ube) = net.forward_t(&input, true);
+                let (policy, network_value, _network_ube) = net.forward_t(&tensors.input, true);
                 let log_softmax_network_policy = policy
-                    .masked_fill(&mask, f64::from(f32::MIN))
+                    .masked_fill(&tensors.mask, f64::from(f32::MIN))
                     .view([-1, output_size::<N>() as i64])
                     .log_softmax(1, Kind::Float);
 
-                // Get the target.
-                let target_policy = Tensor::stack(&policy_targets, 0)
-                    .view(log_softmax_network_policy.size().as_slice());
-                let target_value = Tensor::from_slice(&value_targets).unsqueeze(1).to(DEVICE);
-                // let target_ube = Tensor::from_slice(&ube_targets).unsqueeze(1).to(DEVICE);
-
                 // Calculate loss.
-                let loss_policy = -(log_softmax_network_policy * &target_policy).sum(Kind::Float)
+                let loss_policy = -(log_softmax_network_policy * &tensors.target_policy)
+                    .sum(Kind::Float)
                     / i64::try_from(BATCH_SIZE).unwrap();
-                let loss_value = (target_value - network_value).square().mean(Kind::Float);
+                let loss_value = (tensors.target_value - network_value)
+                    .square()
+                    .mean(Kind::Float);
                 // TODO: Add UBE back later.
-                // let loss_ube = (target_ube - network_ube).square().mean(Kind::Float); //
+                // let loss_ube = (target_ube - network_ube).square().mean(Kind::Float);
                 let loss = &loss_policy + &loss_value; //+ &loss_ube;
                 log::info!(
                     "loss = {loss:?}, loss_policy = {loss_policy:?}, loss_value = {loss_value:?}"

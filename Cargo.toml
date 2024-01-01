@@ -6,9 +6,9 @@ members = [
     "evaluation",
     "graph",
     "analysis",
-    "rnd_experiment",
     "selfplay",
     "learn",
+    "reanalyze",
 ]
 resolver = "2"
 

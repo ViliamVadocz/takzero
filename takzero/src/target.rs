@@ -1,4 +1,4 @@
-use std::{fmt, num::ParseFloatError, str::FromStr};
+use std::{collections::VecDeque, fmt, num::ParseFloatError, str::FromStr};
 
 use fast_tak::{
     takparse::{ParseMoveError, ParseTpsError, Tps},
@@ -130,20 +130,41 @@ pub fn policy_target_from_proportional_visits<E: Environment>(
 }
 
 pub struct Replay<E: Environment> {
-    env: E,
-    actions: Vec<E::Action>,
+    pub env: E,
+    pub actions: VecDeque<E::Action>,
 }
 
 impl<E: Environment> Replay<E> {
+    /// Start a new replay from an initial position.
     pub fn new(env: E) -> Self {
         Self {
             env,
-            actions: Vec::new(),
+            actions: VecDeque::new(),
         }
     }
 
+    /// Add an action to the replay.
     pub fn push(&mut self, action: E::Action) {
-        self.actions.push(action);
+        self.actions.push_back(action);
+    }
+
+    pub fn len(&self) -> usize {
+        self.actions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.actions.is_empty()
+    }
+
+    /// Advance the replay state by `steps`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are fewer actions in the replay than requested steps.
+    pub fn advance(&mut self, steps: usize) {
+        for _ in 0..steps {
+            self.env.step(self.actions.pop_front().unwrap());
+        }
     }
 }
 

@@ -279,7 +279,7 @@ fn save_targets_to_file(targets: &mut Vec<Target<Env>>, directory: &Path, model_
     if let Err(err) = OpenOptions::new()
         .append(true)
         .create(true)
-        .open(directory.join(format!("targets_{model_steps:0>6}.txt")))
+        .open(directory.join(format!("targets-selfplay_{model_steps:0>6}.txt")))
         .map(|mut file| file.write_all(contents.as_bytes()))
     {
         log::error!(
