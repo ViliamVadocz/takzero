@@ -183,13 +183,15 @@ fn get_replays(directory: &Path, model_steps: u32, rng: &mut impl Rng) -> Vec<Re
         .unwrap()
         .filter_map(|res| res.ok().map(|entry| entry.path()))
         .filter(|p| {
-            p.extension().map(|ext| ext == "txt").unwrap_or_default()
-                && p.file_stem()
-                    .and_then(|name| {
-                        let (before, after) = name.to_str()?.split_once('_')?;
-                        Some(before == "replays" && after.parse::<u32>().ok()? < model_steps)
-                    })
-                    .unwrap_or_default()
+            (|| {
+                Some(
+                    p.extension()? == "txt" && {
+                        let (before, after) = p.file_stem()?.to_str()?.split_once('_')?;
+                        before == "replays" && after.parse::<u32>().ok()? < model_steps
+                    },
+                )
+            })()
+            .unwrap_or_default()
         })
         .filter_map(|p| {
             Some(

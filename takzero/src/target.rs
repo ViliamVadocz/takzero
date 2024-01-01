@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, fmt, num::ParseFloatError, str::FromStr};
 
 use fast_tak::{
-    takparse::{ParseMoveError, ParseTpsError, Tps},
+    takparse::{ParseMoveError, ParsePtnError, ParseTpsError, Ptn, Tps},
     Game,
     Reserves,
     Symmetry,
@@ -129,6 +129,7 @@ pub fn policy_target_from_proportional_visits<E: Environment>(
         .collect()
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Replay<E: Environment> {
     pub env: E,
     pub actions: VecDeque<E::Action>,
@@ -173,7 +174,7 @@ where
     Reserves<N>: Default,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", Tps::from(self.env.clone()),)?;
+        write!(f, "[TPS \"{}\"]", Tps::from(self.env.clone()),)?;
         for action in &self.actions {
             write!(f, " {action}")?;
         }
@@ -183,6 +184,8 @@ where
 
 #[derive(Error, Debug)]
 pub enum ParseReplayError {
+    #[error("{0}")]
+    Ptn(#[from] ParsePtnError),
     #[error("missing TPS")]
     MissingTps,
     #[error("{0}")]
@@ -198,12 +201,11 @@ where
     type Err = ParseReplayError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut iter = s.split_whitespace();
-        let tps: Tps = iter.next().ok_or(ParseReplayError::MissingTps)?.parse()?;
-        let env = tps.into();
+        let ptn: Ptn = s.parse()?;
+        let env = ptn.tps().ok_or(ParseReplayError::MissingTps)?.into();
         Ok(Self {
             env,
-            actions: iter.map(str::parse).collect::<Result<_, _>>()?,
+            actions: ptn.moves().iter().copied().collect(),
         })
     }
 }
@@ -211,9 +213,16 @@ where
 #[cfg(test)]
 mod tests {
     use fast_tak::Game;
-    use rand::{seq::IteratorRandom, Rng, SeedableRng};
+    use rand::{
+        seq::{IteratorRandom, SliceRandom},
+        Rng,
+        SeedableRng,
+    };
 
-    use crate::{search::env::Environment, target::Target};
+    use crate::{
+        search::env::Environment,
+        target::{Replay, Target},
+    };
 
     #[test]
     fn target_consistency() {
@@ -223,7 +232,7 @@ mod tests {
         let mut actions = Vec::new();
         while env.terminal().is_none() {
             env.populate_actions(&mut actions);
-            let replay = Target {
+            let target = Target {
                 env: {
                     let mut c = env.clone();
                     c.reversible_plies = 0;
@@ -233,10 +242,40 @@ mod tests {
                 value: rng.gen(),
                 ube: rng.gen(),
             };
-            let string = replay.to_string();
+            let string = target.to_string();
             println!("{string}");
 
             let recovered: Target<_> = string.parse().unwrap();
+            let string_again = recovered.to_string();
+
+            assert_eq!(target, recovered);
+            assert_eq!(string, string_again);
+
+            env.step(actions.drain(..).choose(&mut rng).unwrap());
+        }
+    }
+
+    #[test]
+    fn replay_consistency() {
+        const SEED: u64 = 123;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
+        let mut env: Game<5, 4> = Game::default();
+        let mut actions = Vec::new();
+        while env.terminal().is_none() {
+            env.populate_actions(&mut actions);
+            let mut replay = Replay::new({
+                let mut c = env.clone();
+                c.reversible_plies = 0;
+                c
+            });
+            for action in actions.choose_multiple(&mut rng, 10) {
+                replay.push(*action);
+            }
+
+            let string = replay.to_string();
+            println!("{string}");
+
+            let recovered: Replay<_> = string.parse().unwrap();
             let string_again = recovered.to_string();
 
             assert_eq!(replay, recovered);
