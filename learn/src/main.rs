@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fmt,
     fs::{read_dir, OpenOptions},
     io::{BufRead, BufReader},
@@ -43,12 +44,14 @@ const _: () = assert_env::<Env>();
 const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
-const MINIMUM_TARGETS_PER_EPOCH: usize = 10_000;
+const MINIMUM_TARGETS: usize = 1_000;
 const BATCH_SIZE: usize = 128;
-const STEPS_PER_EPOCH: u32 = 100;
+const STEPS_PER_EPOCH: usize = 100;
 const EPOCHS_PER_EVALUATION: u32 = 10;
 const LEARNING_RATE: f64 = 1e-4;
-const STEPS_BEFORE_REANALYZE: u32 = 500;
+const STEPS_BEFORE_REANALYZE: usize = 500;
+const STEPS_PER_INTERACTION: usize = 1;
+const EXPLOITATION_BUFFER_MAXIMUM_SIZE: usize = 20_000;
 
 const GAME_COUNT: usize = 64;
 const VISITS: usize = 400;
@@ -63,6 +66,7 @@ struct Args {
     directory: PathBuf,
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     env_logger::init();
     let args = Args::parse();
@@ -85,19 +89,72 @@ fn main() {
 
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
 
+    let mut reanalyze_buffer = VecDeque::new();
+    let mut exploitation_buffer = VecDeque::with_capacity(EXPLOITATION_BUFFER_MAXIMUM_SIZE);
+    // Track of how many interactions we have seen in selfplay.
+    let mut interactions_since_last = 0;
+    // Track how many targets we used from the reanalyze file.
+    let mut targets_already_read = 0;
+
     loop {
         let mut before = net.clone(DEVICE);
         before.vs_mut().freeze();
         let before_steps = steps;
 
         for _ in 0..EPOCHS_PER_EVALUATION {
-            let targets = wait_until_targets(&args.directory, steps);
-            log::info!("Target buffer contains {} targets", targets.len());
+            for epoch_steps in 0..STEPS_PER_EPOCH {
+                let using_reanalyze = steps >= STEPS_BEFORE_REANALYZE;
 
-            for _ in 0..STEPS_PER_EPOCH {
-                let batch = targets.choose_multiple(&mut rng, BATCH_SIZE);
-                let tensors = create_input_and_target_tensors(batch, &mut rng);
+                // Make sure there are enough targets.
+                loop {
+                    if let Err(err) = fill_exploitation_buffer_with_targets(
+                        &mut exploitation_buffer,
+                        &args.directory,
+                        steps,
+                        &mut interactions_since_last,
+                    ) {
+                        log::error!("{err}");
+                    }
+                    if let Err(err) = get_reanalyze_targets(
+                        &mut reanalyze_buffer,
+                        &args.directory,
+                        steps,
+                        &mut targets_already_read,
+                    ) {
+                        log::error!("{err}");
+                    }
+                    let enough_interactions =
+                        interactions_since_last * STEPS_PER_INTERACTION > epoch_steps;
+                    let enough_exploitation_targets = exploitation_buffer.len() >= MINIMUM_TARGETS;
+                    let enough_reanalyze =
+                        !using_reanalyze || reanalyze_buffer.len() >= BATCH_SIZE / 2;
+                    if enough_interactions && enough_exploitation_targets && enough_reanalyze {
+                        break;
+                    }
+                    let time = std::time::Duration::from_secs(30);
+                    log::info!("Not enough interactions or targets yet. Sleeping for {time:?}.");
+                }
 
+                // Create input and target tensors.
+                let tensors = if using_reanalyze {
+                    let mut targets = exploitation_buffer
+                        .iter()
+                        .choose_multiple(&mut rng, BATCH_SIZE / 2);
+                    targets.extend(reanalyze_buffer.iter().take(BATCH_SIZE / 2));
+                    let tensors = create_input_and_target_tensors(targets.into_iter(), &mut rng);
+                    reanalyze_buffer.drain(..BATCH_SIZE / 2);
+                    tensors
+                } else {
+                    create_input_and_target_tensors(
+                        exploitation_buffer
+                            .iter()
+                            .choose_multiple(&mut rng, BATCH_SIZE)
+                            .into_iter(),
+                        &mut rng,
+                    )
+                };
+
+                // Get network output.
                 let (policy, network_value, _network_ube) = net.forward_t(&tensors.input, true);
                 let log_softmax_network_policy = policy
                     .masked_fill(&tensors.mask, f64::from(f32::MIN))
@@ -126,6 +183,8 @@ fn main() {
             steps += STEPS_PER_EPOCH;
             net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
                 .unwrap();
+            interactions_since_last = 0;
+            targets_already_read = 0;
         }
 
         // Play some evaluation games.
@@ -146,7 +205,7 @@ fn main() {
 /// Get the path to the model file (ending with ".ot")
 /// which has the highest number of steps (number after '_')
 /// in the given directory.
-fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(u32, PathBuf)> {
+fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(usize, PathBuf)> {
     read_dir(directory)
         .unwrap()
         .filter_map(|res| res.ok().map(|entry| entry.path()))
@@ -157,7 +216,7 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(u32, PathBuf)>
                     .to_str()?
                     .split_once('_')?
                     .1
-                    .parse::<u32>()
+                    .parse::<usize>()
                     .ok()?,
                 p,
             ))
@@ -165,60 +224,55 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(u32, PathBuf)>
         .max_by_key(|(s, _)| *s)
 }
 
-/// Get a Vec of targets from `directory` for the current model step count.
-/// It will return Some only if the amount it larger than the `minimum_amount`
-fn get_targets(
+fn fill_exploitation_buffer_with_targets(
+    buffer: &mut VecDeque<Target<Env>>,
     directory: &Path,
-    model_steps: u32,
-    minimum_amount: usize,
-    self_play: bool,
-) -> Option<Vec<Target<Env>>> {
-    let file_name = if self_play {
-        format!("targets-selfplay_{model_steps:0>6}.txt")
-    } else {
-        format!("targets-reanalyze_{model_steps:0>6}.txt")
-    };
+    model_steps: usize,
+    interactions_since_last: &mut usize,
+) -> std::io::Result<()> {
+    let file_name = format!("target-selfplay_{model_steps:0>6}.txt");
     let path = directory.join(file_name);
-    let count = BufReader::new(OpenOptions::new().read(true).open(&path).ok()?)
+
+    let before = *interactions_since_last;
+    for target in BufReader::new(OpenOptions::new().read(true).open(path)?)
         .lines()
-        .count();
-    if count < minimum_amount {
-        log::debug!("Found {count} targets in the buffer.");
-        return None;
+        .skip(*interactions_since_last)
+        .filter_map(|line| line.unwrap().parse().ok())
+    {
+        *interactions_since_last += 1;
+        if buffer.len() >= EXPLOITATION_BUFFER_MAXIMUM_SIZE {
+            buffer.truncate(EXPLOITATION_BUFFER_MAXIMUM_SIZE - 1);
+        }
+        buffer.push_front(target);
     }
-    Some(
-        BufReader::new(OpenOptions::new().read(true).open(&path).ok()?)
-            .lines()
-            .filter_map(|line| line.unwrap().parse().ok())
-            .collect(),
-    )
+    log::debug!(
+        "added {} targets to exploitation buffer",
+        *interactions_since_last - before
+    );
+    Ok(())
 }
 
-fn wait_until_targets(directory: &Path, steps: u32) -> Vec<Target<Env>> {
-    loop {
-        let time = std::time::Duration::from_secs(30);
-        log::info!("Sleeping for {time:?} before checking targets.");
-        std::thread::sleep(time);
+fn get_reanalyze_targets(
+    buffer: &mut VecDeque<Target<Env>>,
+    directory: &Path,
+    model_steps: usize,
+    targets_already_read: &mut usize,
+) -> std::io::Result<()> {
+    let file_name = format!("target-reanalyze_{model_steps:0>6}.txt");
+    let path = directory.join(file_name);
 
-        // Sample only from fresh selfplay data.
-        if steps < STEPS_BEFORE_REANALYZE {
-            match get_targets(directory, steps, MINIMUM_TARGETS_PER_EPOCH, true) {
-                None => continue,
-                Some(targets) => break targets,
-            }
-        }
-        // Half of the targets are from selfplay, half from reanalyze.
-        if let Some(mut self_play_targets) =
-            get_targets(directory, steps, MINIMUM_TARGETS_PER_EPOCH / 2, true)
-        {
-            if let Some(mut reanalyze_targets) =
-                get_targets(directory, steps, MINIMUM_TARGETS_PER_EPOCH / 2, false)
-            {
-                self_play_targets.append(&mut reanalyze_targets);
-                break self_play_targets;
-            }
-        }
-    }
+    buffer.extend(
+        BufReader::new(OpenOptions::new().read(true).open(path)?)
+            .lines()
+            .skip(*targets_already_read)
+            .filter_map(|line| line.unwrap().parse().ok())
+            .map(|x| {
+                *targets_already_read += 1;
+                x
+            }),
+    );
+    log::debug!("reanalyze buffer now has {} targets", buffer.len());
+    Ok(())
 }
 
 struct Tensors {

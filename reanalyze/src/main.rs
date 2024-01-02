@@ -178,20 +178,16 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(u32, PathBuf)>
 }
 
 /// Sample a Vec of replays in the `directory`.
-fn get_replays(directory: &Path, model_steps: u32, rng: &mut impl Rng) -> Vec<Replay<Env>> {
+fn get_replays(directory: &Path, _model_steps: u32, rng: &mut impl Rng) -> Vec<Replay<Env>> {
     read_dir(directory)
         .unwrap()
         .filter_map(|res| res.ok().map(|entry| entry.path()))
+        .filter(|p| p.extension().map(|ext| ext == "txt").unwrap_or_default())
         .filter(|p| {
-            (|| {
-                Some(
-                    p.extension()? == "txt" && {
-                        let (before, after) = p.file_stem()?.to_str()?.split_once('_')?;
-                        before == "replays" && after.parse::<u32>().ok()? <= model_steps
-                    },
-                )
-            })()
-            .unwrap_or_default()
+            p.file_stem()
+                .and_then(|s| s.to_str()?.split_once('_'))
+                .map(|(before, _after)| before == "replays")
+                .unwrap_or_default()
         })
         .filter_map(|p| {
             Some(
