@@ -406,7 +406,7 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                             *white_node = Node::default();
                             *black_node = Node::default();
                             *done = true;
-                            log::debug!("{replay}");
+                            log::debug!("{}", replay.to_string().trim_end());
                             Some(terminal)
                         } else {
                             white_node.descend(&action);
