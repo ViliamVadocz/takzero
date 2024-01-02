@@ -115,13 +115,15 @@ fn main() {
                     ) {
                         log::error!("{err}");
                     }
-                    if let Err(err) = get_reanalyze_targets(
-                        &mut reanalyze_buffer,
-                        &args.directory,
-                        steps,
-                        &mut targets_already_read,
-                    ) {
-                        log::error!("{err}");
+                    if using_reanalyze {
+                        if let Err(err) = get_reanalyze_targets(
+                            &mut reanalyze_buffer,
+                            &args.directory,
+                            steps,
+                            &mut targets_already_read,
+                        ) {
+                            log::error!("{err}");
+                        }
                     }
                     let enough_interactions =
                         interactions_since_last * STEPS_PER_INTERACTION > epoch_steps;
@@ -133,6 +135,7 @@ fn main() {
                     }
                     let time = std::time::Duration::from_secs(30);
                     log::info!("Not enough interactions or targets yet. Sleeping for {time:?}.");
+                    std::thread::sleep(time);
                 }
 
                 // Create input and target tensors.
