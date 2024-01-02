@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "takzero",
-    "train",
     "puzzle",
     "evaluation",
     "graph",
