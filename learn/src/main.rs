@@ -20,6 +20,7 @@ use takzero::{
     search::{
         agent::Agent,
         env::{Environment, Terminal},
+        eval::Eval,
         node::{gumbel::batched_simulate, Node},
     },
     target::{Augment, Replay, Target},
@@ -44,7 +45,6 @@ const _: () = assert_env::<Env>();
 const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
-const MINIMUM_TARGETS: usize = 1_000;
 const BATCH_SIZE: usize = 128;
 const STEPS_PER_EPOCH: usize = 100;
 const EPOCHS_PER_EVALUATION: u32 = 10;
@@ -96,6 +96,34 @@ fn main() {
     // Track how many targets we used from the reanalyze file.
     let mut targets_already_read = 0;
 
+    // Initialize exploitation buffer with random games.
+    if steps == 0 {
+        let mut actions = Vec::new();
+        let mut states = Vec::new();
+        while exploitation_buffer.len() < EXPLOITATION_BUFFER_MAXIMUM_SIZE / 2 {
+            let mut game = Env::new_opening(&mut rng, &mut actions);
+            while game.terminal().is_none() {
+                states.push(game.clone());
+                game.populate_actions(&mut actions);
+                let action = actions.drain(..).choose(&mut rng).unwrap();
+                game.step(action);
+            }
+            let mut value = Eval::from(game.terminal().unwrap());
+            for env in states.drain(..).rev() {
+                env.populate_actions(&mut actions);
+                let p = 1.0 / actions.len() as f32;
+                let policy = actions.drain(..).map(|a| (a, p)).collect();
+                value = value.negate();
+                exploitation_buffer.push_front(Target {
+                    env,
+                    policy,
+                    value: f32::from(value),
+                    ube: 0.0, // TODO
+                });
+            }
+        }
+    }
+
     loop {
         let mut before = net.clone(DEVICE);
         before.vs_mut().freeze();
@@ -127,13 +155,12 @@ fn main() {
                     }
                     let enough_interactions =
                         interactions_since_last * STEPS_PER_INTERACTION > epoch_steps;
-                    let enough_exploitation_targets = exploitation_buffer.len() >= MINIMUM_TARGETS;
                     let enough_reanalyze =
                         !using_reanalyze || reanalyze_buffer.len() >= BATCH_SIZE / 2;
-                    if enough_interactions && enough_exploitation_targets && enough_reanalyze {
+                    if enough_interactions && enough_reanalyze {
                         break;
                     }
-                    let time = std::time::Duration::from_secs(30);
+                    let time = std::time::Duration::from_secs(10);
                     log::info!(
                         "Not enough interactions or targets yet.\nSince the last epoch there were \
                          {epoch_steps} training steps\nand {interactions_since_last} \
