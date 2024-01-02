@@ -63,6 +63,86 @@ struct Args {
     directory: PathBuf,
 }
 
+fn main() {
+    env_logger::init();
+    let args = Args::parse();
+
+    let seed: u64 = rand::thread_rng().gen();
+    log::info!("seed = {seed}");
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+
+    let (mut net, mut steps) =
+        if let Some((steps, model_path)) = get_model_path_with_most_steps(&args.directory) {
+            log::info!("Resuming at {steps} steps with {}", model_path.display());
+            (
+                Net::load(model_path, DEVICE).expect("Model file should be loadable"),
+                steps,
+            )
+        } else {
+            log::info!("Creating new model");
+            (Net::new(DEVICE, Some(rng.gen())), 0)
+        };
+
+    let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
+
+    loop {
+        let mut before = net.clone(DEVICE);
+        before.vs_mut().freeze();
+        let before_steps = steps;
+
+        for _ in 0..EPOCHS_PER_EVALUATION {
+            let targets = wait_until_targets(&args.directory, steps);
+            log::info!("Target buffer contains {} targets", targets.len());
+
+            for _ in 0..STEPS_PER_EPOCH {
+                let batch = targets.choose_multiple(&mut rng, BATCH_SIZE);
+                let tensors = create_input_and_target_tensors(batch, &mut rng);
+
+                let (policy, network_value, _network_ube) = net.forward_t(&tensors.input, true);
+                let log_softmax_network_policy = policy
+                    .masked_fill(&tensors.mask, f64::from(f32::MIN))
+                    .view([-1, output_size::<N>() as i64])
+                    .log_softmax(1, Kind::Float);
+
+                // Calculate loss.
+                let loss_policy = -(log_softmax_network_policy * &tensors.target_policy)
+                    .sum(Kind::Float)
+                    / i64::try_from(BATCH_SIZE).unwrap();
+                let loss_value = (tensors.target_value - network_value)
+                    .square()
+                    .mean(Kind::Float);
+                // TODO: Add UBE back later.
+                // let loss_ube = (target_ube - network_ube).square().mean(Kind::Float);
+                let loss = &loss_policy + &loss_value; //+ &loss_ube;
+                log::info!(
+                    "loss = {loss:?}, loss_policy = {loss_policy:?}, loss_value = {loss_value:?}"
+                );
+
+                // Take step.
+                opt.backward_step(&loss);
+            }
+            opt.zero_grad();
+
+            steps += STEPS_PER_EPOCH;
+            net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
+                .unwrap();
+        }
+
+        // Play some evaluation games.
+        let mut actions = Vec::new();
+        let games: [_; GAME_COUNT] =
+            std::array::from_fn(|_| Env::new_opening(&mut rng, &mut actions));
+        log::info!(
+            "{before_steps} vs {steps}: {:?}",
+            compete(&before, &net, &games)
+        );
+        log::info!(
+            "{steps} vs {before_steps}: {:?}",
+            compete(&net, &before, &games),
+        );
+    }
+}
+
 /// Get the path to the model file (ending with ".ot")
 /// which has the highest number of steps (number after '_')
 /// in the given directory.
@@ -188,86 +268,6 @@ fn create_input_and_target_tensors<'a>(
         target_value,
         target_policy,
         target_ube,
-    }
-}
-
-fn main() {
-    env_logger::init();
-    let args = Args::parse();
-
-    let seed: u64 = rand::thread_rng().gen();
-    log::info!("seed = {seed}");
-    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-
-    let (mut net, mut steps) =
-        if let Some((steps, model_path)) = get_model_path_with_most_steps(&args.directory) {
-            log::info!("Resuming at {steps} steps with {}", model_path.display());
-            (
-                Net::load(model_path, DEVICE).expect("Model file should be loadable"),
-                steps,
-            )
-        } else {
-            log::info!("Creating new model");
-            (Net::new(DEVICE, Some(rng.gen())), 0)
-        };
-
-    let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
-
-    loop {
-        let mut before = net.clone(DEVICE);
-        before.vs_mut().freeze();
-        let before_steps = steps;
-
-        for _ in 0..EPOCHS_PER_EVALUATION {
-            let targets = wait_until_targets(&args.directory, steps);
-            log::info!("Target buffer contains {} targets", targets.len());
-
-            for _ in 0..STEPS_PER_EPOCH {
-                let batch = targets.choose_multiple(&mut rng, BATCH_SIZE);
-                let tensors = create_input_and_target_tensors(batch, &mut rng);
-
-                let (policy, network_value, _network_ube) = net.forward_t(&tensors.input, true);
-                let log_softmax_network_policy = policy
-                    .masked_fill(&tensors.mask, f64::from(f32::MIN))
-                    .view([-1, output_size::<N>() as i64])
-                    .log_softmax(1, Kind::Float);
-
-                // Calculate loss.
-                let loss_policy = -(log_softmax_network_policy * &tensors.target_policy)
-                    .sum(Kind::Float)
-                    / i64::try_from(BATCH_SIZE).unwrap();
-                let loss_value = (tensors.target_value - network_value)
-                    .square()
-                    .mean(Kind::Float);
-                // TODO: Add UBE back later.
-                // let loss_ube = (target_ube - network_ube).square().mean(Kind::Float);
-                let loss = &loss_policy + &loss_value; //+ &loss_ube;
-                log::info!(
-                    "loss = {loss:?}, loss_policy = {loss_policy:?}, loss_value = {loss_value:?}"
-                );
-
-                // Take step.
-                opt.backward_step(&loss);
-            }
-            opt.zero_grad();
-
-            steps += STEPS_PER_EPOCH;
-            net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
-                .unwrap();
-        }
-
-        // Play some evaluation games.
-        let mut actions = Vec::new();
-        let games: [_; GAME_COUNT] =
-            std::array::from_fn(|_| Env::new_opening(&mut rng, &mut actions));
-        log::info!(
-            "{before_steps} vs {steps}: {:?}",
-            compete(&before, &net, &games)
-        );
-        log::info!(
-            "{steps} vs {before_steps}: {:?}",
-            compete(&net, &before, &games),
-        );
     }
 }
 
