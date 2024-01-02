@@ -233,7 +233,7 @@ fn fill_exploitation_buffer_with_targets(
     model_steps: usize,
     interactions_since_last: &mut usize,
 ) -> std::io::Result<()> {
-    let file_name = format!("target-selfplay_{model_steps:0>6}.txt");
+    let file_name = format!("targets-selfplay_{model_steps:0>6}.txt");
     let path = directory.join(file_name);
 
     let before = *interactions_since_last;
@@ -261,7 +261,7 @@ fn get_reanalyze_targets(
     model_steps: usize,
     targets_already_read: &mut usize,
 ) -> std::io::Result<()> {
-    let file_name = format!("target-reanalyze_{model_steps:0>6}.txt");
+    let file_name = format!("targets-reanalyze_{model_steps:0>6}.txt");
     let path = directory.join(file_name);
 
     buffer.extend(
