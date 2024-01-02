@@ -151,6 +151,8 @@ fn main() {
             log::error!(
                 "Could not save targets to file [{err}], so here they are instead:\n{contents}"
             );
+        } else {
+            log::info!("Saved targets to file.");
         }
     }
 }

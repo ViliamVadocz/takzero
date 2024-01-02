@@ -134,7 +134,12 @@ fn main() {
                         break;
                     }
                     let time = std::time::Duration::from_secs(30);
-                    log::info!("Not enough interactions or targets yet. Sleeping for {time:?}.");
+                    log::info!(
+                        "Not enough interactions or targets yet.\nSince the last epoch there were \
+                         {epoch_steps} training steps\nand {interactions_since_last} \
+                         interactions. The reanalyze buffer has {} targets. Sleeping for {time:?}.",
+                        reanalyze_buffer.len()
+                    );
                     std::thread::sleep(time);
                 }
 
@@ -183,6 +188,7 @@ fn main() {
             }
             opt.zero_grad();
 
+            log::info!("Saving model (end of epoch).");
             steps += STEPS_PER_EPOCH;
             net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
                 .unwrap();
@@ -248,10 +254,10 @@ fn fill_exploitation_buffer_with_targets(
         }
         buffer.push_front(target);
     }
-    log::debug!(
-        "added {} targets to exploitation buffer",
-        *interactions_since_last - before
-    );
+    let added = *interactions_since_last - before;
+    if added > 0 {
+        log::debug!("Added {} targets to exploitation buffer.", added);
+    }
     Ok(())
 }
 
@@ -274,7 +280,7 @@ fn get_reanalyze_targets(
                 x
             }),
     );
-    log::debug!("reanalyze buffer now has {} targets", buffer.len());
+    log::debug!("Reanalyze buffer now has {} targets.", buffer.len());
     Ok(())
 }
 
