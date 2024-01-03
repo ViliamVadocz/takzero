@@ -127,7 +127,7 @@ fn main() {
         let before_steps = steps;
 
         for _ in 0..EPOCHS_PER_EVALUATION {
-            for _ in 0..STEPS_PER_EPOCH {
+            for epoch_steps in 0..STEPS_PER_EPOCH {
                 let using_reanalyze = steps >= STEPS_BEFORE_REANALYZE;
 
                 // Make sure there are enough targets.
@@ -152,7 +152,7 @@ fn main() {
                     }
                     let enough_interactions = (total_interactions + interactions_since_last)
                         * STEPS_PER_INTERACTION
-                        > steps;
+                        > (steps + epoch_steps);
                     let enough_reanalyze =
                         !using_reanalyze || reanalyze_buffer.len() >= BATCH_SIZE / 2;
                     if enough_interactions && enough_reanalyze {
@@ -162,11 +162,12 @@ fn main() {
                     #[rustfmt::skip]
                     log::info!(
                         "Not enough interactions or targets yet.\n\
-                        Training steps: {steps}\n\
+                        Training steps: {}\n\
                         Interactions: {}\n\
                         Exploitation buffer size: {}\n\
                         Reanalyze buffer size: {}\n\
                         Sleeping for {time:?}.",
+                        steps + epoch_steps,
                         total_interactions + interactions_since_last,
                         exploitation_buffer.len(),
                         reanalyze_buffer.len()
@@ -216,11 +217,11 @@ fn main() {
 
                 // Take step.
                 opt.backward_step(&loss);
-                steps += 1;
             }
             opt.zero_grad();
 
             log::info!("Saving model (end of epoch).");
+            steps += STEPS_PER_EPOCH;
             net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
                 .unwrap();
             total_interactions += interactions_since_last;
