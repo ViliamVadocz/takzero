@@ -10,7 +10,7 @@ use rayon::prelude::*;
 use sqlite::{Connection, Value};
 use takzero::{
     network::{
-        net4::{Env, Net, N},
+        net5::{Env, Net, N},
         Network,
     },
     search::{
