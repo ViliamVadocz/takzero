@@ -114,15 +114,20 @@ fn main() {
             .into_iter()
             .zip(replays)
             .map(|(node, replay)| {
-                let value = node
-                    .children
-                    .iter()
-                    .map(|(_, child)| child.evaluation.negate())
-                    .max()
-                    .unwrap()
-                    .into();
+                let value = if node.evaluation.is_known() {
+                    node.evaluation
+                } else {
+                    node.children
+                        .iter()
+                        .max_by_key(|(_, child)| child.visit_count)
+                        .expect("all non-terminal nodes should have at least one child")
+                        .1
+                        .evaluation
+                        .negate()
+                }
+                .into();
                 let policy = policy_target_from_proportional_visits(&node);
-                let ube = 0.0; // TODO
+                let ube = 1.0; // TODO
                 Target {
                     env: replay.env,
                     policy,
