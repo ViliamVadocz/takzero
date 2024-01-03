@@ -45,7 +45,7 @@ const BATCH_SIZE: usize = 128;
 const STEPS_PER_EPOCH: usize = 200;
 const EPOCHS_PER_EVALUATION: u32 = 5;
 const LEARNING_RATE: f64 = 1e-4;
-const STEPS_BEFORE_REANALYZE: usize = 500;
+const STEPS_BEFORE_REANALYZE: usize = 1000;
 const STEPS_PER_INTERACTION: usize = 1;
 const EXPLOITATION_BUFFER_MAXIMUM_SIZE: usize = 20_000;
 
@@ -94,7 +94,7 @@ fn main() {
     let mut targets_already_read = 0;
 
     // Initialize exploitation buffer with random games.
-    if steps == 0 {
+    {
         let mut actions = Vec::new();
         let mut states = Vec::new();
         while exploitation_buffer.len() < EXPLOITATION_BUFFER_MAXIMUM_SIZE / 2 {
