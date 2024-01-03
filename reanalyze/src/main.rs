@@ -29,7 +29,7 @@ const _: () = assert_env::<Env>();
 const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
-const BATCH_SIZE: usize = 256;
+const BATCH_SIZE: usize = 128;
 const VISITS: u32 = 800;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 
