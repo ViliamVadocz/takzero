@@ -31,9 +31,6 @@ struct Args {
     /// Path to models
     #[arg(long)]
     model_path: PathBuf,
-    /// Number of games to play
-    #[arg(long)]
-    games: u32,
 }
 
 fn main() {
