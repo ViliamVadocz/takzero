@@ -87,6 +87,7 @@ fn main() {
 
     let mut reanalyze_buffer = VecDeque::new();
     let mut exploitation_buffer = VecDeque::with_capacity(EXPLOITATION_BUFFER_MAXIMUM_SIZE);
+    let mut total_interactions = steps / STEPS_PER_INTERACTION;
     // Track of how many interactions we have seen in selfplay.
     let mut interactions_since_last = 0;
     // Track how many targets we used from the reanalyze file.
@@ -114,7 +115,7 @@ fn main() {
                     env,
                     policy,
                     value: f32::from(value),
-                    ube: 0.0, // TODO
+                    ube: 1.0,
                 });
             }
         }
@@ -149,8 +150,9 @@ fn main() {
                             log::error!("{err}");
                         }
                     }
-                    let enough_interactions =
-                        interactions_since_last * STEPS_PER_INTERACTION > epoch_steps;
+                    let enough_interactions = (total_interactions + interactions_since_last)
+                        * STEPS_PER_INTERACTION
+                        > steps;
                     let enough_reanalyze =
                         !using_reanalyze || reanalyze_buffer.len() >= BATCH_SIZE / 2;
                     if enough_interactions && enough_reanalyze {
@@ -215,6 +217,7 @@ fn main() {
             steps += STEPS_PER_EPOCH;
             net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
                 .unwrap();
+            total_interactions += interactions_since_last;
             interactions_since_last = 0;
             targets_already_read = 0;
         }
