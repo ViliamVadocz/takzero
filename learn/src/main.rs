@@ -42,8 +42,8 @@ const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
-const STEPS_PER_EPOCH: usize = 100;
-const EPOCHS_PER_EVALUATION: u32 = 10;
+const STEPS_PER_EPOCH: usize = 200;
+const EPOCHS_PER_EVALUATION: u32 = 5;
 const LEARNING_RATE: f64 = 1e-4;
 const STEPS_BEFORE_REANALYZE: usize = 500;
 const STEPS_PER_INTERACTION: usize = 1;
@@ -127,7 +127,7 @@ fn main() {
         let before_steps = steps;
 
         for _ in 0..EPOCHS_PER_EVALUATION {
-            for epoch_steps in 0..STEPS_PER_EPOCH {
+            for _ in 0..STEPS_PER_EPOCH {
                 let using_reanalyze = steps >= STEPS_BEFORE_REANALYZE;
 
                 // Make sure there are enough targets.
@@ -159,10 +159,16 @@ fn main() {
                         break;
                     }
                     let time = std::time::Duration::from_secs(10);
+                    #[rustfmt::skip]
                     log::info!(
-                        "Not enough interactions or targets yet.\nSince the last epoch there were \
-                         {epoch_steps} training steps\nand {interactions_since_last} \
-                         interactions. The reanalyze buffer has {} targets. Sleeping for {time:?}.",
+                        "Not enough interactions or targets yet.\n\
+                        Training steps: {steps}\n\
+                        Interactions: {}\n\
+                        Exploitation buffer size: {}\n\
+                        Reanalyze buffer size: {}\n\
+                        Sleeping for {time:?}.",
+                        total_interactions + interactions_since_last,
+                        exploitation_buffer.len(),
                         reanalyze_buffer.len()
                     );
                     std::thread::sleep(time);
@@ -210,11 +216,11 @@ fn main() {
 
                 // Take step.
                 opt.backward_step(&loss);
+                steps += 1;
             }
             opt.zero_grad();
 
             log::info!("Saving model (end of epoch).");
-            steps += STEPS_PER_EPOCH;
             net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
                 .unwrap();
             total_interactions += interactions_since_last;
