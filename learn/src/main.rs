@@ -229,18 +229,18 @@ fn main() {
             targets_already_read = 0;
         }
 
-        // Play some evaluation games.
-        let mut actions = Vec::new();
-        let games: [_; GAME_COUNT] =
-            std::array::from_fn(|_| Env::new_opening(&mut rng, &mut actions));
-        log::info!(
-            "{before_steps} vs {steps}: {:?}",
-            compete(&before, &net, &games)
-        );
-        log::info!(
-            "{steps} vs {before_steps}: {:?}",
-            compete(&net, &before, &games),
-        );
+        // // Play some evaluation games.
+        // let mut actions = Vec::new();
+        // let games: [_; GAME_COUNT] =
+        //     std::array::from_fn(|_| Env::new_opening(&mut rng, &mut
+        // actions)); log::info!(
+        //     "{before_steps} vs {steps}: {:?}",
+        //     compete(&before, &net, &games)
+        // );
+        // log::info!(
+        //     "{steps} vs {before_steps}: {:?}",
+        //     compete(&net, &before, &games),
+        // );
     }
 }
 
