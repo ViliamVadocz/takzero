@@ -7,22 +7,15 @@ use std::{
 };
 
 use clap::Parser;
-use ordered_float::NotNan;
 use rand::prelude::*;
-use rayon::prelude::*;
 use takzero::{
     network::{
         net5::{Env, Net, N},
         repr::{game_to_tensor, move_mask, output_size, policy_tensor},
         Network,
     },
-    search::{
-        agent::Agent,
-        env::{Environment, Terminal},
-        eval::Eval,
-        node::{gumbel::batched_simulate, Node},
-    },
-    target::{Augment, Replay, Target},
+    search::{agent::Agent, env::Environment, eval::Eval},
+    target::{Augment, Target},
 };
 use tch::{
     nn::{Adam, OptimizerConfig},
@@ -48,11 +41,6 @@ const LEARNING_RATE: f64 = 1e-4;
 const STEPS_BEFORE_REANALYZE: usize = 1000;
 const STEPS_PER_INTERACTION: usize = 1;
 const EXPLOITATION_BUFFER_MAXIMUM_SIZE: usize = 20_000;
-
-const GAME_COUNT: usize = 64;
-const VISITS: usize = 400;
-const BETA: [f32; GAME_COUNT] = [0.0; GAME_COUNT];
-const MAX_MOVES: usize = 40;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -364,130 +352,5 @@ fn create_input_and_target_tensors<'a>(
         target_value,
         target_policy,
         target_ube,
-    }
-}
-
-/// Pit two networks against each other in the given games. Evaluation is from
-/// the perspective of white.
-#[allow(dead_code)]
-fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
-    let mut evaluation = Evaluation::default();
-
-    let mut games = games.to_owned();
-    let mut white_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
-    let mut black_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
-    let mut context = <Net as Agent<Env>>::Context::new(0.0);
-
-    let mut actions: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
-    let mut trajectories: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
-
-    let mut game_replays: Vec<_> = games.iter().cloned().map(Replay::new).collect();
-
-    let mut done = [false; BATCH_SIZE];
-
-    'outer: for _ in 0..MAX_MOVES {
-        for (agent, is_white) in [(white, true), (black, false)] {
-            if done.iter().all(|x| *x) {
-                break 'outer;
-            }
-
-            for _ in 0..VISITS {
-                batched_simulate(
-                    if is_white {
-                        &mut white_nodes
-                    } else {
-                        &mut black_nodes
-                    },
-                    &games,
-                    agent,
-                    &BETA,
-                    &mut context,
-                    &mut actions,
-                    &mut trajectories,
-                );
-            }
-            let top_actions = if is_white { &white_nodes } else { &black_nodes }
-                .par_iter()
-                .map(|node| {
-                    node.children
-                        .iter()
-                        .max_by_key(|(_, child)| {
-                            child
-                                .evaluation
-                                .negate()
-                                .map(|_| NotNan::new(child.visit_count as f32).unwrap())
-                        })
-                        .map(|(a, _)| *a)
-                })
-                .collect::<Vec<_>>();
-
-            let terminals: Vec<_> = top_actions
-                .into_par_iter()
-                .zip(games.par_iter_mut())
-                .zip(white_nodes.par_iter_mut())
-                .zip(black_nodes.par_iter_mut())
-                .zip(game_replays.par_iter_mut())
-                .zip(done.par_iter_mut())
-                .filter(|(_, done)| !**done)
-                .filter_map(
-                    |(((((action, game), white_node), black_node), replay), done)| {
-                        let action = action.unwrap();
-                        game.step(action);
-                        replay.push(action);
-
-                        if let Some(terminal) = game.terminal() {
-                            *game = Env::default();
-                            *white_node = Node::default();
-                            *black_node = Node::default();
-                            *done = true;
-                            log::debug!("{}", replay.to_string().trim_end());
-                            Some(terminal)
-                        } else {
-                            white_node.descend(&action);
-                            black_node.descend(&action);
-                            None
-                        }
-                    },
-                )
-                .collect();
-
-            for terminal in terminals {
-                // This may seem opposite of what is should be.
-                // That is because we are looking at the terminal after a move was made, so a
-                // loss for the "current player" is actually a win for the one who just played
-                match (terminal, is_white) {
-                    (Terminal::Loss, true) | (Terminal::Win, false) => evaluation.wins += 1,
-                    (Terminal::Win, true) | (Terminal::Loss, false) => evaluation.losses += 1,
-                    (Terminal::Draw, _) => evaluation.draws += 1,
-                }
-            }
-        }
-    }
-    evaluation
-}
-
-use std::{iter::Sum, ops::AddAssign};
-
-#[derive(Debug, Default)]
-pub struct Evaluation {
-    pub wins: u32,
-    pub losses: u32,
-    pub draws: u32,
-}
-
-impl AddAssign for Evaluation {
-    fn add_assign(&mut self, rhs: Self) {
-        self.wins += rhs.wins;
-        self.losses += rhs.losses;
-        self.draws += rhs.draws;
-    }
-}
-
-impl Sum for Evaluation {
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(Self::default(), |mut a, b| {
-            a += b;
-            a
-        })
     }
 }
