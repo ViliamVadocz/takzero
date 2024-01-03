@@ -78,7 +78,7 @@ impl<A: fmt::Display> fmt::Display for ActionInfo<A> {
             "{: ^10} {: ^9} {: ^9} {: ^9} {: ^9} {: ^8} {: ^9} {: ^14}",
             self.action.to_string(),
             self.visit_count,
-            format!("{:.4}", self.logit.into_inner()),
+            format!("{:+.4}", self.logit.into_inner()),
             format!("{:.4}", self.probability.into_inner()),
             format!("{:.4}", self.improved_policy.into_inner()),
             format!("{:.4}", self.puct),

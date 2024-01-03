@@ -1,5 +1,9 @@
-use std::io::{BufRead, Write};
+use std::{
+    io::{BufRead, Write},
+    path::PathBuf,
+};
 
+use clap::Parser;
 use fast_tak::{takparse::Move, Game};
 use takzero::{
     network::{
@@ -18,8 +22,17 @@ type Net = Net4;
 const DEVICE: Device = Device::Cuda(0);
 const BETA: f32 = 0.0;
 
+#[derive(Parser, Debug)]
+struct Args {
+    /// Path to model to load.
+    #[arg(long)]
+    model_path: PathBuf,
+}
+
 fn main() {
-    let agent = Net::load(".\\model_001000.ot", DEVICE).unwrap();
+    let args = Args::parse();
+
+    let agent = Net::load(args.model_path, DEVICE).unwrap();
     let mut env = Env::default();
     let mut node = Node::default();
     let mut context = RndNormalizationContext::new(0.0);
