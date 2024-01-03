@@ -7,13 +7,12 @@ use std::{
 };
 
 use clap::Parser;
-use fast_tak::Game;
 use ordered_float::NotNan;
 use rand::prelude::*;
 use rayon::prelude::*;
 use takzero::{
     network::{
-        net4::Net4 as Net,
+        net5::{Env, Net, N},
         repr::{game_to_tensor, move_mask, output_size, policy_tensor},
         Network,
     },
@@ -33,9 +32,6 @@ use tch::{
 };
 
 // The environment to learn.
-const N: usize = 4;
-const HALF_KOMI: i8 = 4;
-type Env = Game<N, HALF_KOMI>;
 #[rustfmt::skip] #[allow(dead_code)]
 const fn assert_env<E: Environment>() where Target<E>: Augment + fmt::Display {}
 const _: () = assert_env::<Env>();

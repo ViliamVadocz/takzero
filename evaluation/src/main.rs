@@ -10,14 +10,14 @@ use std::{
 
 use clap::Parser;
 use evaluation::Evaluation;
-use fast_tak::{
-    takparse::{Move, Tps},
-    Game,
-};
+use fast_tak::takparse::{Move, Tps};
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use rayon::prelude::*;
 use takzero::{
-    network::{net4::Net4, Network},
+    network::{
+        net4::{Env, Net, N},
+        Network,
+    },
     search::{
         agent::Agent,
         env::{Environment, Terminal},
@@ -27,11 +27,6 @@ use takzero::{
 use tch::Device;
 
 mod evaluation;
-
-const N: usize = 4;
-const HALF_KOMI: i8 = 4;
-type Env = Game<N, HALF_KOMI>;
-type Net = Net4;
 
 const DEVICE: Device = Device::Cuda(0);
 

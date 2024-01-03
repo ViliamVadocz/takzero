@@ -14,7 +14,7 @@ use fast_tak::{
 use rayon::prelude::*;
 use sqlite::{Connection, Value};
 use takzero::{
-    network::{net4::Net4, Network},
+    network::{net4::Net, Network},
     search::{
         agent::Agent,
         node::{gumbel::gumbel_sequential_halving, Node},
@@ -38,7 +38,6 @@ struct Args {
 
 const N: usize = 4;
 const HALF_KOMI: i8 = 4;
-type Net = Net4;
 type Env = Game<N, HALF_KOMI>;
 const BATCH_SIZE: usize = 256;
 const SAMPLED: usize = usize::MAX;

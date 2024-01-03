@@ -4,20 +4,15 @@ use std::{
 };
 
 use clap::Parser;
-use fast_tak::{takparse::Move, Game};
+use fast_tak::takparse::Move;
 use takzero::{
     network::{
-        net4::{Net4, RndNormalizationContext},
+        net4::{Env, Net, RndNormalizationContext},
         Network,
     },
     search::node::Node,
 };
 use tch::Device;
-
-const N: usize = 4;
-const HALF_KOMI: i8 = 4;
-type Env = Game<N, HALF_KOMI>;
-type Net = Net4;
 
 const DEVICE: Device = Device::Cuda(0);
 const BETA: f32 = 0.0;
