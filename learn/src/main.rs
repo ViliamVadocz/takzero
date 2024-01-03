@@ -122,9 +122,9 @@ fn main() {
     }
 
     loop {
-        let mut before = net.clone(DEVICE);
-        before.vs_mut().freeze();
-        let before_steps = steps;
+        // let mut before = net.clone(DEVICE);
+        // before.vs_mut().freeze();
+        // let before_steps = steps;
 
         for _ in 0..EPOCHS_PER_EVALUATION {
             for epoch_steps in 0..STEPS_PER_EPOCH {
@@ -369,6 +369,7 @@ fn create_input_and_target_tensors<'a>(
 
 /// Pit two networks against each other in the given games. Evaluation is from
 /// the perspective of white.
+#[allow(dead_code)]
 fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
     let mut evaluation = Evaluation::default();
 

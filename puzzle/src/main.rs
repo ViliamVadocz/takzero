@@ -1,9 +1,4 @@
-use std::{
-    array,
-    cmp::Ordering,
-    fs::{read_dir, read_to_string},
-    path::PathBuf,
-};
+use std::{array, cmp::Ordering, fs::read_dir, path::PathBuf};
 
 use clap::Parser;
 use fast_tak::{
@@ -14,10 +9,13 @@ use fast_tak::{
 use rayon::prelude::*;
 use sqlite::{Connection, Value};
 use takzero::{
-    network::{net4::Net, Network},
+    network::{
+        net4::{Env, Net, N},
+        Network,
+    },
     search::{
         agent::Agent,
-        node::{gumbel::gumbel_sequential_halving, Node},
+        node::{gumbel::batched_simulate, Node},
     },
 };
 use tch::Device;
@@ -27,26 +25,18 @@ struct Args {
     /// Path where models are stored
     #[arg(long)]
     model_path: PathBuf,
-    /// Path to RND
-    #[cfg(not(feature = "baseline"))]
-    #[arg(long)]
-    rnd_path: PathBuf,
     /// Path to puzzle database
     #[arg(long)]
     puzzle_db_path: PathBuf,
 }
 
-const N: usize = 4;
-const HALF_KOMI: i8 = 4;
-type Env = Game<N, HALF_KOMI>;
 const BATCH_SIZE: usize = 256;
-const SAMPLED: usize = usize::MAX;
-const SIMULATIONS: u32 = 1024;
+const VISITS: u32 = 1024;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const DEVICE: Device = Device::Cuda(0);
 
-const DEPTH_3_LIMIT: Option<i64> = Some(1024);
-const DEPTH_5_LIMIT: Option<i64> = Some(1024);
+const DEPTH_3_LIMIT: Option<i64> = Some(256);
+const DEPTH_5_LIMIT: Option<i64> = Some(256);
 
 fn main() {
     env_logger::init();
@@ -59,51 +49,24 @@ fn real_main() {
     let mut paths: Vec<_> = read_dir(args.model_path)
         .unwrap()
         .map(|entry| entry.unwrap().path())
+        .filter(|p| p.extension().map(|ext| ext == "ot").unwrap_or_default())
         .collect();
     paths.sort();
-
-    #[cfg(not(feature = "baseline"))]
-    let rnd_losses: Vec<f64> = read_to_string(args.rnd_path)
-        .unwrap()
-        .lines()
-        .map(str::parse)
-        .collect::<Result<_, _>>()
-        .unwrap();
 
     for path in paths {
         let Ok(net) = Net::load(&path, DEVICE) else {
             log::warn!("Cannot load {}", path.display());
             continue;
         };
-        let rnd_loss = extract_rnd(&rnd_losses, &path.file_name().unwrap().to_string_lossy());
         log::info!("Benchmarking {}", path.display());
         let connection = sqlite::open(&args.puzzle_db_path).unwrap();
-        run_benchmark(
-            &connection,
-            3,
-            DEPTH_3_LIMIT,
-            &net,
-            #[cfg(not(feature = "baseline"))]
-            rnd_loss,
-        );
-        run_benchmark(
-            &connection,
-            5,
-            DEPTH_5_LIMIT,
-            &net,
-            #[cfg(not(feature = "baseline"))]
-            rnd_loss,
-        );
+        run_benchmark(&connection, 3, DEPTH_3_LIMIT, &net);
+        run_benchmark(&connection, 5, DEPTH_5_LIMIT, &net);
     }
 }
 
-fn run_benchmark(
-    connection: &Connection,
-    depth: i64,
-    limit: Option<i64>,
-    agent: &Net,
-    #[cfg(not(feature = "baseline"))] rnd_loss: f64,
-) where
+fn run_benchmark(connection: &Connection, depth: i64, limit: Option<i64>, agent: &Net)
+where
     Reserves<N>: Default,
 {
     let query = "SELECT * FROM tinues t
@@ -112,7 +75,7 @@ fn run_benchmark(
         AND g.komi = :komi
         AND t.tinue_depth = :depth
         AND g.id NOT IN (149657, 149584, 395154)
-    ORDER BY t.id
+    ORDER BY t.id DESC
     LIMIT :limit";
     let mut statement = connection.prepare(query).unwrap();
     statement
@@ -154,32 +117,29 @@ fn run_benchmark(
     // Attempt to solve puzzles.
     let mut wins = 0;
     for envs in puzzles.chunks(BATCH_SIZE) {
-        #[cfg(not(feature = "baseline"))]
-        let mut context = <Net as Agent<Env>>::Context::new(rnd_loss);
-        #[cfg(feature = "baseline")]
         let mut context = <Net as Agent<Env>>::Context::new(0.0);
 
         let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
         let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
         let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-        let _top_actions = gumbel_sequential_halving(
-            &mut nodes[..envs.len()],
-            envs,
-            agent,
-            SAMPLED,
-            SIMULATIONS,
-            &BETA,
-            &mut context,
-            &mut actions[..envs.len()],
-            &mut trajectories[..envs.len()],
-            None::<&mut rand::rngs::ThreadRng>,
-        );
-        let local_wins = nodes
+        for _ in 0..VISITS {
+            batched_simulate(
+                &mut nodes,
+                envs,
+                agent,
+                &BETA,
+                &mut context,
+                &mut actions,
+                &mut trajectories,
+            );
+        }
+
+        let proven_wins = nodes
             .iter()
             .take(envs.len())
             .filter(|env| env.evaluation.is_win())
             .count();
-        wins += local_wins;
+        wins += proven_wins;
     }
 
     log::info!("depth {depth}: {wins: >5} / {row_num: >5}");
@@ -222,16 +182,4 @@ fn parse_piece(s: Option<&str>) -> Piece {
         Some("C") => Piece::Cap,
         _ => panic!("unknown piece"),
     }
-}
-
-const RND_SMOOTHING: usize = 100;
-
-#[allow(clippy::cast_precision_loss)]
-fn extract_rnd(rnd_losses: &[f64], name: &str) -> f64 {
-    let (steps, _) = name.split_once('_').expect("unexpected file name format");
-    let steps: usize = steps.parse().unwrap();
-    rnd_losses[steps.saturating_sub(RND_SMOOTHING)..steps]
-        .iter()
-        .sum::<f64>()
-        / RND_SMOOTHING as f64
 }
