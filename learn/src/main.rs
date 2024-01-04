@@ -38,7 +38,8 @@ const BATCH_SIZE: usize = 128;
 const STEPS_PER_EPOCH: usize = 100;
 const LEARNING_RATE: f64 = 1e-4;
 const STEPS_BEFORE_REANALYZE: usize = 2000;
-const INTIAL_RANDOM_TARGETS: usize = BATCH_SIZE * STEPS_PER_EPOCH;
+const MIN_EXPLOITATION_QUEUE_LEN: usize = 1000;
+const INTIAL_RANDOM_TARGETS: usize = MIN_EXPLOITATION_QUEUE_LEN + BATCH_SIZE * STEPS_PER_EPOCH;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -130,11 +131,12 @@ fn main() {
                         log::error!("Cannot fill reanalyze queue: {err}");
                     }
                 }
-
+                let enough_in_exploitation = exploitation_queue.len() >= MIN_EXPLOITATION_QUEUE_LEN;
                 let enough_for_combined_batch = exploitation_queue.len() >= BATCH_SIZE / 2
                     && reanalyze_queue.len() >= BATCH_SIZE / 2;
-                if (using_reanalyze && enough_for_combined_batch)
-                    || (!using_reanalyze && exploitation_queue.len() >= BATCH_SIZE)
+                if enough_in_exploitation
+                    && ((using_reanalyze && enough_for_combined_batch)
+                        || (!using_reanalyze && exploitation_queue.len() >= BATCH_SIZE))
                 {
                     break;
                 }
@@ -154,6 +156,7 @@ fn main() {
             }
 
             // Create input and target tensors.
+            exploitation_queue.make_contiguous().shuffle(&mut rng);
             let tensors = if using_reanalyze {
                 create_input_and_target_tensors(
                     exploitation_queue
