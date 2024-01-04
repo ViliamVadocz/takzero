@@ -2,7 +2,7 @@ use std::{
     collections::VecDeque,
     fmt,
     fs::{read_dir, OpenOptions},
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
 };
 
@@ -78,7 +78,7 @@ fn main() {
     let mut reanalyze_targets_read = 0;
 
     // Initialize exploitation buffer with random games.
-    {
+    if steps == 0 {
         let mut actions = Vec::new();
         let mut states = Vec::new();
         while exploitation_queue.len() < INTIAL_RANDOM_TARGETS {
@@ -103,6 +103,15 @@ fn main() {
                 });
             }
         }
+        // Save initial targets for inspection.
+        let content: String = exploitation_queue.iter().map(ToString::to_string).collect();
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(args.directory.join("targets-initial.txt"))
+            .unwrap()
+            .write_all(content.as_bytes())
+            .unwrap();
     }
 
     loop {
