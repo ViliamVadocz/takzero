@@ -21,10 +21,10 @@ use tch::Device;
 
 const DEVICE: Device = Device::Cuda(0);
 
-const BATCH_SIZE: usize = 64;
+const BATCH_SIZE: usize = 32;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
-const VISITS: usize = 800;
-const MAX_MOVES: usize = 120;
+const VISITS: usize = 100;
+const MAX_MOVES: usize = 60;
 
 #[derive(Parser, Debug)]
 struct Args {
