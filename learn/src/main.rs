@@ -37,7 +37,7 @@ const BATCH_SIZE: usize = 128;
 const STEPS_PER_EPOCH: usize = 250;
 const LEARNING_RATE: f64 = 1e-4;
 const STEPS_BEFORE_REANALYZE: usize = 1000;
-const MIN_EXPLOITATION_QUEUE_LEN: usize = 1000;
+const MIN_EXPLOITATION_QUEUE_LEN: usize = 10_000;
 const INTIAL_RANDOM_TARGETS: usize = MIN_EXPLOITATION_QUEUE_LEN + BATCH_SIZE * STEPS_PER_EPOCH;
 const TARGET_LIFETIME: u32 = 128;
 
@@ -142,25 +142,21 @@ fn main() {
 
             // Make sure there are enough targets.
             loop {
-                if let Err(err) = fill_buffer_with_targets(
+                let _ = fill_buffer_with_targets(
                     &mut exploitation_buffer,
                     &mut exploitation_targets_read,
                     &args
                         .directory
                         .join(format!("targets-selfplay_{steps:0>6}.txt")),
-                ) {
-                    log::error!("Cannot fill exploitation buffer: {err}");
-                }
+                );
                 if using_reanalyze {
-                    if let Err(err) = fill_buffer_with_targets(
+                    let _ = fill_buffer_with_targets(
                         &mut reanalyze_buffer,
                         &mut reanalyze_targets_read,
                         &args
                             .directory
                             .join(format!("targets-reanalyze_{steps:0>6}.txt")),
-                    ) {
-                        log::error!("Cannot fill reanalyze buffer: {err}");
-                    }
+                    );
                 }
                 let enough_in_exploitation =
                     exploitation_buffer.len() >= MIN_EXPLOITATION_QUEUE_LEN;
