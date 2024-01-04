@@ -94,12 +94,13 @@ impl Default for Eval {
 
 impl From<Eval> for f32 {
     fn from(value: Eval) -> Self {
-        match value {
-            Eval::Value(x) => x.into(),
-            Eval::Win(_) => 1.0,
-            Eval::Loss(_) => -1.0,
-            Eval::Draw(_) => 0.0,
-        }
+        DISCOUNT_FACTOR.powi(value.ply().unwrap_or_default() as i32)
+            * match value {
+                Eval::Value(x) => x.into(),
+                Eval::Win(_) => 1.0,
+                Eval::Loss(_) => -1.0,
+                Eval::Draw(_) => 0.0,
+            }
     }
 }
 
@@ -107,9 +108,8 @@ impl From<Eval> for NotNan<f32> {
     fn from(eval: Eval) -> Self {
         match eval {
             Eval::Value(x) => x,
-            Eval::Win(ply) | Eval::Draw(ply) | Eval::Loss(ply) => {
-                Self::new(f32::from(eval) * DISCOUNT_FACTOR.powi(ply as i32))
-                    .expect("known evaluations cannot give NaN")
+            Eval::Win(_) | Eval::Draw(_) | Eval::Loss(_) => {
+                Self::new(f32::from(eval)).expect("known evaluations cannot give NaN")
             }
         }
     }
