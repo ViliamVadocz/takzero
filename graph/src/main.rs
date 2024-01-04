@@ -6,7 +6,7 @@ use std::{
 };
 
 use charming::{
-    component::{Axis, Title},
+    component::{Axis, Legend, Title},
     series::Line,
     theme::Theme,
     Chart,
@@ -22,18 +22,19 @@ struct Match {
     draws: u32,
 }
 
-const STEPS_PER_MODEL: u32 = 1000;
+const STEPS_PER_MODEL: u32 = 500;
 
 fn main() {
     let mut chart = Chart::new()
         .title(
             Title::new()
-                .text("Elo gain during training (4x4)")
+                .text("Elo gain during training (5x5)")
                 .left("center")
                 .top(0),
         )
         .x_axis(Axis::new().name("training steps"))
-        .y_axis(Axis::new().name("estimated Elo"));
+        .y_axis(Axis::new().name("estimated Elo"))
+        .legend(Legend::new().right(0.0));
 
     assert!(
         env::args().count() > 1,
