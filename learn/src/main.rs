@@ -34,12 +34,14 @@ const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
-const STEPS_PER_EPOCH: usize = 250;
+const STEPS_PER_EPOCH: usize = 1000;
 const LEARNING_RATE: f64 = 1e-4;
-const STEPS_BEFORE_REANALYZE: usize = 1000;
-const MIN_EXPLOITATION_QUEUE_LEN: usize = 10_000;
-const INTIAL_RANDOM_TARGETS: usize = MIN_EXPLOITATION_QUEUE_LEN + BATCH_SIZE * STEPS_PER_EPOCH;
-const TARGET_LIFETIME: u32 = 128;
+const STEPS_BEFORE_REANALYZE: usize = 5000;
+const MIN_EXPLOITATION_BUFFER_LEN: usize = 10_000;
+const MAX_EXPLOITATION_BUFFER_LEN: usize = 1_000_000;
+const INTIAL_RANDOM_TARGETS: usize = MIN_EXPLOITATION_BUFFER_LEN + BATCH_SIZE * STEPS_PER_EPOCH;
+const EXPLOITATION_TARGET_LIFETIME: u32 = 4;
+const REANALYZE_TARGET_LIFETIME: u32 = 4;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -148,7 +150,13 @@ fn main() {
                     &args
                         .directory
                         .join(format!("targets-selfplay_{steps:0>6}.txt")),
+                    EXPLOITATION_TARGET_LIFETIME,
                 );
+                if exploitation_buffer.len() > MAX_EXPLOITATION_BUFFER_LEN {
+                    log::debug!("Truncating exploitation buffer because it's too long");
+                    exploitation_buffer.sort_unstable_by_key(|t| t.lifetime);
+                    exploitation_buffer.truncate(MAX_EXPLOITATION_BUFFER_LEN);
+                }
                 if using_reanalyze {
                     let _ = fill_buffer_with_targets(
                         &mut reanalyze_buffer,
@@ -156,10 +164,11 @@ fn main() {
                         &args
                             .directory
                             .join(format!("targets-reanalyze_{steps:0>6}.txt")),
+                        REANALYZE_TARGET_LIFETIME,
                     );
                 }
                 let enough_in_exploitation =
-                    exploitation_buffer.len() >= MIN_EXPLOITATION_QUEUE_LEN;
+                    exploitation_buffer.len() >= MIN_EXPLOITATION_BUFFER_LEN;
                 let enough_for_combined_batch = exploitation_buffer.len() >= BATCH_SIZE / 2
                     && reanalyze_buffer.len() >= BATCH_SIZE / 2;
                 if enough_in_exploitation
@@ -199,12 +208,7 @@ fn main() {
                         .take(BATCH_SIZE / 2)
                         .filter_map(TargetWithLifeTime::tap),
                 );
-                reanalyze_buffer.extend(
-                    iter.by_ref()
-                        .take(BATCH_SIZE / 2)
-                        .filter_map(TargetWithLifeTime::tap),
-                );
-                assert_eq!(iter.count(), 0);
+                reanalyze_buffer.extend(iter.filter_map(TargetWithLifeTime::tap));
                 tensors
             } else {
                 let batch: Vec<_> = exploitation_buffer
@@ -242,12 +246,22 @@ fn main() {
         }
         opt.zero_grad();
 
-        log::info!("Saving model (end of epoch).");
         steps += STEPS_PER_EPOCH;
         net.save(args.directory.join(format!("model_{steps:0>6}.ot")))
             .unwrap();
         exploitation_targets_read = 0;
         reanalyze_targets_read = 0;
+
+        #[rustfmt::skip]
+        log::info!(
+            "Saving model (end of epoch)\n\
+             Training steps: {}\n\
+             Exploitation buffer size: {}\n\
+             Reanalyze buffer size: {}",
+            steps,
+            exploitation_buffer.len(),
+            reanalyze_buffer.len()
+        );
     }
 }
 
@@ -279,6 +293,7 @@ fn fill_buffer_with_targets(
     buffer: &mut Vec<TargetWithLifeTime>,
     targets_already_read: &mut usize,
     file_path: &Path,
+    lifetime: u32,
 ) -> std::io::Result<()> {
     let before = buffer.len();
     buffer.extend(
@@ -286,10 +301,7 @@ fn fill_buffer_with_targets(
             .lines()
             .skip(*targets_already_read)
             .filter_map(|line| line.unwrap().parse().ok())
-            .map(|target| TargetWithLifeTime {
-                target,
-                lifetime: TARGET_LIFETIME,
-            }),
+            .map(|target| TargetWithLifeTime { target, lifetime }),
     );
     *targets_already_read += buffer.len() - before;
     Ok(())
