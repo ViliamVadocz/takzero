@@ -18,7 +18,6 @@ use takzero::{
         env::Environment,
         eval::Eval,
         node::{gumbel::batched_simulate, Node},
-        DISCOUNT_FACTOR,
     },
     target::{policy_target_from_proportional_visits, Augment, Replay, Target},
 };
@@ -253,15 +252,15 @@ fn restart_envs_and_complete_targets(
                 *env = Env::new_opening(rng, actions);
                 *node = Node::default();
 
-                let mut eval = f32::from(Eval::from(terminal).negate());
+                let mut value = Eval::from(terminal);
                 for (env, policy) in policy_targets.drain(..).rev() {
+                    value = value.negate();
                     targets.push(Target {
                         env,
-                        value: eval,
+                        value: f32::from(value),
                         ube: 0.0,
                         policy,
                     });
-                    eval *= -DISCOUNT_FACTOR;
                 }
 
                 finished_replays.push(std::mem::replace(replay, Replay::new(env.clone())));
