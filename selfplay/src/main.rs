@@ -78,7 +78,7 @@ fn main() {
     for steps in 0.. {
         log::debug!("Step: {steps}");
         if let Some((new_steps, model_path)) = get_model_path_with_most_steps(&args.directory) {
-            if new_steps != model_steps {
+            if new_steps > model_steps {
                 model_steps = new_steps;
                 log::info!("Loading new model: {}", model_path.display());
 

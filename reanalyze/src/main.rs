@@ -64,7 +64,7 @@ fn main() {
     let mut model_steps = 0;
     loop {
         if let Some((new_steps, model_path)) = get_model_path_with_most_steps(&args.directory) {
-            if new_steps != model_steps {
+            if new_steps > model_steps {
                 model_steps = new_steps;
                 log::info!("Loading new model: {}", model_path.display());
 
