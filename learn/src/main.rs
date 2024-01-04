@@ -1,5 +1,4 @@
 use std::{
-    collections::VecDeque,
     fmt,
     fs::{read_dir, OpenOptions},
     io::{BufRead, BufReader, Write},
@@ -35,11 +34,12 @@ const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
-const STEPS_PER_EPOCH: usize = 100;
+const STEPS_PER_EPOCH: usize = 250;
 const LEARNING_RATE: f64 = 1e-4;
-const STEPS_BEFORE_REANALYZE: usize = 200;
+const STEPS_BEFORE_REANALYZE: usize = 1000;
 const MIN_EXPLOITATION_QUEUE_LEN: usize = 1000;
 const INTIAL_RANDOM_TARGETS: usize = MIN_EXPLOITATION_QUEUE_LEN + BATCH_SIZE * STEPS_PER_EPOCH;
+const TARGET_LIFETIME: u32 = 128;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -47,6 +47,21 @@ struct Args {
     /// and also where to save models.
     #[arg(long)]
     directory: PathBuf,
+}
+
+struct TargetWithLifeTime {
+    target: Target<Env>,
+    lifetime: u32,
+}
+impl TargetWithLifeTime {
+    fn tap(mut self) -> Option<Self> {
+        if self.lifetime > 1 {
+            self.lifetime -= 1;
+            Some(self)
+        } else {
+            None
+        }
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -72,16 +87,16 @@ fn main() {
 
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
 
-    let mut exploitation_queue = VecDeque::new();
+    let mut exploitation_buffer = Vec::new();
     let mut exploitation_targets_read = 0;
-    let mut reanalyze_queue = VecDeque::new();
+    let mut reanalyze_buffer = Vec::new();
     let mut reanalyze_targets_read = 0;
 
     // Initialize exploitation buffer with random games.
     if steps == 0 {
         let mut actions = Vec::new();
         let mut states = Vec::new();
-        while exploitation_queue.len() < INTIAL_RANDOM_TARGETS {
+        while exploitation_buffer.len() < INTIAL_RANDOM_TARGETS {
             let mut game = Env::new_opening(&mut rng, &mut actions);
             while game.terminal().is_none() {
                 states.push(game.clone());
@@ -95,16 +110,23 @@ fn main() {
                 let p = 1.0 / actions.len() as f32;
                 let policy = actions.drain(..).map(|a| (a, p)).collect();
                 value = value.negate();
-                exploitation_queue.push_back(Target {
-                    env,
-                    policy,
-                    value: f32::from(value),
-                    ube: 1.0,
+                exploitation_buffer.push(TargetWithLifeTime {
+                    target: Target {
+                        env,
+                        policy,
+                        value: f32::from(value),
+                        ube: 1.0,
+                    },
+                    lifetime: 1,
                 });
             }
         }
         // Save initial targets for inspection.
-        let content: String = exploitation_queue.iter().map(ToString::to_string).collect();
+        let content: String = exploitation_buffer
+            .iter()
+            .map(|t| &t.target)
+            .map(ToString::to_string)
+            .collect();
         OpenOptions::new()
             .write(true)
             .create(true)
@@ -120,32 +142,33 @@ fn main() {
 
             // Make sure there are enough targets.
             loop {
-                if let Err(err) = fill_queue_with_targets(
-                    &mut exploitation_queue,
+                if let Err(err) = fill_buffer_with_targets(
+                    &mut exploitation_buffer,
                     &mut exploitation_targets_read,
                     &args
                         .directory
                         .join(format!("targets-selfplay_{steps:0>6}.txt")),
                 ) {
-                    log::error!("Cannot fill exploitation queue: {err}");
+                    log::error!("Cannot fill exploitation buffer: {err}");
                 }
                 if using_reanalyze {
-                    if let Err(err) = fill_queue_with_targets(
-                        &mut reanalyze_queue,
+                    if let Err(err) = fill_buffer_with_targets(
+                        &mut reanalyze_buffer,
                         &mut reanalyze_targets_read,
                         &args
                             .directory
                             .join(format!("targets-reanalyze_{steps:0>6}.txt")),
                     ) {
-                        log::error!("Cannot fill reanalyze queue: {err}");
+                        log::error!("Cannot fill reanalyze buffer: {err}");
                     }
                 }
-                let enough_in_exploitation = exploitation_queue.len() >= MIN_EXPLOITATION_QUEUE_LEN;
-                let enough_for_combined_batch = exploitation_queue.len() >= BATCH_SIZE / 2
-                    && reanalyze_queue.len() >= BATCH_SIZE / 2;
+                let enough_in_exploitation =
+                    exploitation_buffer.len() >= MIN_EXPLOITATION_QUEUE_LEN;
+                let enough_for_combined_batch = exploitation_buffer.len() >= BATCH_SIZE / 2
+                    && reanalyze_buffer.len() >= BATCH_SIZE / 2;
                 if enough_in_exploitation
                     && ((using_reanalyze && enough_for_combined_batch)
-                        || (!using_reanalyze && exploitation_queue.len() >= BATCH_SIZE))
+                        || (!using_reanalyze && exploitation_buffer.len() >= BATCH_SIZE))
                 {
                     break;
                 }
@@ -154,27 +177,47 @@ fn main() {
                     log::info!(
                         "Not enough targets.\n\
                         Training steps: {}\n\
-                        Exploitation queue size: {}\n\
-                        Reanalyze queue size: {}\n\
+                        Exploitation buffer size: {}\n\
+                        Reanalyze buffer size: {}\n\
                         Sleeping for {time:?}.",
                         steps + epoch_steps,
-                        exploitation_queue.len(),
-                        reanalyze_queue.len()
+                        exploitation_buffer.len(),
+                        reanalyze_buffer.len()
                     );
                 std::thread::sleep(time);
             }
 
             // Create input and target tensors.
-            exploitation_queue.make_contiguous().shuffle(&mut rng);
+            exploitation_buffer.shuffle(&mut rng);
+            reanalyze_buffer.shuffle(&mut rng);
             let tensors = if using_reanalyze {
-                create_input_and_target_tensors(
-                    exploitation_queue
-                        .drain(..BATCH_SIZE / 2)
-                        .chain(reanalyze_queue.drain(..BATCH_SIZE / 2)),
-                    &mut rng,
-                )
+                let batch: Vec<_> = exploitation_buffer
+                    .drain(exploitation_buffer.len() - BATCH_SIZE / 2..)
+                    .chain(reanalyze_buffer.drain(reanalyze_buffer.len() - BATCH_SIZE / 2..))
+                    .collect();
+                let tensors =
+                    create_input_and_target_tensors(batch.iter().map(|t| &t.target), &mut rng);
+                let mut iter = batch.into_iter();
+                exploitation_buffer.extend(
+                    iter.by_ref()
+                        .take(BATCH_SIZE / 2)
+                        .filter_map(TargetWithLifeTime::tap),
+                );
+                reanalyze_buffer.extend(
+                    iter.by_ref()
+                        .take(BATCH_SIZE / 2)
+                        .filter_map(TargetWithLifeTime::tap),
+                );
+                assert_eq!(iter.count(), 0);
+                tensors
             } else {
-                create_input_and_target_tensors(exploitation_queue.drain(..BATCH_SIZE), &mut rng)
+                let batch: Vec<_> = exploitation_buffer
+                    .drain(exploitation_buffer.len() - BATCH_SIZE..)
+                    .collect();
+                let tensors =
+                    create_input_and_target_tensors(batch.iter().map(|t| &t.target), &mut rng);
+                exploitation_buffer.extend(batch.into_iter().filter_map(TargetWithLifeTime::tap));
+                tensors
             };
 
             // Get network output.
@@ -234,21 +277,25 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(usize, PathBuf
         .max_by_key(|(s, _)| *s)
 }
 
-/// Add targets to queue from the given file, skipping the targets that have
-/// already been read.
-fn fill_queue_with_targets(
-    queue: &mut VecDeque<Target<Env>>,
+/// Add targets to the buffer from the given file, skipping the targets that
+/// have already been read.
+fn fill_buffer_with_targets(
+    buffer: &mut Vec<TargetWithLifeTime>,
     targets_already_read: &mut usize,
     file_path: &Path,
 ) -> std::io::Result<()> {
-    let before = queue.len();
-    queue.extend(
+    let before = buffer.len();
+    buffer.extend(
         BufReader::new(OpenOptions::new().read(true).open(file_path)?)
             .lines()
             .skip(*targets_already_read)
-            .filter_map(|line| line.unwrap().parse().ok()),
+            .filter_map(|line| line.unwrap().parse().ok())
+            .map(|target| TargetWithLifeTime {
+                target,
+                lifetime: TARGET_LIFETIME,
+            }),
     );
-    *targets_already_read += queue.len() - before;
+    *targets_already_read += buffer.len() - before;
     Ok(())
 }
 
@@ -261,8 +308,8 @@ struct Tensors {
     target_ube: Tensor,
 }
 
-fn create_input_and_target_tensors(
-    batch: impl Iterator<Item = Target<Env>>,
+fn create_input_and_target_tensors<'a>(
+    batch: impl Iterator<Item = &'a Target<Env>>,
     rng: &mut impl Rng,
 ) -> Tensors {
     // Create input tensors.
