@@ -37,7 +37,7 @@ const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
 const STEPS_PER_EPOCH: usize = 100;
 const LEARNING_RATE: f64 = 1e-4;
-const STEPS_BEFORE_REANALYZE: usize = 2000;
+const STEPS_BEFORE_REANALYZE: usize = 200;
 const MIN_EXPLOITATION_QUEUE_LEN: usize = 1000;
 const INTIAL_RANDOM_TARGETS: usize = MIN_EXPLOITATION_QUEUE_LEN + BATCH_SIZE * STEPS_PER_EPOCH;
 
