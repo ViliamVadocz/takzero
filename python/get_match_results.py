@@ -6,12 +6,6 @@ PATTERN = re.compile(
     r"model_(\d\d\d\d\d\d)\.ot vs\. model_(\d\d\d\d\d\d)\.ot: Evaluation { wins: (\d*), losses: (\d*), draws: (\d*) }"
 )
 
-DATA_FILES = [
-    "_data/eval-9219531.err",
-    "_data/eval-9219618.err",
-    "_data/eval-9219618.err",
-    "_data/eval-9219618.err",
-]
 SAVE_FILE = "match_results.csv"
 STEP = 100
 
@@ -19,7 +13,8 @@ STEP = 100
 with open(SAVE_FILE, "w"):
     pass
 
-for path in DATA_FILES:
+files = Path("_data").glob("eval-*.err")
+for path in files:
     with open(path, "r") as file:
         contents = file.read()
     with open(SAVE_FILE, "a") as file:
