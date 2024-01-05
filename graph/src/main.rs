@@ -22,7 +22,7 @@ struct Match {
     draws: u32,
 }
 
-const STEPS_PER_MODEL: u32 = 500;
+const STEPS_PER_MODEL: u32 = 1000;
 
 fn main() {
     let mut chart = Chart::new()
@@ -145,8 +145,8 @@ fn get_bayes_elo(players: Vec<u32>, matches: Vec<Match>) -> Result<Vec<(u32, i32
         .collect::<Option<_>>()
         .unwrap();
 
-    let min = player_elo.iter().map(|v| v.1).min().unwrap();
-    player_elo.iter_mut().for_each(|v| v.1 -= min);
+    // let min = player_elo.iter().map(|v| v.1).min().unwrap();
+    // player_elo.iter_mut().for_each(|v| v.1 -= min);
     player_elo.sort_by_key(|(i, _)| *i);
 
     Ok(player_elo)
