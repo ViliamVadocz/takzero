@@ -15,7 +15,7 @@ use takzero::{
     search::{
         agent::Agent,
         env::Environment,
-        node::{gumbel::batched_simulate, Node},
+        node::{batched::batched_simulate, Node},
     },
     target::{policy_target_from_proportional_visits, Augment, Replay, Target},
 };

@@ -15,7 +15,7 @@ use takzero::{
     },
     search::{
         agent::Agent,
-        node::{gumbel::batched_simulate, Node},
+        node::{batched::batched_simulate, Node},
     },
 };
 use tch::Device;

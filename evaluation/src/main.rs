@@ -13,7 +13,7 @@ use takzero::{
     search::{
         agent::Agent,
         env::{Environment, Terminal},
-        node::{gumbel::batched_simulate, Node},
+        node::{batched::batched_simulate, Node},
     },
     target::Replay,
 };

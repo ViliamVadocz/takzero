@@ -1,3 +1,4 @@
+pub mod batched;
 pub mod debug;
 pub mod gumbel;
 pub mod mcts;
