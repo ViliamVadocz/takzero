@@ -234,8 +234,8 @@ impl<E: Environment> Node<E> {
                 let mut actions = [Vec::new()];
                 env.populate_actions(&mut actions[0]);
                 let (policy, value, uncertainty) = agent
-                    .policy_value_uncertainty(&[env], &actions, &[true], context)
-                    .pop()
+                    .policy_value_uncertainty(&[env], &actions, context)
+                    .next()
                     .expect("agent should return exactly one prediction");
                 let logits = actions[0]
                     .iter()

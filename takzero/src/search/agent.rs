@@ -6,17 +6,14 @@ pub trait Agent<E: Environment> {
     type Policy: Index<E::Action, Output = f32> + Send + Sync;
     type Context;
 
-    /// Always batched. Mask is true for environments which need eval and for
-    /// those the context should be updated. The length of the output should
-    /// correspond to the number of true values in the mask.
+    /// Always batched.
     /// The policy does not have to be normalized (returning logits).
     fn policy_value_uncertainty(
         &self,
         env_batch: &[E],
         actions_batch: &[Vec<E::Action>],
-        mask: &[bool],
         context: &mut Self::Context,
-    ) -> Vec<(Self::Policy, f32, f32)>;
+    ) -> impl Iterator<Item = (Self::Policy, f32, f32)>;
 }
 
 pub mod dummy {
@@ -34,16 +31,10 @@ pub mod dummy {
             &self,
             env_batch: &[E],
             actions_batch: &[Vec<<E as Environment>::Action>],
-            mask: &[bool],
             _context: &mut Self::Context,
-        ) -> Vec<(Self::Policy, f32, f32)> {
+        ) -> impl Iterator<Item = (Self::Policy, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
-            actions_batch
-                .iter()
-                .zip(mask)
-                .filter(|(_, mask)| **mask)
-                .map(|_| (Policy, 0.0, 0.0))
-                .collect()
+            actions_batch.iter().map(|_| (Policy, 0.0, 0.0))
         }
     }
 
@@ -82,23 +73,16 @@ pub mod simple {
             &self,
             env_batch: &[Game<N, HALF_KOMI>],
             actions_batch: &[Vec<Move>],
-            mask: &[bool],
             _context: &mut Self::Context,
-        ) -> Vec<(Self::Policy, f32, f32)> {
+        ) -> impl Iterator<Item = (Self::Policy, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
-            actions_batch
-                .iter()
-                .zip(env_batch)
-                .zip(mask)
-                .filter(|(_, mask)| **mask)
-                .map(|((_, env), _)| {
-                    let mut fcd = f32::from(env.board.flat_diff() - HALF_KOMI / 2) / (N * N) as f32;
-                    if env.to_move == Color::Black {
-                        fcd = -fcd;
-                    }
-                    (Policy, fcd, 0.0)
-                })
-                .collect()
+            env_batch.iter().map(|env| {
+                let mut fcd = f32::from(env.board.flat_diff() - HALF_KOMI / 2) / (N * N) as f32;
+                if env.to_move == Color::Black {
+                    fcd = -fcd;
+                }
+                (Policy, fcd, 0.0)
+            })
         }
     }
 

@@ -155,23 +155,16 @@ pub mod safecrack {
             &self,
             env_batch: &[SafeCrack],
             actions_batch: &[Vec<<SafeCrack as Environment>::Action>],
-            mask: &[bool],
             _context: &mut Self::Context,
-        ) -> Vec<(Self::Policy, f32, f32)> {
+        ) -> impl Iterator<Item = (Self::Policy, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
-            actions_batch
-                .iter()
-                .zip(env_batch)
-                .zip(mask)
-                .filter(|(_, mask)| **mask)
-                .map(|((_, env), _)| {
-                    (
-                        Policy,
-                        if env.active { 1.0 } else { -1.0 } * f32::from(env.solved()),
-                        0.0,
-                    )
-                })
-                .collect()
+            env_batch.iter().map(|env| {
+                (
+                    Policy,
+                    if env.active { 1.0 } else { -1.0 } * f32::from(env.solved()),
+                    0.0,
+                )
+            })
         }
     }
 

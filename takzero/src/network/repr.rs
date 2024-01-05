@@ -487,8 +487,8 @@ mod tests {
         let mut actions = [Vec::new()];
         game.populate_actions(&mut actions[0]);
         let (policy, ..) = Simple
-            .policy_value_uncertainty(&[game], &actions, &[true], &mut ())
-            .pop()
+            .policy_value_uncertainty(&[game], &actions, &mut ())
+            .next()
             .unwrap();
         let buffer: Vec<f32> = policy_tensor::<3>(
             &actions[0]

@@ -1,11 +1,9 @@
 use std::ops::Index;
 
 use fast_tak::{takparse::Move, Game};
-use rayon::prelude::*;
 use tch::{
     nn::{self, ModuleT},
     Device,
-    Kind,
     Reduction,
     Tensor,
 };
@@ -206,44 +204,22 @@ impl Agent<Env> for Net {
         &self,
         env_batch: &[Env],
         actions_batch: &[Vec<<Env as crate::search::env::Environment>::Action>],
-        env_mask: &[bool],
         context: &mut Self::Context,
-    ) -> Vec<(Self::Policy, f32, f32)> {
+    ) -> impl Iterator<Item = (Self::Policy, f32, f32)> {
         debug_assert_eq!(env_batch.len(), actions_batch.len());
-        debug_assert_eq!(env_batch.len(), env_mask.len());
         let device = self.vs.device();
 
         let xs = Tensor::cat(
             &env_batch
-                .par_iter()
-                .zip(env_mask)
-                .map(|(env, mask)| {
-                    if *mask {
-                        game_to_tensor(env, device)
-                    } else {
-                        Tensor::zeros(
-                            [1, input_channels::<N>() as i64, N as i64, N as i64],
-                            (Kind::Float, device),
-                        )
-                    }
-                })
+                .iter()
+                .map(|env| game_to_tensor(env, device))
                 .collect::<Vec<_>>(),
             0,
         );
         let move_mask = Tensor::cat(
             &actions_batch
-                .par_iter()
-                .zip(env_mask)
-                .map(|(m, mask)| {
-                    if *mask {
-                        move_mask::<N>(m, device)
-                    } else {
-                        Tensor::zeros(
-                            [1, output_channels::<N>() as i64, N as i64, N as i64],
-                            (Kind::Bool, device),
-                        )
-                    }
-                })
+                .iter()
+                .map(|m| move_mask::<N>(m, device))
                 .collect::<Vec<_>>(),
             0,
         );
@@ -270,10 +246,7 @@ impl Agent<Env> for Net {
             .map(Policy)
             .zip(values)
             .zip(uncertainties)
-            .zip(env_mask)
-            .filter(|(_, mask)| **mask)
-            .map(|(((p, v), u), _)| (p, v, u))
-            .collect()
+            .map(|((p, v), u)| (p, v, u))
     }
 }
 
@@ -323,8 +296,8 @@ mod tests {
         let mut context = RndNormalizationContext::new(1.0);
         game.possible_moves(&mut moves);
         let (_policy, _value, _uncertainty) = net
-            .policy_value_uncertainty(&[game], &[moves], &[true], &mut context)
-            .pop()
+            .policy_value_uncertainty(&[game], &[moves], &mut context)
+            .next()
             .unwrap();
     }
 
@@ -335,12 +308,11 @@ mod tests {
         let mut games: [Env; BATCH_SIZE] = array::from_fn(|_| Game::default());
         let mut actions_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
         let mut context = RndNormalizationContext::new(1.0);
-        let mask = [[false; BATCH_SIZE / 2], [true; BATCH_SIZE / 2]].concat();
         games
             .iter_mut()
             .zip(&mut actions_batch)
             .for_each(|(game, actions)| game.populate_actions(actions));
-        let output = net.policy_value_uncertainty(&games, &actions_batch, &mask, &mut context);
-        assert_eq!(output.len(), BATCH_SIZE / 2);
+        let output = net.policy_value_uncertainty(&games, &actions_batch, &mut context);
+        assert_eq!(output.count(), BATCH_SIZE);
     }
 }
