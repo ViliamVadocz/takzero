@@ -237,19 +237,13 @@ impl<E: Environment> Node<E> {
                     .policy_value_uncertainty(&[env], &actions, context)
                     .next()
                     .expect("agent should return exactly one prediction");
-                let logits = actions[0]
-                    .iter()
-                    .map(|a| NotNan::new(policy[a.clone()]).expect("logit should not be NaN"))
-                    .collect::<Vec<_>>();
-                let probabilities = softmax(logits.clone().into_iter());
+                // Calculate probabilities from logits.
+                let probabilities = softmax(policy.clone().into_iter().map(|(_, p)| p));
+                // Do backwards pass.
                 self.backward_network_eval(
                     trajectory.into_iter(),
-                    actions
+                    policy
                         .into_iter()
-                        .next()
-                        .unwrap()
-                        .into_iter()
-                        .zip(logits)
                         .zip(probabilities)
                         .map(|((action, logit), probability)| ActionPolicy {
                             action,

@@ -72,7 +72,7 @@ impl From<Terminal> for f32 {
 
 #[cfg(test)]
 pub mod safecrack {
-    use std::ops::Index;
+    use ordered_float::NotNan;
 
     use super::{Environment, Terminal};
     use crate::search::agent::Agent;
@@ -149,32 +149,24 @@ pub mod safecrack {
 
     impl Agent<SafeCrack> for SafeCracker {
         type Context = ();
-        type Policy = Policy;
 
         fn policy_value_uncertainty(
             &self,
             env_batch: &[SafeCrack],
             actions_batch: &[Vec<<SafeCrack as Environment>::Action>],
             _context: &mut Self::Context,
-        ) -> impl Iterator<Item = (Self::Policy, f32, f32)> {
+        ) -> impl Iterator<Item = (Vec<(Option<u8>, NotNan<f32>)>, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
-            env_batch.iter().map(|env| {
+            env_batch.iter().zip(actions_batch).map(|(env, actions)| {
                 (
-                    Policy,
+                    actions
+                        .iter()
+                        .map(|a| (*a, NotNan::new(1.0).unwrap()))
+                        .collect(),
                     if env.active { 1.0 } else { -1.0 } * f32::from(env.solved()),
                     0.0,
                 )
             })
-        }
-    }
-
-    pub struct Policy;
-
-    impl<T> Index<T> for Policy {
-        type Output = f32;
-
-        fn index(&self, _: T) -> &Self::Output {
-            &1.0
         }
     }
 }

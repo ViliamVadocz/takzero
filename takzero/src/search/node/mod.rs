@@ -1,6 +1,6 @@
 pub mod batched;
 pub mod debug;
-pub mod gumbel;
+// pub mod gumbel;
 pub mod mcts;
 pub mod noise;
 pub mod policy;

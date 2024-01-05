@@ -1,6 +1,5 @@
-use std::ops::Index;
-
 use fast_tak::{takparse::Move, Game};
+use ordered_float::NotNan;
 use tch::{
     nn::{self, ModuleT},
     Device,
@@ -9,12 +8,12 @@ use tch::{
 };
 
 use super::{
-    repr::{game_to_tensor, input_channels, input_size, move_index, output_channels, output_size},
+    repr::{game_to_tensor, input_channels, input_size, move_index, output_channels},
     residual::ResidualBlock,
     Network,
 };
 use crate::{
-    network::repr::move_mask,
+    network::repr::output_size,
     search::{agent::Agent, SERIES_DISCOUNT},
 };
 
@@ -198,14 +197,13 @@ impl Network for Net {
 
 impl Agent<Env> for Net {
     type Context = RndNormalizationContext;
-    type Policy = Policy;
 
     fn policy_value_uncertainty(
         &self,
         env_batch: &[Env],
         actions_batch: &[Vec<<Env as crate::search::env::Environment>::Action>],
         context: &mut Self::Context,
-    ) -> impl Iterator<Item = (Self::Policy, f32, f32)> {
+    ) -> impl Iterator<Item = (Vec<(Move, NotNan<f32>)>, f32, f32)> {
         debug_assert_eq!(env_batch.len(), actions_batch.len());
         let device = self.vs.device();
 
@@ -216,20 +214,34 @@ impl Agent<Env> for Net {
                 .collect::<Vec<_>>(),
             0,
         );
-        let move_mask = Tensor::cat(
+        let (policy, values, ube_uncertainties) = self.forward_t(&xs, false);
+        let policy = policy.view([-1, output_size::<N>() as i64]);
+        let index = Tensor::from_slice2(
             &actions_batch
                 .iter()
-                .map(|m| move_mask::<N>(m, device))
+                .map(|actions| {
+                    actions
+                        .iter()
+                        .map(|a| move_index::<N>(a) as i64)
+                        .collect::<Vec<_>>()
+                })
                 .collect::<Vec<_>>(),
-            0,
-        );
+        )
+        .to(device);
 
-        let (policy, values, ube_uncertainties) = self.forward_t(&xs, false);
-        let masked_policy: Vec<Vec<_>> = policy
-            .masked_fill(&move_mask, f64::from(f32::MIN))
-            .view([-1, output_size::<N>() as i64])
-            .try_into()
-            .unwrap();
+        let indexed_policy = actions_batch
+            .iter()
+            .zip(
+                Vec::<Vec<_>>::try_from(policy.gather(1, &index, false))
+                    .expect("tensor should have two dimensions"),
+            )
+            .map(|(actions, p)| {
+                actions
+                    .iter()
+                    .zip(p)
+                    .map(|(a, p)| (*a, NotNan::new(p).expect("logit should not be NaN")))
+                    .collect()
+            });
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
@@ -241,22 +253,10 @@ impl Agent<Env> for Net {
             .try_into()
             .unwrap();
 
-        masked_policy
-            .into_iter()
-            .map(Policy)
+        indexed_policy
             .zip(values)
             .zip(uncertainties)
             .map(|((p, v), u)| (p, v, u))
-    }
-}
-
-pub struct Policy(Vec<f32>);
-
-impl Index<Move> for Policy {
-    type Output = f32;
-
-    fn index(&self, index: Move) -> &Self::Output {
-        &self.0[move_index::<N>(&index)]
     }
 }
 

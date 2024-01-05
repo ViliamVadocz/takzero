@@ -1,5 +1,3 @@
-use ordered_float::NotNan;
-
 use super::Node;
 use crate::search::{
     agent::Agent,
@@ -10,83 +8,113 @@ use crate::search::{
     },
 };
 
-// TODO: avoid allocating new tensor or moving between cpu/gpu?
-#[allow(clippy::missing_panics_doc)]
-pub fn batched_simulate<E: Environment, A: Agent<E>>(
-    nodes: &mut [Node<E>],
-    envs: &[E],
-    agent: &A,
-    betas: &[f32],
+// TODO: Use itertools to make the zips nicer.
+// TODO: Add rayon later.
 
-    context: &mut A::Context,
-    actions: &mut [Vec<E::Action>],
-    trajectories: &mut [Vec<usize>],
-) {
-    debug_assert!(actions.iter().all(Vec::is_empty));
-    debug_assert!(trajectories.iter().all(Vec::is_empty));
+pub struct BatchedMCTS<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> {
+    nodes: [Node<E>; BATCH_SIZE],
+    envs: [E; BATCH_SIZE],
+    actions: [Vec<E::Action>; BATCH_SIZE],
+    trajectories: [Vec<usize>; BATCH_SIZE],
+    betas: [f32; BATCH_SIZE],
+    context: A::Context,
+}
 
-    let mut mask = vec![false; nodes.len()];
-    let (env_batch, actions_batch): (Vec<_>, Vec<_>) = nodes
-        .iter_mut()
-        .zip(envs)
-        .zip(&mut mask)
-        .zip(actions.iter_mut())
-        .zip(trajectories.iter_mut())
-        .zip(betas.iter())
-        .map(|(((((node, env), mask), actions), trajectory), beta)| {
-            match node.forward(trajectory, env.clone(), *beta) {
-                Forward::Known(eval) => {
-                    // If the result is known just propagate it now.
-                    node.backward_known_eval(trajectory.drain(..), eval);
-                    (E::default(), Vec::new())
+impl<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> BatchedMCTS<BATCH_SIZE, E, A> {
+    pub fn new(envs: [E; BATCH_SIZE], betas: [f32; BATCH_SIZE], context: A::Context) -> Self {
+        Self {
+            nodes: std::array::from_fn(|_| Node::default()),
+            envs,
+            actions: std::array::from_fn(|_| Vec::new()),
+            trajectories: std::array::from_fn(|_| Vec::new()),
+            betas,
+            context,
+        }
+    }
+
+    /// Do a single batched simulation step.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the actions or trajectories are not empty.
+    /// Also panics if any logit is NaN.
+    pub fn simulate(&mut self, agent: &A) {
+        assert!(self.actions.iter().all(Vec::is_empty));
+        assert!(self.trajectories.iter().all(Vec::is_empty));
+
+        let (batch, forward): (Vec<_>, Vec<_>) = self
+            .nodes
+            .iter_mut()
+            .zip(&self.envs)
+            .zip(&mut self.actions)
+            .zip(&mut self.trajectories)
+            .zip(&self.betas)
+            .filter_map(|((((node, env), actions), trajectory), beta)| {
+                match node.forward(trajectory, env.clone(), *beta) {
+                    Forward::Known(eval) => {
+                        // If the result is known just propagate it now.
+                        node.backward_known_eval(trajectory.drain(..), eval);
+                        None
+                    }
+                    Forward::NeedsNetwork(env) => {
+                        env.populate_actions(actions);
+                        // We are taking the actions because we need owned Vecs.
+                        Some(((env, std::mem::take(actions)), (node, trajectory, actions)))
+                    }
                 }
-                Forward::NeedsNetwork(env) => {
-                    *mask = true;
-                    env.populate_actions(actions);
-                    // We are taking the actions we need owned.
-                    (env, std::mem::take(actions))
-                }
-            }
-        })
-        .unzip();
-    let output = agent.policy_value_uncertainty(&env_batch, &actions_batch, &mask, context);
-    debug_assert_eq!(output.len(), mask.iter().filter(|x| **x).count());
-
-    nodes
-        .iter_mut()
-        .zip(actions)
-        .zip(trajectories)
-        .zip(actions_batch)
-        .zip(&mask)
-        .filter(|(_, mask)| **mask)
-        .zip(output)
-        .map(
-            |(((((node, old_actions), trajectory), moved_actions), _mask), output)| {
-                (node, trajectory, old_actions, moved_actions, output)
-            },
-        )
-        .for_each(
-            |(node, trajectory, old_actions, mut moved_actions, output)| {
+            })
+            .unzip();
+        let (env_batch, actions_batch): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
+        let output = agent.policy_value_uncertainty(&env_batch, &actions_batch, &mut self.context);
+        forward
+            .into_iter()
+            .zip(
+                #[allow(clippy::needless_collect)]
+                output.collect::<Vec<_>>(),
+            )
+            .zip(actions_batch)
+            .for_each(|((forward, output), mut moved_actions)| {
+                let (node, trajectory, old_actions) = forward;
                 let (policy, value, uncertainty) = output;
-                let logits = moved_actions
-                    .iter()
-                    .map(|a| NotNan::new(policy[a.clone()]).expect("logit should not be NaN"))
-                    .collect::<Vec<_>>();
-                let probabilities = softmax(logits.clone().into_iter());
+
+                // Calculate probabilities from logits.
+                let probabilities = softmax(policy.clone().into_iter().map(|(_, p)| p));
+                // Do backwards pass.
                 node.backward_network_eval(
                     trajectory.drain(..),
-                    moved_actions.drain(..).zip(logits).zip(probabilities).map(
-                        |((action, logit), probability)| ActionPolicy {
+                    policy
+                        .into_iter()
+                        .zip(probabilities)
+                        .map(|((action, logit), probability)| ActionPolicy {
                             action,
                             logit,
                             probability,
-                        },
-                    ),
+                        }),
                     value,
                     uncertainty,
                 );
                 // Restore old actions.
+                moved_actions.clear();
                 let _ = std::mem::replace(old_actions, moved_actions);
-            },
-        );
+            });
+    }
+
+    pub fn step(&mut self, actions: [E::Action; BATCH_SIZE]) {
+        self.nodes
+            .iter_mut()
+            .zip(&mut self.envs)
+            .zip(actions)
+            .for_each(|((node, env), action)| {
+                node.descend(&action);
+                env.step(action);
+            });
+    }
+
+    pub const fn nodes(&self) -> &[Node<E>] {
+        &self.nodes
+    }
+
+    pub const fn envs(&self) -> &[E] {
+        &self.envs
+    }
 }

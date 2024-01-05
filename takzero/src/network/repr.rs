@@ -85,10 +85,10 @@ pub fn move_mask<const N: usize>(moves: &[Move], device: Device) -> Tensor {
 }
 
 /// Create a tensor containing the given policy.
-pub fn policy_tensor<const N: usize>(policy: &[(Move, f32)], device: Device) -> Tensor {
+pub fn policy_tensor<const N: usize>(policy: &[(Move, NotNan<f32>)], device: Device) -> Tensor {
     let mut data = vec![0.0; output_size::<N>()];
     for (mov, p) in policy {
-        data[move_index::<N>(mov)] = *p;
+        data[move_index::<N>(mov)] = p.into_inner();
     }
     // FIXME: Can we prevent this copy?
     Tensor::from_slice(&data)
@@ -490,16 +490,10 @@ mod tests {
             .policy_value_uncertainty(&[game], &actions, &mut ())
             .next()
             .unwrap();
-        let buffer: Vec<f32> = policy_tensor::<3>(
-            &actions[0]
-                .drain(..)
-                .map(|a| (a, policy[a]))
-                .collect::<Vec<_>>(),
-            Device::Cpu,
-        )
-        .reshape([output_size::<3>() as i64])
-        .try_into()
-        .unwrap();
+        let buffer: Vec<f32> = policy_tensor::<3>(&policy, Device::Cpu)
+            .reshape([output_size::<3>() as i64])
+            .try_into()
+            .unwrap();
 
         assert_eq!(buffer, handmade);
     }
