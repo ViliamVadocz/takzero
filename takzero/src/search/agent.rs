@@ -2,6 +2,8 @@ use ordered_float::NotNan;
 
 use super::env::Environment;
 
+// TODO: Context can be part on Net, does not have to be in Agent.
+
 pub trait Agent<E: Environment> {
     type Context;
 

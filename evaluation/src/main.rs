@@ -4,18 +4,15 @@ use std::{array, fs::read_dir, path::PathBuf};
 
 use clap::Parser;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
-use rayon::prelude::*;
 use takzero::{
     network::{
-        net5::{Env, Net},
+        net5::{Env, Net, RndNormalizationContext},
         Network,
     },
     search::{
-        agent::Agent,
         env::{Environment, Terminal},
-        node::{batched::batched_simulate, Node},
+        node::batched::BatchedMCTS,
     },
-    target::Replay,
 };
 use tch::Device;
 
@@ -94,85 +91,63 @@ fn real_main() {
 fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
     let mut evaluation = Evaluation::default();
 
-    let mut games = games.to_owned();
-    let mut white_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
-    let mut black_nodes: Vec<_> = (0..BATCH_SIZE).map(|_| Node::default()).collect();
-    let mut context = <Net as Agent<Env>>::Context::new(0.0);
-
-    let mut actions: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
-    let mut trajectories: Vec<_> = (0..BATCH_SIZE).map(|_| Vec::new()).collect();
-
-    let mut game_replays: Vec<_> = games.iter().cloned().map(Replay::new).collect();
+    let mut white_mcts = BatchedMCTS::from_envs(
+        games.to_owned().try_into().unwrap(),
+        BETA,
+        RndNormalizationContext::new(0.0),
+    );
+    let mut black_mcts = BatchedMCTS::from_envs(
+        games.to_owned().try_into().unwrap(),
+        BETA,
+        RndNormalizationContext::new(0.0),
+    );
 
     let mut done = [false; BATCH_SIZE];
 
     'outer: for _ in 0..MAX_MOVES {
         for (agent, is_white) in [(white, true), (black, false)] {
+            // Check if all games are done.
             if done.iter().all(|x| *x) {
                 break 'outer;
             }
 
+            // Perform search as the current agent.
+            let (current, other) = if is_white {
+                (&mut white_mcts, &mut black_mcts)
+            } else {
+                (&mut black_mcts, &mut white_mcts)
+            };
             for _ in 0..VISITS {
-                batched_simulate(
-                    if is_white {
-                        &mut white_nodes
-                    } else {
-                        &mut black_nodes
-                    },
-                    &games,
-                    agent,
-                    &BETA,
-                    &mut context,
-                    &mut actions,
-                    &mut trajectories,
-                );
+                current.simulate(agent);
             }
-            let top_actions = if is_white { &white_nodes } else { &black_nodes }
-                .par_iter()
-                .map(|node| {
-                    if node.evaluation.is_known() {
-                        node.children
-                            .iter()
-                            .min_by_key(|(_, child)| child.evaluation)
-                    } else {
-                        node.children
-                            .iter()
-                            .max_by_key(|(_, child)| child.visit_count)
-                    }
-                    .map(|(a, _)| *a)
+
+            // Pick the top actions and take a step.
+            let top_actions = current.select_best_actions();
+            current.step(&top_actions);
+            other.step(&top_actions);
+
+            // Collect terminals and replays.
+            let (terminals, replays): (Vec<_>, Vec<_>) = current
+                .restart_terminal_envs(&mut thread_rng())
+                .zip(&mut done)
+                .filter_map(|(x, done)| if *done { None } else { Some((x?, done)) })
+                .map(|(t, done)| {
+                    *done = true;
+                    t
                 })
-                .collect::<Vec<_>>();
+                .unzip();
 
-            let terminals: Vec<_> = top_actions
-                .into_par_iter()
-                .zip(games.par_iter_mut())
-                .zip(white_nodes.par_iter_mut())
-                .zip(black_nodes.par_iter_mut())
-                .zip(game_replays.par_iter_mut())
-                .zip(done.par_iter_mut())
-                .filter(|(_, done)| !**done)
-                .filter_map(
-                    |(((((action, game), white_node), black_node), replay), done)| {
-                        let action = action.unwrap();
-                        game.step(action);
-                        replay.push(action);
+            // Also restart other's envs. Does not matter that they will be different,
+            // because they are already marked as done.
+            other
+                .restart_terminal_envs(&mut thread_rng())
+                .for_each(drop);
 
-                        if let Some(terminal) = game.terminal() {
-                            *game = Env::default();
-                            *white_node = Node::default();
-                            *black_node = Node::default();
-                            *done = true;
-                            log::debug!("{}", replay.to_string().trim_end());
-                            Some(terminal)
-                        } else {
-                            white_node.descend(&action);
-                            black_node.descend(&action);
-                            None
-                        }
-                    },
-                )
-                .collect();
+            for replay in replays {
+                log::debug!("{}", replay.to_string().trim_end());
+            }
 
+            // Update evaluation results.
             for terminal in terminals {
                 // This may seem opposite of what is should be.
                 // That is because we are looking at the terminal after a move was made, so a

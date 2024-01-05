@@ -15,7 +15,7 @@ use takzero::{
     search::{
         agent::Agent,
         env::Environment,
-        node::{batched::batched_simulate, Node},
+        node::{batched::BatchedMCTS, Node},
     },
     target::{policy_target_from_proportional_visits, Augment, Replay, Target},
 };
@@ -55,11 +55,7 @@ fn main() {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = Net::new(DEVICE, Some(rng.gen()));
-
-    // Initialize buffers.
-    let mut actions: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());
-    let mut trajectories: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());
-    let mut context = RndNormalizationContext::new(0.0);
+    let mut batched_mcts = BatchedMCTS::new(&mut rng, BETA, RndNormalizationContext::new(0.0));
 
     let mut model_steps = 0;
     loop {
@@ -93,27 +89,23 @@ fn main() {
             .iter_mut()
             .for_each(|replay| replay.advance(rng.gen_range(0..replay.len() - 1)));
 
-        let envs: Vec<_> = replays.iter().map(|replay| replay.env.clone()).collect();
-        let mut nodes: [_; BATCH_SIZE] = std::array::from_fn(|_| Node::default());
+        batched_mcts
+            .nodes_and_envs_mut()
+            .zip(replays)
+            .for_each(|((node, env), replay)| {
+                *node = Node::default();
+                *env = replay.env;
+            });
 
         // Perform search.
         for _ in 0..VISITS {
-            batched_simulate(
-                &mut nodes,
-                &envs,
-                &net,
-                &BETA,
-                &mut context,
-                &mut actions,
-                &mut trajectories,
-            );
+            batched_mcts.simulate(&net);
         }
 
         // Create targets.
-        let contents: String = nodes
-            .into_iter()
-            .zip(replays)
-            .map(|(node, replay)| {
+        let contents: String = batched_mcts
+            .nodes_and_envs()
+            .map(|(node, env)| {
                 let value = if node.evaluation.is_known() {
                     node.evaluation
                 } else {
@@ -126,10 +118,10 @@ fn main() {
                         .negate()
                 }
                 .into();
-                let policy = policy_target_from_proportional_visits(&node);
+                let policy = policy_target_from_proportional_visits(node);
                 let ube = 1.0; // TODO
                 Target {
-                    env: replay.env,
+                    env: env.clone(),
                     policy,
                     value,
                     ube,

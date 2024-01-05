@@ -58,4 +58,10 @@ impl<E: Environment> Node<E> {
         std::mem::swap(self, child);
         // TODO: Maybe deallocate children on another thread.
     }
+
+    #[inline]
+    #[must_use]
+    pub fn is_terminal(&self) -> bool {
+        self.evaluation.ply().is_some_and(|ply| ply == 0)
+    }
 }

@@ -7,23 +7,20 @@ use std::{
 
 use clap::Parser;
 use fast_tak::takparse::Move;
-use rand::{distributions::WeightedIndex, prelude::*};
+use ordered_float::NotNan;
+use rand::prelude::*;
 use takzero::{
     network::{
         net5::{Env, Net, RndNormalizationContext},
         Network,
     },
-    search::{
-        agent::Agent,
-        env::Environment,
-        eval::Eval,
-        node::{batched::batched_simulate, Node},
-    },
+    search::{agent::Agent, env::Environment, eval::Eval, node::batched::BatchedMCTS},
     target::{policy_target_from_proportional_visits, Augment, Replay, Target},
 };
 use tch::Device;
 
-#[rustfmt::skip] #[allow(dead_code)] const fn assert_env<E: Environment>() where Target<E>: Augment + fmt::Display {}
+#[rustfmt::skip]
+#[allow(dead_code)] const fn assert_env<E: Environment>() where Target<E>: Augment + fmt::Display {}
 const _: () = assert_env::<Env>();
 
 // The network architecture.
@@ -58,20 +55,11 @@ fn main() {
     let mut net = Net::new(DEVICE, Some(rng.gen()));
 
     // Initialize buffers.
-    let mut actions: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());
-    let mut trajectories: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());
-    let mut nodes: [_; BATCH_SIZE] = std::array::from_fn(|_| Node::default());
-    let mut envs: [_; BATCH_SIZE] = actions
-        .iter_mut()
-        .map(|actions| Env::new_opening(&mut rng, actions))
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
     let mut policy_targets: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());
-    let mut replays: Vec<_> = envs.iter().cloned().map(Replay::new).collect();
     let mut targets = Vec::new();
     let mut complete_replays = Vec::new();
-    let mut context = RndNormalizationContext::new(0.0);
+
+    let mut batched_mcts = BatchedMCTS::new(&mut rng, BETA, RndNormalizationContext::new(0.0));
 
     let mut model_steps = 0;
     for steps in 0.. {
@@ -94,50 +82,22 @@ fn main() {
         }
 
         // One simulation batch to initialize root policy if it has not been done yet.
-        batched_simulate(
-            &mut nodes,
-            &envs,
-            &net,
-            &BETA,
-            &mut context,
-            &mut actions,
-            &mut trajectories,
-        );
+        batched_mcts.simulate(&net);
 
         // Apply noise.
-        nodes
-            .iter_mut()
-            .zip(&envs)
-            .filter(|(_, env)| env.ply < NOISE_PLIES)
-            .for_each(|(node, _)| node.apply_dirichlet(&mut rng, NOISE_ALPHA, NOISE_RATIO));
+        batched_mcts.apply_noise(&mut rng, NOISE_PLIES, NOISE_ALPHA, NOISE_RATIO);
 
         // Search.
         for _ in 0..VISITS {
-            batched_simulate(
-                &mut nodes,
-                &envs,
-                &net,
-                &BETA,
-                &mut context,
-                &mut actions,
-                &mut trajectories,
-            );
+            batched_mcts.simulate(&net);
         }
 
-        let selected_actions = select_actions(&mut nodes, &envs, &mut rng);
-        take_a_step(
-            &mut nodes,
-            &mut envs,
-            &mut policy_targets,
-            &mut replays,
-            selected_actions,
-        );
+        let selected_actions =
+            batched_mcts.select_actions_in_selfplay(&mut rng, WEIGHTED_RANDOM_PLIES);
+        take_a_step(&mut batched_mcts, &mut policy_targets, &selected_actions);
         restart_envs_and_complete_targets(
-            &mut nodes,
-            &mut envs,
+            &mut batched_mcts,
             &mut policy_targets,
-            &mut replays,
-            &mut actions,
             &mut targets,
             &mut complete_replays,
             &mut rng,
@@ -174,84 +134,39 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(u32, PathBuf)>
         .max_by_key(|(s, _)| *s)
 }
 
-/// Select which actions to take in environments.
-fn select_actions(nodes: &mut [Node<Env>], envs: &[Env], rng: &mut impl Rng) -> Vec<Move> {
-    nodes
-        .iter_mut()
-        .zip(envs)
-        .map(|(node, env)| {
-            if node.evaluation.is_known() {
-                node.children
-                    .iter()
-                    .min_by_key(|(_, child)| child.evaluation)
-                    .expect("there should be at least one child")
-                    .0
-            } else if env.steps() < WEIGHTED_RANDOM_PLIES {
-                let weighted_index =
-                    WeightedIndex::new(node.children.iter().map(|(_, child)| child.visit_count))
-                        .unwrap();
-                node.children[weighted_index.sample(rng)].0
-            } else {
-                node.children
-                    .iter()
-                    .max_by_key(|(_, child)| child.visit_count)
-                    .expect("there should be at least one child")
-                    .0
-            }
-        })
-        .collect::<Vec<_>>()
-}
-
-type PolicyTarget = (Env, Box<[(Move, f32)]>);
+type PolicyTarget = (Env, Box<[(Move, NotNan<f32>)]>);
 
 /// Take a step in each environment.
 /// Generate target policy.
 fn take_a_step(
-    nodes: &mut [Node<Env>],
-    envs: &mut [Env],
+    batched_mcts: &mut BatchedMCTS<BATCH_SIZE, Env, Net>,
     policy_targets: &mut [Vec<PolicyTarget>],
-    replays: &mut [Replay<Env>],
-    selected_actions: impl IntoIterator<Item = Move>,
+    selected_actions: &[Move],
 ) {
-    nodes
-        .iter_mut()
-        .zip(envs)
-        .zip(selected_actions)
-        .zip(replays)
+    batched_mcts
+        .nodes_and_envs()
         .zip(policy_targets)
-        .for_each(|((((node, env), action), replay), policy_targets)| {
+        .for_each(|((node, env), policy_targets)| {
             policy_targets.push((env.clone(), policy_target_from_proportional_visits(node)));
-            node.descend(&action);
-            replay.push(action);
-            env.step(action);
         });
+    batched_mcts.step(selected_actions);
 }
 
 /// Restart any finished environments.
 /// Complete targets of finished games using the game result.
 #[allow(clippy::too_many_arguments)]
 fn restart_envs_and_complete_targets(
-    nodes: &mut [Node<Env>],
-    envs: &mut [Env],
+    batched_mcts: &mut BatchedMCTS<BATCH_SIZE, Env, Net>,
     policy_targets: &mut [Vec<PolicyTarget>],
-    replays: &mut [Replay<Env>],
-    actions: &mut [Vec<Move>],
     targets: &mut Vec<Target<Env>>,
     finished_replays: &mut Vec<Replay<Env>>,
     rng: &mut impl Rng,
 ) {
-    nodes
-        .iter_mut()
-        .zip(envs)
+    batched_mcts
+        .restart_terminal_envs(rng)
         .zip(policy_targets)
-        .zip(actions)
-        .zip(replays)
-        .for_each(|((((node, env), policy_targets), actions), replay)| {
-            if let Some(terminal) = env.terminal() {
-                // Reset game.
-                *env = Env::new_opening(rng, actions);
-                *node = Node::default();
-
+        .for_each(|(terminal_and_replay, policy_targets)| {
+            if let Some((terminal, replay)) = terminal_and_replay {
                 let mut value = Eval::from(terminal);
                 for (env, policy) in policy_targets.drain(..).rev() {
                     value = value.negate();
@@ -262,8 +177,7 @@ fn restart_envs_and_complete_targets(
                         policy,
                     });
                 }
-
-                finished_replays.push(std::mem::replace(replay, Replay::new(env.clone())));
+                finished_replays.push(replay);
             }
         });
 }

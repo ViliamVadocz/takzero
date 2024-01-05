@@ -6,6 +6,7 @@ use std::{
 };
 
 use clap::Parser;
+use ordered_float::NotNan;
 use rand::prelude::*;
 use takzero::{
     network::{
@@ -111,7 +112,8 @@ fn main() {
             let mut value = Eval::from(game.terminal().unwrap());
             for env in states.drain(..).rev() {
                 env.populate_actions(&mut actions);
-                let p = 1.0 / actions.len() as f32;
+                let p = NotNan::new(1.0 / actions.len() as f32)
+                    .expect("there should always be at least one action");
                 let policy = actions.drain(..).map(|a| (a, p)).collect();
                 value = value.negate();
                 exploitation_buffer.push(TargetWithLifeTime {

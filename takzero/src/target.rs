@@ -6,6 +6,7 @@ use fast_tak::{
     Reserves,
     Symmetry,
 };
+use ordered_float::{FloatIsNan, NotNan};
 use rand::prelude::*;
 use thiserror::Error;
 
@@ -13,10 +14,10 @@ use crate::search::{env::Environment, node::Node};
 
 #[derive(Debug, PartialEq)]
 pub struct Target<E: Environment> {
-    pub env: E,                          // s_t
-    pub policy: Box<[(E::Action, f32)]>, // \pi'(s_t)
-    pub value: f32,                      // discounted N-step value
-    pub ube: f32,                        // sum of RND + discounted N-step UBE
+    pub env: E,                                  // s_t
+    pub policy: Box<[(E::Action, NotNan<f32>)]>, // \pi'(s_t)
+    pub value: f32,                              // discounted N-step value
+    pub ube: f32,                                // sum of RND + discounted N-step UBE
 }
 
 pub trait Augment {
@@ -80,6 +81,8 @@ pub enum ParseTargetError {
     Action(#[from] ParseMoveError),
     #[error("{0}")]
     Float(#[from] ParseFloatError),
+    #[error("{0}")]
+    PolicyNan(#[from] FloatIsNan),
 }
 
 impl<const N: usize, const HALF_KOMI: i8> FromStr for Target<Game<N, HALF_KOMI>>
@@ -101,7 +104,7 @@ where
             .map(|s| {
                 s.split_once(':')
                     .ok_or(ParseTargetError::WrongPolicyFormat)
-                    .and_then(|(a, p)| Ok((a.parse()?, p.parse()?)))
+                    .and_then(|(a, p)| Ok((a.parse()?, NotNan::new(p.parse()?)?)))
             })
             .collect::<Result<_, _>>()?;
 
@@ -114,16 +117,22 @@ where
     }
 }
 
+/// Create an improved policy target of proportional visit counts.
+///
+/// # Panics
+///
+/// Panics if the target policy for any move is NaN.
 #[must_use]
 pub fn policy_target_from_proportional_visits<E: Environment>(
     node: &Node<E>,
-) -> Box<[(E::Action, f32)]> {
+) -> Box<[(E::Action, NotNan<f32>)]> {
     node.children
         .iter()
         .map(|(action, child)| {
             (
                 action.clone(),
-                child.visit_count as f32 / node.visit_count as f32,
+                NotNan::new(child.visit_count as f32 / node.visit_count as f32)
+                    .expect("target policy should not be NaN"),
             )
         })
         .collect()
@@ -213,6 +222,7 @@ where
 #[cfg(test)]
 mod tests {
     use fast_tak::Game;
+    use ordered_float::NotNan;
     use rand::{
         seq::{IteratorRandom, SliceRandom},
         Rng,
@@ -238,7 +248,10 @@ mod tests {
                     c.reversible_plies = 0;
                     c
                 },
-                policy: actions.iter().map(|a| (*a, rng.gen())).collect(),
+                policy: actions
+                    .iter()
+                    .map(|a| (*a, NotNan::new(rng.gen()).unwrap()))
+                    .collect(),
                 value: rng.gen(),
                 ube: rng.gen(),
             };

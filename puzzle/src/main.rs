@@ -1,4 +1,4 @@
-use std::{array, cmp::Ordering, fs::read_dir, path::PathBuf};
+use std::{cmp::Ordering, fs::read_dir, path::PathBuf};
 
 use clap::Parser;
 use fast_tak::{
@@ -10,13 +10,10 @@ use rayon::prelude::*;
 use sqlite::{Connection, Value};
 use takzero::{
     network::{
-        net5::{Env, Net, N},
+        net5::{Env, Net, RndNormalizationContext, N},
         Network,
     },
-    search::{
-        agent::Agent,
-        node::{batched::batched_simulate, Node},
-    },
+    search::node::batched::BatchedMCTS,
 };
 use tch::Device;
 
@@ -114,34 +111,30 @@ where
         })
         .collect();
 
+    let mut batched_mcts = BatchedMCTS::from_envs(
+        std::array::from_fn(|_| Env::default()),
+        BETA,
+        RndNormalizationContext::new(0.0),
+    );
+
     // Attempt to solve puzzles.
     let mut wins = 0;
-    for envs in puzzles.chunks(BATCH_SIZE) {
-        let mut context = <Net as Agent<Env>>::Context::new(0.0);
+    for puzzle_batch in puzzles.chunks_exact(BATCH_SIZE) {
+        batched_mcts
+            .nodes_and_envs_mut()
+            .zip(puzzle_batch)
+            .for_each(|((_, env), puzzle)| *env = puzzle.clone());
 
-        let mut nodes: [_; BATCH_SIZE] = array::from_fn(|_| Node::default());
-        let mut actions: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-        let mut trajectories: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
         for _ in 0..VISITS {
-            batched_simulate(
-                &mut nodes,
-                envs,
-                agent,
-                &BETA,
-                &mut context,
-                &mut actions,
-                &mut trajectories,
-            );
+            batched_mcts.simulate(agent);
         }
 
-        let proven_wins = nodes
-            .iter()
-            .take(envs.len())
-            .filter(|env| env.evaluation.is_win())
+        let proven_wins = batched_mcts
+            .nodes_and_envs()
+            .filter(|(node, _)| node.evaluation.is_win())
             .count();
         wins += proven_wins;
     }
-
     log::info!("depth {depth}: {wins: >5} / {row_num: >5}");
 }
 

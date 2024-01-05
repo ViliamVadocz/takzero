@@ -120,7 +120,7 @@ impl<E: Environment> Node<E> {
             // TODO: Prune all known results earlier
             // once visit count is not used for policy target.
             // Or don't - searching can still help find slower losses.
-            if node.evaluation.ply().is_some_and(|x| x == 0) {
+            if node.is_terminal() {
                 break Forward::Known(node.evaluation);
             }
             if node.needs_initialization() {

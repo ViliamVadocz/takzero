@@ -1,15 +1,17 @@
+use std::fmt;
+
 use fast_tak::{takparse::Move, Game, Reserves};
 use rand::{seq::IteratorRandom, Rng};
 
 pub trait Environment: Send + Sync + Clone + Default {
-    type Action: Send + Sync + Clone + PartialEq;
+    type Action: Send + Sync + Clone + PartialEq + fmt::Debug;
 
     fn populate_actions(&self, actions: &mut Vec<Self::Action>);
     fn step(&mut self, action: Self::Action);
     fn terminal(&self) -> Option<Terminal>;
     fn steps(&self) -> u16;
 
-    fn new_opening(rng: &mut impl Rng, actions: &mut Vec<Move>) -> Self;
+    fn new_opening(rng: &mut impl Rng, actions: &mut Vec<Self::Action>) -> Self;
 }
 
 pub enum Terminal {
@@ -137,10 +139,7 @@ pub mod safecrack {
             unimplemented!("not necessary for the test");
         }
 
-        fn new_opening(
-            _rng: &mut impl rand::prelude::Rng,
-            _actions: &mut Vec<fast_tak::takparse::Move>,
-        ) -> Self {
+        fn new_opening(_rng: &mut impl rand::prelude::Rng, _actions: &mut Vec<Option<u8>>) -> Self {
             unimplemented!("not necessary for the test");
         }
     }

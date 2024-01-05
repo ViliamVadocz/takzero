@@ -1,11 +1,17 @@
+use rand::Rng;
+use rand_distr::{Distribution, WeightedIndex};
+
 use super::Node;
-use crate::search::{
-    agent::Agent,
-    env::Environment,
-    node::{
-        mcts::{ActionPolicy, Forward},
-        policy::softmax,
+use crate::{
+    search::{
+        agent::Agent,
+        env::{Environment, Terminal},
+        node::{
+            mcts::{ActionPolicy, Forward},
+            policy::softmax,
+        },
     },
+    target::Replay,
 };
 
 // TODO: Use itertools to make the zips nicer.
@@ -16,20 +22,36 @@ pub struct BatchedMCTS<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> {
     envs: [E; BATCH_SIZE],
     actions: [Vec<E::Action>; BATCH_SIZE],
     trajectories: [Vec<usize>; BATCH_SIZE],
+    replays: [Replay<E>; BATCH_SIZE],
     betas: [f32; BATCH_SIZE],
     context: A::Context,
 }
 
 impl<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> BatchedMCTS<BATCH_SIZE, E, A> {
-    pub fn new(envs: [E; BATCH_SIZE], betas: [f32; BATCH_SIZE], context: A::Context) -> Self {
+    pub fn new(rng: &mut impl Rng, betas: [f32; BATCH_SIZE], context: A::Context) -> Self {
+        let mut actions = Vec::new();
+        let envs = std::array::from_fn(|_| E::new_opening(rng, &mut actions));
+        Self::from_envs(envs, betas, context)
+    }
+
+    pub fn from_envs(envs: [E; BATCH_SIZE], betas: [f32; BATCH_SIZE], context: A::Context) -> Self {
         Self {
             nodes: std::array::from_fn(|_| Node::default()),
-            envs,
             actions: std::array::from_fn(|_| Vec::new()),
             trajectories: std::array::from_fn(|_| Vec::new()),
+            replays: std::array::from_fn(|i| Replay::new(envs[i].clone())),
+            envs,
             betas,
             context,
         }
+    }
+
+    pub fn nodes_and_envs(&self) -> impl Iterator<Item = (&Node<E>, &E)> {
+        self.nodes.iter().zip(&self.envs)
+    }
+
+    pub fn nodes_and_envs_mut(&mut self) -> impl Iterator<Item = (&mut Node<E>, &mut E)> {
+        self.nodes.iter_mut().zip(&mut self.envs)
     }
 
     /// Do a single batched simulation step.
@@ -99,22 +121,124 @@ impl<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> BatchedMCTS<BATCH_SIZ
             });
     }
 
-    pub fn step(&mut self, actions: [E::Action; BATCH_SIZE]) {
+    /// Takes a step in all environments and nodes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are fewer or more actions than `BATCH_SIZE`.
+    pub fn step(&mut self, actions: &[E::Action]) {
+        assert_eq!(actions.len(), BATCH_SIZE);
         self.nodes
             .iter_mut()
             .zip(&mut self.envs)
+            .zip(&mut self.replays)
             .zip(actions)
-            .for_each(|((node, env), action)| {
-                node.descend(&action);
-                env.step(action);
+            .for_each(|(((node, env), replay), action)| {
+                if !node.is_terminal() {
+                    node.descend(action);
+                    replay.push(action.clone());
+                    env.step(action.clone());
+                }
             });
     }
 
-    pub const fn nodes(&self) -> &[Node<E>] {
-        &self.nodes
+    pub fn apply_noise(
+        &mut self,
+        rng: &mut impl Rng,
+        noise_steps: u16,
+        noise_alpha: f32,
+        noise_ratio: f32,
+    ) {
+        self.nodes
+            .iter_mut()
+            .zip(&self.envs)
+            .filter(|(_, env)| env.steps() < noise_steps)
+            .for_each(|(node, _)| node.apply_dirichlet(rng, noise_alpha, noise_ratio));
     }
 
-    pub const fn envs(&self) -> &[E] {
-        &self.envs
+    #[allow(clippy::missing_panics_doc)]
+    pub fn select_best_actions(&self) -> [E::Action; BATCH_SIZE] {
+        self.nodes
+            .iter()
+            .zip(&self.envs)
+            .map(|(node, _)| {
+                if node.evaluation.is_known() {
+                    // The node is solved, pick the best action.
+                    node.children
+                        .iter()
+                        .min_by_key(|(_, child)| child.evaluation)
+                } else {
+                    // Select the action with the most visits.
+                    node.children
+                        .iter()
+                        .max_by_key(|(_, child)| child.visit_count)
+                }
+                .expect("there should be at least one child")
+                .0
+                .clone()
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("the number of nodes and envs should be equal to BATCH_SIZE")
+    }
+
+    #[allow(clippy::missing_panics_doc)]
+    pub fn select_actions_in_selfplay(
+        &self,
+        rng: &mut impl Rng,
+        weighted_random_steps: u16,
+    ) -> [E::Action; BATCH_SIZE] {
+        self.nodes
+            .iter()
+            .zip(&self.envs)
+            .map(|(node, env)| {
+                if node.evaluation.is_known() {
+                    // The node is solved, pick the best action.
+                    node.children
+                        .iter()
+                        .min_by_key(|(_, child)| child.evaluation)
+                        .expect("there should be at least one child")
+                        .0
+                        .clone()
+                } else if env.steps() < weighted_random_steps {
+                    // Select an action randomly, proportional to visits.
+                    let weighted_index = WeightedIndex::new(
+                        node.children.iter().map(|(_, child)| child.visit_count),
+                    )
+                    .expect("there should be at least one child and visits cannot be negative");
+                    node.children[weighted_index.sample(rng)].0.clone()
+                } else {
+                    // Select the action with the most visits.
+                    node.children
+                        .iter()
+                        .max_by_key(|(_, child)| child.visit_count)
+                        .expect("there should be at least one child")
+                        .0
+                        .clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("the number of nodes and envs should be equal to BATCH_SIZE")
+    }
+
+    pub fn restart_terminal_envs<'a>(
+        &'a mut self,
+        rng: &'a mut impl Rng,
+    ) -> impl Iterator<Item = Option<(Terminal, Replay<E>)>> + 'a {
+        self.nodes
+            .iter_mut()
+            .zip(&mut self.envs)
+            .zip(&mut self.actions)
+            .zip(&mut self.replays)
+            .map(|(((node, env), actions), replay)| {
+                let terminal = env.terminal();
+                if terminal.is_some() {
+                    // Reset game.
+                    *env = E::new_opening(rng, actions);
+                    *node = Node::default();
+                }
+                terminal.map(|t| (t, std::mem::replace(replay, Replay::new(env.clone()))))
+            })
     }
 }
