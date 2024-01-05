@@ -99,6 +99,7 @@ pub fn batched_simulate<E: Environment, A: Agent<E>>(
         );
 }
 
+// TODO: Rewrite from scratch.
 #[allow(
     clippy::missing_panics_doc,
     clippy::too_many_arguments,
