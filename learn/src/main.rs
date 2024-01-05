@@ -84,7 +84,9 @@ fn main() {
             )
         } else {
             log::info!("Creating new model");
-            (Net::new(DEVICE, Some(rng.gen())), 0)
+            let net = Net::new(DEVICE, Some(rng.gen()));
+            net.save(args.directory.join("model_000000.ot")).unwrap();
+            (net, 0)
         };
 
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
