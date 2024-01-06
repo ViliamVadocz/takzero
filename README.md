@@ -2,6 +2,20 @@
 
 An implementation of AlphaZero for the board game Tak. See also https://github.com/ViliamVadocz/tak
 
+# Structure
+
+The repository contains several libraries and binaries:
+- `takzero` is the main library which implements MCTS and the neural networks
+- `selfplay` is used during training to generate replays and exploitation targets
+- `reanalyze` computes fresh targets from old replays
+- `learn` takes targets from `selfplay` and `reanalyze` to train new models
+- `evaluation` pits models against each other
+- `puzzle` runs the puzzle benchmark
+- `analysis` includes interactive game analysis
+- `graph` computes Bayesian Elo from match results (from `evaluation`) and creates a graph
+
+I also have a `python` directory for miscellaneous Python scripts.
+
 # Building
 
 You will need the C++ Pytorch library (LibTorch).
