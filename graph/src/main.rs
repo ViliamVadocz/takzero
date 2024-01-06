@@ -24,7 +24,16 @@ struct Match {
 
 const STEPS_PER_MODEL: u32 = 1000;
 
-fn main2() {
+fn main() {
+    if env::args().len() == 0 {
+        graph_puzzle_solve_rate()
+    } else {
+        graph_elo();
+    }
+}
+
+// TODO: Get data from puzzle logs.
+fn graph_puzzle_solve_rate() {
     let chart = Chart::new()
         .title(
             Title::new()
@@ -34,7 +43,10 @@ fn main2() {
         )
         .x_axis(Axis::new().name("training steps"))
         .y_axis(
-            Axis::new().name("ratio of puzzles solved").min(0.0), // .max(1.0),
+            Axis::new()
+                .name("ratio of puzzles solved")
+                .min(0.0)
+                .max(1.0),
         )
         .legend(Legend::new().right(0.0))
         .series(Line::new().name("tinue in 3").data(vec![
@@ -69,7 +81,8 @@ fn main2() {
     renderer.save(&chart, "graph.html").unwrap();
 }
 
-fn main() {
+// TODO: Get data from eval logs?
+fn graph_elo() {
     let mut chart = Chart::new()
         .title(
             Title::new()
