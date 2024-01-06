@@ -12,6 +12,7 @@ use super::{
     residual::ResidualBlock,
     Network,
 };
+#[allow(unused_imports)] // TODO: Remove `allow`s later.
 use crate::{
     network::repr::output_size,
     search::{agent::Agent, SERIES_DISCOUNT},
@@ -20,13 +21,14 @@ use crate::{
 pub const N: usize = 5;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
-const FILTERS: i64 = 256;
+const FILTERS: i64 = 64;
 
 #[derive(Debug)]
 pub struct Net {
     vs: nn::VarStore,
     policy_net: nn::SequentialT,
     value_net: nn::SequentialT,
+    #[allow(dead_code)]
     ube_net: nn::SequentialT,
     rnd: Rnd,
 }
@@ -38,7 +40,7 @@ struct Rnd {
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
-    const CORE_RES_BLOCKS: u32 = 16;
+    const CORE_RES_BLOCKS: u32 = 8;
     let mut core = nn::seq_t()
         .add(nn::conv2d(
             path / "input_conv2d",
@@ -172,11 +174,11 @@ impl Network for Net {
     }
 
     fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor, Tensor) {
-        (
-            self.policy_net.forward_t(xs, train),
-            self.value_net.forward_t(xs, train),
-            self.ube_net.forward_t(xs, train),
-        )
+        let policy = self.policy_net.forward_t(xs, train);
+        let value = self.value_net.forward_t(xs, train);
+        // TODO: Enable UBE later.
+        // let ube = self.ube_net.forward_t(xs, train);
+        (policy, value, Tensor::new())
     }
 
     fn forward_rnd(&self, xs: &Tensor, train: bool) -> Tensor {
@@ -202,7 +204,7 @@ impl Agent<Env> for Net {
         &self,
         env_batch: &[Env],
         actions_batch: &[Vec<<Env as crate::search::env::Environment>::Action>],
-        context: &mut Self::Context,
+        _context: &mut Self::Context,
     ) -> impl Iterator<Item = (Vec<(Move, NotNan<f32>)>, f32, f32)> {
         assert_eq!(env_batch.len(), actions_batch.len());
         assert!(!env_batch.is_empty());
@@ -215,7 +217,7 @@ impl Agent<Env> for Net {
                 .collect::<Vec<_>>(),
             0,
         );
-        let (policy, values, ube_uncertainties) = self.forward_t(&xs, false);
+        let (policy, values, _ube_uncertainties) = self.forward_t(&xs, false);
         let policy = policy.view([-1, output_size::<N>() as i64]);
         let max_actions = actions_batch.iter().map(Vec::len).max().unwrap_or_default();
         let index = Tensor::from_slice2(
@@ -249,13 +251,15 @@ impl Agent<Env> for Net {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        let rnd_uncertainties = context.normalize(&self.forward_rnd(&xs, false));
-        let uncertainties: Vec<_> = ube_uncertainties
-            .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
-            .clip(0.0, 1.0)
-            .view([-1])
-            .try_into()
-            .unwrap();
+        // let rnd_uncertainties = context.normalize(&self.forward_rnd(&xs, false));
+        // let uncertainties: Vec<_> = ube_uncertainties
+        //     .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
+        //     .clip(0.0, 1.0)
+        //     .view([-1])
+        //     .try_into()
+        //     .unwrap();
+        // TODO: Enable uncertainty calculation later.
+        let uncertainties = std::iter::repeat(1.0);
 
         indexed_policy
             .zip(values)
