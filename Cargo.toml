@@ -21,7 +21,7 @@ debug = true
 
 [workspace.dependencies]
 # core
-fast-tak = "0.4.0"
+fast-tak = "0.4.1"
 takzero = { path = "takzero" }
 tch = "0.13.0"
 # rand

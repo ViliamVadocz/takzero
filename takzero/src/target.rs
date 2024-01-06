@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, fmt, num::ParseFloatError, str::FromStr};
 
 use fast_tak::{
-    takparse::{ParseMoveError, ParsePtnError, ParseTpsError, Ptn, Tps},
+    takparse::{GameResult, ParseMoveError, ParsePtnError, ParseTpsError, Ptn, Tps},
     Game,
     Reserves,
     Symmetry,
@@ -184,10 +184,16 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[TPS \"{}\"]", Tps::from(self.env.clone()),)?;
+        let mut env = self.env.clone();
         for action in &self.actions {
             write!(f, " {action}")?;
+            env.step(*action);
         }
-        writeln!(f)
+        if let Ok(result) = GameResult::try_from(env.result()) {
+            writeln!(f, " {result}")
+        } else {
+            writeln!(f)
+        }
     }
 }
 
@@ -223,11 +229,7 @@ where
 mod tests {
     use fast_tak::Game;
     use ordered_float::NotNan;
-    use rand::{
-        seq::{IteratorRandom, SliceRandom},
-        Rng,
-        SeedableRng,
-    };
+    use rand::{seq::IteratorRandom, Rng, SeedableRng};
 
     use crate::{
         search::env::Environment,
@@ -272,29 +274,31 @@ mod tests {
     fn replay_consistency() {
         const SEED: u64 = 123;
         let mut rng = rand::rngs::StdRng::seed_from_u64(SEED);
-        let mut env: Game<5, 4> = Game::default();
+
         let mut actions = Vec::new();
-        while env.terminal().is_none() {
-            env.populate_actions(&mut actions);
-            let mut replay = Replay::new({
-                let mut c = env.clone();
-                c.reversible_plies = 0;
-                c
-            });
-            for action in actions.choose_multiple(&mut rng, 10) {
-                replay.push(*action);
+        for _ in 0..100 {
+            let mut env: Game<5, 4> = Game::new_opening(&mut rng, &mut actions);
+            let mut replay = Replay::new(env.clone());
+
+            loop {
+                env.populate_actions(&mut actions);
+                let action = actions.drain(..).choose(&mut rng).unwrap();
+                replay.push(action);
+                env.step(action);
+
+                let string = replay.to_string();
+                println!("{string}");
+
+                let recovered: Replay<_> = string.parse().unwrap();
+                let string_again = recovered.to_string();
+
+                assert_eq!(replay, recovered);
+                assert_eq!(string, string_again);
+
+                if env.terminal().is_some() {
+                    break;
+                }
             }
-
-            let string = replay.to_string();
-            println!("{string}");
-
-            let recovered: Replay<_> = string.parse().unwrap();
-            let string_again = recovered.to_string();
-
-            assert_eq!(replay, recovered);
-            assert_eq!(string, string_again);
-
-            env.step(actions.drain(..).choose(&mut rng).unwrap());
         }
     }
 }
