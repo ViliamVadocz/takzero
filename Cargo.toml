@@ -23,7 +23,7 @@ debug = true
 # core
 fast-tak = "0.4.1"
 takzero = { path = "takzero" }
-tch = "0.13.0"
+tch = "0.14.0"
 # rand
 rand = "0.8.5"
 rand_distr = "0.4.3"
