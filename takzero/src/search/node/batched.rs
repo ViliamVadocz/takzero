@@ -86,6 +86,10 @@ impl<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> BatchedMCTS<BATCH_SIZ
                 }
             })
             .unzip();
+        if batch.is_empty() {
+            return;
+        }
+
         let (env_batch, actions_batch): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
         let output = agent.policy_value_uncertainty(&env_batch, &actions_batch, &mut self.context);
         forward

@@ -204,7 +204,8 @@ impl Agent<Env> for Net {
         actions_batch: &[Vec<<Env as crate::search::env::Environment>::Action>],
         context: &mut Self::Context,
     ) -> impl Iterator<Item = (Vec<(Move, NotNan<f32>)>, f32, f32)> {
-        debug_assert_eq!(env_batch.len(), actions_batch.len());
+        assert_eq!(env_batch.len(), actions_batch.len());
+        assert!(!env_batch.is_empty());
         let device = self.vs.device();
 
         let xs = Tensor::cat(
