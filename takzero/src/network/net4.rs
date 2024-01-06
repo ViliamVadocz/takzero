@@ -217,6 +217,7 @@ impl Agent<Env> for Net {
         );
         let (policy, values, ube_uncertainties) = self.forward_t(&xs, false);
         let policy = policy.view([-1, output_size::<N>() as i64]);
+        let max_actions = actions_batch.iter().map(Vec::len).max().unwrap_or_default();
         let index = Tensor::from_slice2(
             &actions_batch
                 .iter()
@@ -224,6 +225,8 @@ impl Agent<Env> for Net {
                     actions
                         .iter()
                         .map(|a| move_index::<N>(a) as i64)
+                        .chain(std::iter::repeat(0))
+                        .take(max_actions)
                         .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>(),
