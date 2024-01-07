@@ -42,7 +42,7 @@ const STEPS_BEFORE_REANALYZE: usize = 5000;
 const MIN_EXPLOITATION_BUFFER_LEN: usize = 10_000;
 const MAX_EXPLOITATION_BUFFER_LEN: usize = 100_000;
 const MAX_REANALYZE_BUFFER_LEN: usize = 10_000;
-const INTIAL_RANDOM_TARGETS: usize = MIN_EXPLOITATION_BUFFER_LEN + BATCH_SIZE * STEPS_PER_EPOCH;
+const INITIAL_RANDOM_TARGETS: usize = MIN_EXPLOITATION_BUFFER_LEN + BATCH_SIZE * STEPS_PER_EPOCH;
 const EXPLOITATION_TARGET_LIFETIME: u32 = 4;
 const REANALYZE_TARGET_LIFETIME: u32 = 4;
 
@@ -103,7 +103,7 @@ fn main() {
     if steps == 0 {
         let mut actions = Vec::new();
         let mut states = Vec::new();
-        while exploitation_buffer.len() < INTIAL_RANDOM_TARGETS {
+        while exploitation_buffer.len() < INITIAL_RANDOM_TARGETS {
             let mut game = Env::new_opening(&mut rng, &mut actions);
             while game.terminal().is_none() {
                 states.push(game.clone());
@@ -158,7 +158,7 @@ fn main() {
                         .join(format!("targets-selfplay_{steps:0>6}.txt")),
                     EXPLOITATION_TARGET_LIFETIME,
                 );
-                if exploitation_buffer.len() > MAX_EXPLOITATION_BUFFER_LEN {
+                if steps > 0 && exploitation_buffer.len() > MAX_EXPLOITATION_BUFFER_LEN {
                     log::debug!("Truncating exploitation buffer because it's too long");
                     exploitation_buffer.sort_unstable_by_key(|t| Reverse(t.lifetime));
                     exploitation_buffer.truncate(MAX_EXPLOITATION_BUFFER_LEN);
