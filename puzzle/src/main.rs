@@ -1,5 +1,16 @@
-use std::{cmp::Ordering, fs::read_dir, path::PathBuf};
+use std::{
+    cmp::Ordering,
+    fs::read_dir,
+    path::{Path, PathBuf},
+};
 
+use charming::{
+    component::{Axis, Legend, Title},
+    series::Line,
+    theme::Theme,
+    Chart,
+    HtmlRenderer,
+};
 use clap::Parser;
 use fast_tak::{
     takparse::{Direction, Move, MoveKind, Piece, Square},
@@ -25,15 +36,20 @@ struct Args {
     /// Path to puzzle database
     #[arg(long)]
     puzzle_db_path: PathBuf,
+    /// Path to save graph
+    #[arg(long)]
+    graph_path: PathBuf,
 }
 
 const BATCH_SIZE: usize = 256;
-const VISITS: u32 = 1024;
+const VISITS: u32 = 2024;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const DEVICE: Device = Device::Cuda(0);
 
 const DEPTH_3_LIMIT: Option<i64> = Some(256);
 const DEPTH_5_LIMIT: Option<i64> = Some(256);
+
+const STEP: usize = 10;
 
 fn main() {
     env_logger::init();
@@ -47,9 +63,11 @@ fn real_main() {
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|p| p.extension().map(|ext| ext == "ot").unwrap_or_default())
+        .step_by(STEP)
         .collect();
     paths.sort();
 
+    let mut points = Vec::new();
     for path in paths {
         let Ok(net) = Net::load(&path, DEVICE) else {
             log::warn!("Cannot load {}", path.display());
@@ -57,12 +75,24 @@ fn real_main() {
         };
         log::info!("Benchmarking {}", path.display());
         let connection = sqlite::open(&args.puzzle_db_path).unwrap();
-        run_benchmark(&connection, 3, DEPTH_3_LIMIT, &net);
-        run_benchmark(&connection, 5, DEPTH_5_LIMIT, &net);
+        let depth_3 = run_benchmark(&connection, 3, DEPTH_3_LIMIT, &net);
+        let depth_5 = run_benchmark(&connection, 5, DEPTH_5_LIMIT, &net);
+        if let Some(model_steps) = path
+            .file_stem()
+            .and_then(|p| p.to_str()?.split_once('_')?.1.parse().ok())
+        {
+            points.push(Point {
+                model_steps,
+                depth_3,
+                depth_5,
+            });
+        }
     }
+
+    graph(points, &args.graph_path);
 }
 
-fn run_benchmark(connection: &Connection, depth: i64, limit: Option<i64>, agent: &Net)
+fn run_benchmark(connection: &Connection, depth: i64, limit: Option<i64>, agent: &Net) -> usize
 where
     Reserves<N>: Default,
 {
@@ -136,6 +166,7 @@ where
         wins += proven_wins;
     }
     log::info!("depth {depth}: {wins: >5} / {row_num: >5}");
+    wins
 }
 
 fn parse_playtak_move(s: &str) -> Move {
@@ -175,4 +206,48 @@ fn parse_piece(s: Option<&str>) -> Piece {
         Some("C") => Piece::Cap,
         _ => panic!("unknown piece"),
     }
+}
+
+struct Point {
+    model_steps: u32,
+    depth_3: usize,
+    depth_5: usize,
+}
+fn graph(mut points: Vec<Point>, path: &Path) {
+    points.sort_by_key(|p| p.model_steps);
+    let chart = Chart::new()
+        .title(
+            Title::new()
+                .text(format!("Puzzle solve rate ({N}x{N}, {VISITS} visits)"))
+                .left("center")
+                .top(0),
+        )
+        .x_axis(Axis::new().name("training steps"))
+        .y_axis(
+            Axis::new()
+                .name("ratio of puzzles solved")
+                .min(0.0)
+                .max(1.0),
+        )
+        .legend(Legend::new().right(0.0))
+        .series(
+            Line::new().name("tinue in 3").data(
+                points
+                    .iter()
+                    .map(|p| vec![p.model_steps as f64, p.depth_3 as f64])
+                    .collect(),
+            ),
+        )
+        .series(
+            Line::new().name("tinue in 5").data(
+                points
+                    .iter()
+                    .map(|p| vec![p.model_steps as f64, p.depth_5 as f64])
+                    .collect(),
+            ),
+        );
+    let mut renderer = HtmlRenderer::new("graph", 1000, 600).theme(Theme::Infographic);
+    renderer
+        .save(&chart, path.join("puzzle-graph.html"))
+        .unwrap();
 }

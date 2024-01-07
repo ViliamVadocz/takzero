@@ -25,64 +25,6 @@ struct Match {
 const STEPS_PER_MODEL: u32 = 1000;
 
 fn main() {
-    if env::args().len() == 0 {
-        graph_puzzle_solve_rate()
-    } else {
-        graph_elo();
-    }
-}
-
-// TODO: Get data from puzzle logs.
-fn graph_puzzle_solve_rate() {
-    let chart = Chart::new()
-        .title(
-            Title::new()
-                .text("Puzzle solve rate (5x5, 2048 visits)")
-                .left("center")
-                .top(0),
-        )
-        .x_axis(Axis::new().name("training steps"))
-        .y_axis(
-            Axis::new()
-                .name("ratio of puzzles solved")
-                .min(0.0)
-                .max(1.0),
-        )
-        .legend(Legend::new().right(0.0))
-        .series(Line::new().name("tinue in 3").data(vec![
-            vec![000000.0, 15.0 / 256.0],
-            vec![001000.0, 11.0 / 256.0],
-            vec![002000.0, 30.0 / 256.0],
-            vec![003000.0, 55.0 / 256.0],
-            vec![004000.0, 65.0 / 256.0],
-            vec![005000.0, 75.0 / 256.0],
-            vec![006000.0, 89.0 / 256.0],
-            vec![007000.0, 87.0 / 256.0],
-            vec![008000.0, 98.0 / 256.0],
-            vec![009000.0, 95.0 / 256.0],
-            vec![010000.0, 107.0 / 256.0],
-            vec![011000.0, 106.0 / 256.0],
-        ]))
-        .series(Line::new().name("tinue in 5").data(vec![
-            vec![000000.0, 0.0 / 256.0],
-            vec![001000.0, 1.0 / 256.0],
-            vec![002000.0, 6.0 / 256.0],
-            vec![003000.0, 17.0 / 256.0],
-            vec![004000.0, 20.0 / 256.0],
-            vec![005000.0, 29.0 / 256.0],
-            vec![006000.0, 37.0 / 256.0],
-            vec![007000.0, 44.0 / 256.0],
-            vec![008000.0, 47.0 / 256.0],
-            vec![009000.0, 46.0 / 256.0],
-            vec![010000.0, 57.0 / 256.0],
-            vec![011000.0, 55.0 / 256.0],
-        ]));
-    let mut renderer = HtmlRenderer::new("graph", 1000, 600).theme(Theme::Infographic);
-    renderer.save(&chart, "graph.html").unwrap();
-}
-
-// TODO: Get data from eval logs?
-fn graph_elo() {
     let mut chart = Chart::new()
         .title(
             Title::new()
