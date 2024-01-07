@@ -21,7 +21,7 @@ use crate::{
 pub const N: usize = 5;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
-const FILTERS: i64 = 64;
+const FILTERS: i64 = 128;
 
 #[derive(Debug)]
 pub struct Net {
@@ -40,7 +40,7 @@ struct Rnd {
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
-    const CORE_RES_BLOCKS: u32 = 8;
+    const CORE_RES_BLOCKS: u32 = 10;
     let mut core = nn::seq_t()
         .add(nn::conv2d(
             path / "input_conv2d",
