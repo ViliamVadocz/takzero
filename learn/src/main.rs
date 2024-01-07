@@ -1,4 +1,5 @@
 use std::{
+    cmp::Reverse,
     fmt,
     fs::{read_dir, OpenOptions},
     io::{BufRead, BufReader, Write},
@@ -39,7 +40,8 @@ const STEPS_PER_EPOCH: usize = 1000;
 const LEARNING_RATE: f64 = 1e-4;
 const STEPS_BEFORE_REANALYZE: usize = 5000;
 const MIN_EXPLOITATION_BUFFER_LEN: usize = 10_000;
-const MAX_EXPLOITATION_BUFFER_LEN: usize = 1_000_000;
+const MAX_EXPLOITATION_BUFFER_LEN: usize = 100_000;
+const MAX_REANALYZE_BUFFER_LEN: usize = 10_000;
 const INTIAL_RANDOM_TARGETS: usize = MIN_EXPLOITATION_BUFFER_LEN + BATCH_SIZE * STEPS_PER_EPOCH;
 const EXPLOITATION_TARGET_LIFETIME: u32 = 4;
 const REANALYZE_TARGET_LIFETIME: u32 = 4;
@@ -158,7 +160,7 @@ fn main() {
                 );
                 if exploitation_buffer.len() > MAX_EXPLOITATION_BUFFER_LEN {
                     log::debug!("Truncating exploitation buffer because it's too long");
-                    exploitation_buffer.sort_unstable_by_key(|t| t.lifetime);
+                    exploitation_buffer.sort_unstable_by_key(|t| Reverse(t.lifetime));
                     exploitation_buffer.truncate(MAX_EXPLOITATION_BUFFER_LEN);
                 }
                 if using_reanalyze {
@@ -170,6 +172,11 @@ fn main() {
                             .join(format!("targets-reanalyze_{steps:0>6}.txt")),
                         REANALYZE_TARGET_LIFETIME,
                     );
+                    if exploitation_buffer.len() > MAX_REANALYZE_BUFFER_LEN {
+                        log::debug!("Truncating reanalyze buffer because it's too long");
+                        exploitation_buffer.sort_unstable_by_key(|t| Reverse(t.lifetime));
+                        exploitation_buffer.truncate(MAX_REANALYZE_BUFFER_LEN);
+                    }
                 }
                 let enough_in_exploitation =
                     exploitation_buffer.len() >= MIN_EXPLOITATION_BUFFER_LEN;
