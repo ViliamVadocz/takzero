@@ -49,7 +49,7 @@ const DEVICE: Device = Device::Cuda(0);
 const DEPTH_3_LIMIT: Option<i64> = Some(256);
 const DEPTH_5_LIMIT: Option<i64> = Some(256);
 
-const STEP: usize = 10;
+const STEP: usize = 5;
 
 fn main() {
     env_logger::init();
@@ -92,7 +92,7 @@ fn real_main() {
     graph(points, &args.graph_path);
 }
 
-fn run_benchmark(connection: &Connection, depth: i64, limit: Option<i64>, agent: &Net) -> usize
+fn run_benchmark(connection: &Connection, depth: i64, limit: Option<i64>, agent: &Net) -> f64
 where
     Reserves<N>: Default,
 {
@@ -166,7 +166,7 @@ where
         wins += proven_wins;
     }
     log::info!("depth {depth}: {wins: >5} / {row_num: >5}");
-    wins
+    wins as f64 / row_num as f64
 }
 
 fn parse_playtak_move(s: &str) -> Move {
@@ -210,8 +210,8 @@ fn parse_piece(s: Option<&str>) -> Piece {
 
 struct Point {
     model_steps: u32,
-    depth_3: usize,
-    depth_5: usize,
+    depth_3: f64,
+    depth_5: f64,
 }
 fn graph(mut points: Vec<Point>, path: &Path) {
     points.sort_by_key(|p| p.model_steps);
@@ -234,7 +234,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             Line::new().name("tinue in 3").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_3 as f64])
+                    .map(|p| vec![p.model_steps as f64, p.depth_3])
                     .collect(),
             ),
         )
@@ -242,7 +242,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             Line::new().name("tinue in 5").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_5 as f64])
+                    .map(|p| vec![p.model_steps as f64, p.depth_5])
                     .collect(),
             ),
         );
