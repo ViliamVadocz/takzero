@@ -1,5 +1,4 @@
 use std::{
-    cmp::Ordering,
     fs::read_dir,
     path::{Path, PathBuf},
 };
@@ -12,13 +11,8 @@ use charming::{
     HtmlRenderer,
 };
 use clap::Parser;
-use fast_tak::{
-    takparse::{Direction, Move, MoveKind, Piece, Square},
-    Game,
-    Reserves,
-};
-use rayon::prelude::*;
-use sqlite::{Connection, Value};
+use fast_tak::takparse::{Move, Tps};
+use sqlite::{Connection, Statement, Value};
 use takzero::{
     network::{
         net5::{Env, Net, RndNormalizationContext, N},
@@ -41,13 +35,12 @@ struct Args {
     graph_path: PathBuf,
 }
 
-const BATCH_SIZE: usize = 256;
-const VISITS: u32 = 2024;
+const _: () = assert!(N == 5, "Tilpaz is only supported for 5x5");
+
+const BATCH_SIZE: usize = 128;
+const VISITS: u32 = 128;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const DEVICE: Device = Device::Cuda(0);
-
-const DEPTH_3_LIMIT: Option<i64> = Some(256);
-const DEPTH_5_LIMIT: Option<i64> = Some(256);
 
 const STEP: usize = 5;
 
@@ -59,6 +52,7 @@ fn main() {
 
 fn real_main() {
     let args = Args::parse();
+    let connection = sqlite::open(&args.puzzle_db_path).unwrap();
     let mut paths: Vec<_> = read_dir(args.model_path)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -73,73 +67,96 @@ fn real_main() {
             log::warn!("Cannot load {}", path.display());
             continue;
         };
-        log::info!("Benchmarking {}", path.display());
-        let connection = sqlite::open(&args.puzzle_db_path).unwrap();
-        let depth_3 = run_benchmark(&connection, 3, DEPTH_3_LIMIT, &net);
-        let depth_5 = run_benchmark(&connection, 5, DEPTH_5_LIMIT, &net);
-        if let Some(model_steps) = path
+        let Some(model_steps) = path
             .file_stem()
             .and_then(|p| p.to_str()?.split_once('_')?.1.parse().ok())
-        {
-            points.push(Point {
-                model_steps,
-                depth_3,
-                depth_5,
-            });
-        }
+        else {
+            log::warn!("Cannot parse model steps in {}", path.display());
+            continue;
+        };
+        log::info!("Benchmarking {}", path.display());
+
+        let depth_3 = benchmark(&net, tinue(&connection, 3, BATCH_SIZE as i64), true);
+        let depth_5 = benchmark(&net, tinue(&connection, 5, BATCH_SIZE as i64), true);
+        let depth_2 = benchmark(&net, avoidance(&connection, 2, BATCH_SIZE as i64), false);
+        let depth_4 = benchmark(&net, avoidance(&connection, 4, BATCH_SIZE as i64), false);
+
+        points.push(Point {
+            model_steps,
+            depth_3_solved: depth_3.solved as f64 / depth_3.attempted as f64,
+            depth_3_proven: depth_3.proven as f64 / depth_3.attempted as f64,
+            depth_5_solved: depth_5.solved as f64 / depth_3.attempted as f64,
+            depth_5_proven: depth_5.proven as f64 / depth_3.attempted as f64,
+            depth_2_solved: depth_2.solved as f64 / depth_3.attempted as f64,
+            depth_2_proven: depth_2.proven as f64 / depth_3.attempted as f64,
+            depth_4_solved: depth_4.solved as f64 / depth_3.attempted as f64,
+            depth_4_proven: depth_4.proven as f64 / depth_3.attempted as f64,
+        });
     }
 
     graph(points, &args.graph_path);
 }
 
-fn run_benchmark(connection: &Connection, depth: i64, limit: Option<i64>, agent: &Net) -> f64
-where
-    Reserves<N>: Default,
-{
-    let query = "SELECT * FROM tinues t
-    JOIN games g ON t.gameid = g.id
-    WHERE t.size = :size
-        AND g.komi = :komi
-        AND t.tinue_depth = :depth
-        AND g.id NOT IN (149657, 149584, 395154)
-    ORDER BY t.id DESC
-    LIMIT :limit";
+#[derive(Debug)]
+struct PuzzleResult {
+    attempted: usize,
+    solved: usize,
+    proven: usize,
+}
+
+fn tinue(connection: &Connection, depth: i64, limit: i64) -> Statement {
+    let query = r#"SELECT * FROM puzzles
+    WHERE instr(tps, "1C") > 0
+        AND instr(tps, "2C") > 0
+        AND tinue_length = :depth
+        AND tinue_avoidance_length IS NULL
+        AND tiltak_second_move_eval < 0.6
+    ORDER BY game_id ASC
+    LIMIT :limit"#;
     let mut statement = connection.prepare(query).unwrap();
     statement
-        .bind::<&[(_, Value)]>(&[
-            (":size", i64::try_from(N).unwrap().into()),
-            (":komi", 0.into() /* i64::from(HALF_KOMI / 2).into() */),
-            (":depth", depth.into()),
-            (":limit", limit.unwrap_or(i64::MAX).into()),
-        ])
+        .bind::<&[(_, Value)]>(&[(":depth", depth.into()), (":limit", limit.into())])
         .unwrap();
+    assert_eq!(
+        statement.iter().count(),
+        limit as usize,
+        "incorrect amount of puzzles"
+    );
+    statement
+}
 
-    let rows = statement
+fn avoidance(connection: &Connection, depth: i64, limit: i64) -> Statement {
+    let query = r#"SELECT * FROM puzzles
+    WHERE instr(tps, "1C") > 0
+        AND instr(tps, "2C") > 0
+        AND tinue_avoidance_length = :depth
+        AND tinue_length IS NULL
+        AND tiltak_eval > 0.6
+    ORDER BY game_id ASC
+    LIMIT :limit"#;
+    let mut statement = connection.prepare(query).unwrap();
+    statement
+        .bind::<&[(_, Value)]>(&[(":depth", depth.into()), (":limit", limit.into())])
+        .unwrap();
+    assert_eq!(
+        statement.iter().count(),
+        limit as usize,
+        "incorrect amount of puzzles"
+    );
+    statement
+}
+
+fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
+    let (puzzles, solutions): (Vec<_>, Vec<_>) = statement
         .into_iter()
         .map(|row| {
-            row.map(|row| {
-                let id: i64 = row.read("id");
-                let notation: &str = row.read("notation");
-                let plies_to_undo = row.read("plies_to_undo");
-                let tinue: &str = row.read("tinue");
-                (id, notation.to_owned(), plies_to_undo, tinue.to_owned())
-            })
+            let row = row.unwrap();
+            let tps: Tps = row.read::<&str, _>("tps").parse().unwrap();
+            let solution: Move = row.read::<&str, _>("solution").parse().unwrap();
+            let game: Env = tps.into();
+            (game, solution)
         })
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    let row_num = rows.len();
-
-    // Parse puzzles.
-    let puzzles: Vec<Env> = rows
-        .into_par_iter()
-        .map(|(_game_id, notation, plies_to_undo, _tinue)| {
-            let mut moves: Vec<_> = notation.split(',').map(parse_playtak_move).collect();
-            for _ in 0..plies_to_undo {
-                moves.pop();
-            }
-            Game::from_moves(&moves).unwrap()
-        })
-        .collect();
+        .unzip();
 
     let mut batched_mcts = BatchedMCTS::from_envs(
         std::array::from_fn(|_| Env::default()),
@@ -148,8 +165,13 @@ where
     );
 
     // Attempt to solve puzzles.
-    let mut wins = 0;
-    for puzzle_batch in puzzles.chunks_exact(BATCH_SIZE) {
+    let mut attempted = 0;
+    let mut solved = 0;
+    let mut proven = 0;
+    for (puzzle_batch, solution_batch) in puzzles
+        .chunks_exact(BATCH_SIZE)
+        .zip(solutions.chunks_exact(BATCH_SIZE))
+    {
         batched_mcts
             .nodes_and_envs_mut()
             .zip(puzzle_batch)
@@ -159,60 +181,60 @@ where
             batched_mcts.simulate(agent);
         }
 
-        let proven_wins = batched_mcts
-            .nodes_and_envs()
-            .filter(|(node, _)| node.evaluation.is_win())
+        attempted += puzzle_batch.len();
+        solved += batched_mcts
+            .select_best_actions()
+            .into_iter()
+            .zip(solution_batch)
+            .filter(|(a, b)| a == *b)
             .count();
-        wins += proven_wins;
-    }
-    log::info!("depth {depth}: {wins: >5} / {row_num: >5}");
-    wins as f64 / row_num as f64
-}
 
-fn parse_playtak_move(s: &str) -> Move {
-    let mut words = s.split_ascii_whitespace();
-    match (words.next(), words.next(), words.next()) {
-        (Some("P"), Some(square), piece) => {
-            Move::new(parse_square(square), MoveKind::Place(parse_piece(piece)))
-        }
-        (Some("M"), Some(start), Some(end)) => {
-            let start = parse_square(start);
-            let end = parse_square(end);
-            let direction = match (
-                end.column().cmp(&start.column()),
-                end.row().cmp(&start.row()),
-            ) {
-                (Ordering::Less, Ordering::Equal) => Direction::Left,
-                (Ordering::Greater, Ordering::Equal) => Direction::Right,
-                (Ordering::Equal, Ordering::Less) => Direction::Down,
-                (Ordering::Equal, Ordering::Greater) => Direction::Up,
-                _ => panic!("start and end squares don't form a straight line"),
-            };
-            let pattern = words.collect::<String>().parse().unwrap();
-            Move::new(start, MoveKind::Spread(direction, pattern))
-        }
-        _ => panic!("unrecognized move"),
+        // Count how many solutions were proven by the terminal solver.
+        proven += if win {
+            // Count how many nodes have been solved to a win.
+            batched_mcts
+                .nodes_and_envs()
+                .filter(|(node, _)| node.evaluation.is_win())
+                .count()
+        } else {
+            // Count how many nodes have had all but one child solved as a win
+            // (i.e. found the tinue for all other moves).
+            batched_mcts
+                .nodes_and_envs()
+                .filter(|(node, _)| {
+                    node.children
+                        .iter()
+                        .filter(|(_, child)| child.evaluation.is_win())
+                        .count()
+                        == node.children.len() - 1
+                })
+                .count()
+        };
     }
-}
 
-fn parse_square(s: &str) -> Square {
-    s.to_lowercase().parse().unwrap()
-}
-
-fn parse_piece(s: Option<&str>) -> Piece {
-    match s {
-        None => Piece::Flat,
-        Some("W") => Piece::Wall,
-        Some("C") => Piece::Cap,
-        _ => panic!("unknown piece"),
-    }
+    let result = PuzzleResult {
+        attempted,
+        solved,
+        proven,
+    };
+    log::info!("{result:?}");
+    result
 }
 
 struct Point {
     model_steps: u32,
-    depth_3: f64,
-    depth_5: f64,
+    // tinue
+    depth_3_solved: f64,
+    depth_3_proven: f64,
+    depth_5_solved: f64,
+    depth_5_proven: f64,
+    // avoidance
+    depth_2_solved: f64,
+    depth_2_proven: f64,
+    depth_4_solved: f64,
+    depth_4_proven: f64,
 }
+
 fn graph(mut points: Vec<Point>, path: &Path) {
     points.sort_by_key(|p| p.model_steps);
     let chart = Chart::new()
@@ -229,20 +251,68 @@ fn graph(mut points: Vec<Point>, path: &Path) {
                 .min(0.0)
                 .max(1.0),
         )
-        .legend(Legend::new().right(0.0))
+        .legend(Legend::new().top("bottom"))
         .series(
-            Line::new().name("tinue in 3").data(
+            Line::new().name("tinue in 3 solved").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_3])
+                    .map(|p| vec![p.model_steps as f64, p.depth_3_solved])
                     .collect(),
             ),
         )
         .series(
-            Line::new().name("tinue in 5").data(
+            Line::new().name("tinue in 3 proven").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_5])
+                    .map(|p| vec![p.model_steps as f64, p.depth_3_proven])
+                    .collect(),
+            ),
+        )
+        .series(
+            Line::new().name("tinue in 5 solved").data(
+                points
+                    .iter()
+                    .map(|p| vec![p.model_steps as f64, p.depth_5_solved])
+                    .collect(),
+            ),
+        )
+        .series(
+            Line::new().name("tinue in 5 proven").data(
+                points
+                    .iter()
+                    .map(|p| vec![p.model_steps as f64, p.depth_5_proven])
+                    .collect(),
+            ),
+        )
+        .series(
+            Line::new().name("avoid in 2 solved").data(
+                points
+                    .iter()
+                    .map(|p| vec![p.model_steps as f64, p.depth_2_solved])
+                    .collect(),
+            ),
+        )
+        .series(
+            Line::new().name("avoid in 2 proven").data(
+                points
+                    .iter()
+                    .map(|p| vec![p.model_steps as f64, p.depth_2_proven])
+                    .collect(),
+            ),
+        )
+        .series(
+            Line::new().name("avoid in 4 solved").data(
+                points
+                    .iter()
+                    .map(|p| vec![p.model_steps as f64, p.depth_4_solved])
+                    .collect(),
+            ),
+        )
+        .series(
+            Line::new().name("avoid in 4 proven").data(
+                points
+                    .iter()
+                    .map(|p| vec![p.model_steps as f64, p.depth_4_proven])
                     .collect(),
             ),
         );
