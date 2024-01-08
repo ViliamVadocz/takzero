@@ -172,10 +172,10 @@ fn main() {
                             .join(format!("targets-reanalyze_{steps:0>6}.txt")),
                         REANALYZE_TARGET_LIFETIME,
                     );
-                    if exploitation_buffer.len() > MAX_REANALYZE_BUFFER_LEN {
+                    if reanalyze_buffer.len() > MAX_REANALYZE_BUFFER_LEN {
                         log::debug!("Truncating reanalyze buffer because it's too long");
-                        exploitation_buffer.sort_unstable_by_key(|t| Reverse(t.lifetime));
-                        exploitation_buffer.truncate(MAX_REANALYZE_BUFFER_LEN);
+                        reanalyze_buffer.sort_unstable_by_key(|t| Reverse(t.lifetime));
+                        reanalyze_buffer.truncate(MAX_REANALYZE_BUFFER_LEN);
                     }
                 }
                 let enough_in_exploitation =
