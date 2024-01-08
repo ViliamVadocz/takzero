@@ -38,11 +38,11 @@ struct Args {
 const _: () = assert!(N == 5, "Tilpaz is only supported for 5x5");
 
 const BATCH_SIZE: usize = 128;
-const VISITS: u32 = 128;
+const VISITS: u32 = 1024;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const DEVICE: Device = Device::Cuda(0);
 
-const STEP: usize = 5;
+const STEP: usize = 10;
 
 fn main() {
     env_logger::init();
