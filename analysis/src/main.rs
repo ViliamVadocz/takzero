@@ -48,14 +48,13 @@ fn main() {
                 }
             }
             node.descend(&mov);
-            println!("{node}");
         } else {
             let visits: u32 = trim.parse().unwrap_or(1);
             println!("simulating {visits} visits");
             for _ in 0..visits {
                 node.simulate_simple(&agent, env.clone(), BETA, &mut context);
             }
-            println!("{node}");
         }
+        println!("{node}");
     }
 }

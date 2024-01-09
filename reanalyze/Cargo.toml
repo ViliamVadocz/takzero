@@ -15,8 +15,5 @@ rand.workspace = true
 takzero.workspace = true
 tch.workspace = true
 
-[features]
-baseline = []
-
 [lints]
 workspace = true

@@ -5,3 +5,6 @@ edition = "2021"
 
 [dependencies]
 charming = "0.2.4"
+
+[lints]
+workspace = true

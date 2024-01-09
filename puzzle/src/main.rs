@@ -26,13 +26,13 @@ use tch::Device;
 struct Args {
     /// Path where models are stored
     #[arg(long)]
-    model_path: PathBuf,
+    model: PathBuf,
     /// Path to puzzle database
     #[arg(long)]
-    puzzle_db_path: PathBuf,
+    puzzle_db: PathBuf,
     /// Path to save graph
     #[arg(long)]
-    graph_path: PathBuf,
+    graph: PathBuf,
 }
 
 #[allow(clippy::assertions_on_constants)]

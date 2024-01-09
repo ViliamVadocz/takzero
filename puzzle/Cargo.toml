@@ -14,3 +14,6 @@ takzero.workspace = true
 tch.workspace = true
 sqlite = "0.31.0"
 charming = "0.2.4"
+
+[lints]
+workspace = true

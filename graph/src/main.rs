@@ -49,7 +49,7 @@ fn main() {
             Line::new().data(
                 player_elo
                     .into_iter()
-                    .map(|(p, e)| vec![p as f64, e as f64])
+                    .map(|(p, e)| vec![f64::from(p), f64::from(e)])
                     .collect(),
             ),
         );
@@ -86,7 +86,7 @@ fn get_unique_players(matches: &[Match]) -> Vec<u32> {
         .iter()
         .flat_map(|m| [m.white, m.black].into_iter())
         .collect();
-    players.sort();
+    players.sort_unstable();
     players.dedup();
     assert!(
         players
