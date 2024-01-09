@@ -31,7 +31,7 @@ where
     }
 
     fn step(&mut self, action: Self::Action) {
-        self.play(action).expect("Action should be valid.");
+        self.play(action).expect("Action should be valid");
     }
 
     fn terminal(&self) -> Option<Terminal> {

@@ -18,7 +18,7 @@ use takzero::{
         net5::{Env, Net, RndNormalizationContext, N},
         Network,
     },
-    search::node::batched::BatchedMCTS,
+    search::node::{batched::BatchedMCTS, Node},
 };
 use tch::Device;
 
@@ -35,6 +35,7 @@ struct Args {
     graph_path: PathBuf,
 }
 
+#[allow(clippy::assertions_on_constants)]
 const _: () = assert!(N == 5, "Tilpaz is only supported for 5x5");
 
 const BATCH_SIZE: usize = 128;
@@ -76,21 +77,24 @@ fn real_main() {
         };
         log::info!("Benchmarking {}", path.display());
 
-        let depth_3 = benchmark(&net, tinue(&connection, 3, BATCH_SIZE as i64), true);
-        let depth_5 = benchmark(&net, tinue(&connection, 5, BATCH_SIZE as i64), true);
-        let depth_2 = benchmark(&net, avoidance(&connection, 2, BATCH_SIZE as i64), false);
-        let depth_4 = benchmark(&net, avoidance(&connection, 4, BATCH_SIZE as i64), false);
+        let depth_3 = benchmark(&net, tinue(&connection, 3, 512), true);
+        let depth_5 = benchmark(&net, tinue(&connection, 5, 384), true);
+        let depth_7 = benchmark(&net, tinue(&connection, 7, 128), true);
+        let depth_9 = benchmark(&net, tinue(&connection, 9, 128), true);
+
+        let depth_2 = benchmark(&net, avoidance(&connection, 2, 256), false);
+        let depth_4 = benchmark(&net, avoidance(&connection, 4, 128), false);
+        let depth_6 = benchmark(&net, avoidance(&connection, 6, 128), false);
 
         points.push(Point {
             model_steps,
-            depth_3_solved: depth_3.solved as f64 / depth_3.attempted as f64,
-            depth_3_proven: depth_3.proven as f64 / depth_3.attempted as f64,
-            depth_5_solved: depth_5.solved as f64 / depth_3.attempted as f64,
-            depth_5_proven: depth_5.proven as f64 / depth_3.attempted as f64,
-            depth_2_solved: depth_2.solved as f64 / depth_3.attempted as f64,
-            depth_2_proven: depth_2.proven as f64 / depth_3.attempted as f64,
-            depth_4_solved: depth_4.solved as f64 / depth_3.attempted as f64,
-            depth_4_proven: depth_4.proven as f64 / depth_3.attempted as f64,
+            depth_3_solved: depth_3.solve_rate(),
+            depth_5_solved: depth_5.solve_rate(),
+            depth_7_solved: depth_7.solve_rate(),
+            depth_9_solved: depth_9.solve_rate(),
+            depth_2_solved: depth_2.solve_rate(),
+            depth_4_solved: depth_4.solve_rate(),
+            depth_6_solved: depth_6.solve_rate(),
         });
     }
 
@@ -102,6 +106,17 @@ struct PuzzleResult {
     attempted: usize,
     solved: usize,
     proven: usize,
+}
+
+impl PuzzleResult {
+    fn solve_rate(&self) -> f64 {
+        self.solved as f64 / self.attempted as f64
+    }
+
+    #[allow(unused)]
+    fn prove_rate(&self) -> f64 {
+        self.proven as f64 / self.attempted as f64
+    }
 }
 
 fn tinue(connection: &Connection, depth: i64, limit: i64) -> Statement {
@@ -172,10 +187,14 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
         .chunks_exact(BATCH_SIZE)
         .zip(solutions.chunks_exact(BATCH_SIZE))
     {
+        println!("batch");
         batched_mcts
             .nodes_and_envs_mut()
             .zip(puzzle_batch)
-            .for_each(|((_, env), puzzle)| *env = puzzle.clone());
+            .for_each(|((node, env), puzzle)| {
+                *node = Node::default();
+                *env = puzzle.clone()
+            });
 
         for _ in 0..VISITS {
             batched_mcts.simulate(agent);
@@ -225,14 +244,13 @@ struct Point {
     model_steps: u32,
     // tinue
     depth_3_solved: f64,
-    depth_3_proven: f64,
     depth_5_solved: f64,
-    depth_5_proven: f64,
+    depth_7_solved: f64,
+    depth_9_solved: f64,
     // avoidance
     depth_2_solved: f64,
-    depth_2_proven: f64,
     depth_4_solved: f64,
-    depth_4_proven: f64,
+    depth_6_solved: f64,
 }
 
 fn graph(mut points: Vec<Point>, path: &Path) {
@@ -261,14 +279,6 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             ),
         )
         .series(
-            Line::new().name("tinue in 3 proven").data(
-                points
-                    .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_3_proven])
-                    .collect(),
-            ),
-        )
-        .series(
             Line::new().name("tinue in 5 solved").data(
                 points
                     .iter()
@@ -277,10 +287,18 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             ),
         )
         .series(
-            Line::new().name("tinue in 5 proven").data(
+            Line::new().name("tinue in 7 solved").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_5_proven])
+                    .map(|p| vec![p.model_steps as f64, p.depth_7_solved])
+                    .collect(),
+            ),
+        )
+        .series(
+            Line::new().name("tinue in 9 solved").data(
+                points
+                    .iter()
+                    .map(|p| vec![p.model_steps as f64, p.depth_9_solved])
                     .collect(),
             ),
         )
@@ -293,14 +311,6 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             ),
         )
         .series(
-            Line::new().name("avoid in 2 proven").data(
-                points
-                    .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_2_proven])
-                    .collect(),
-            ),
-        )
-        .series(
             Line::new().name("avoid in 4 solved").data(
                 points
                     .iter()
@@ -309,14 +319,14 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             ),
         )
         .series(
-            Line::new().name("avoid in 4 proven").data(
+            Line::new().name("avoid in 6 proven").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_4_proven])
+                    .map(|p| vec![p.model_steps as f64, p.depth_6_solved])
                     .collect(),
             ),
         );
-    let mut renderer = HtmlRenderer::new("graph", 1000, 600).theme(Theme::Infographic);
+    let mut renderer = HtmlRenderer::new("graph", 1200, 650).theme(Theme::Default);
     renderer
         .save(&chart, path.join("puzzle-graph.html"))
         .unwrap();
