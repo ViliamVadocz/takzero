@@ -53,8 +53,8 @@ fn main() {
 
 fn real_main() {
     let args = Args::parse();
-    let connection = sqlite::open(&args.puzzle_db_path).unwrap();
-    let mut paths: Vec<_> = read_dir(args.model_path)
+    let connection = sqlite::open(&args.puzzle_db).unwrap();
+    let mut paths: Vec<_> = read_dir(args.model)
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|p| p.extension().map(|ext| ext == "ot").unwrap_or_default())
@@ -98,7 +98,7 @@ fn real_main() {
         });
     }
 
-    graph(points, &args.graph_path);
+    graph(points, &args.graph);
 }
 
 #[derive(Debug)]
