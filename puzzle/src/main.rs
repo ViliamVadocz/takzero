@@ -193,7 +193,7 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
             .zip(puzzle_batch)
             .for_each(|((node, env), puzzle)| {
                 *node = Node::default();
-                *env = puzzle.clone()
+                *env = puzzle.clone();
             });
 
         for _ in 0..VISITS {

@@ -1,0 +1,17 @@
+[package]
+name = "tei"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+env_logger.workspace = true
+log.workspace = true
+fast-tak.workspace = true
+takzero.workspace = true
+tch.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
