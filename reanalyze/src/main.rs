@@ -33,7 +33,7 @@ const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
 const VISITS: u32 = 800;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
-const MIN_POSITIONS: usize = 640000;
+const MIN_POSITIONS: usize = 4000 * 128; // steps before reanalyze * batch size
 const _: () = assert!(MIN_POSITIONS > BATCH_SIZE);
 
 #[derive(Parser, Debug)]
