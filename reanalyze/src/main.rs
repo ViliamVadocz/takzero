@@ -91,6 +91,7 @@ fn main() {
                 position_buffer.len()
             );
             std::thread::sleep(duration);
+            continue;
         }
 
         // Sample a batch.
