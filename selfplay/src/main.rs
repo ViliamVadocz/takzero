@@ -62,7 +62,7 @@ fn main() {
     let mut batched_mcts = BatchedMCTS::new(&mut rng, BETA, RndNormalizationContext::new(0.0));
 
     for steps in 0.. {
-        log::debug!("Step: {steps}");
+        log::info!("Step: {steps}");
         let start = std::time::Instant::now();
         loop {
             match Net::load(&args.directory.join("model_latest.ot"), DEVICE) {
@@ -70,12 +70,12 @@ fn main() {
                     net = new_net;
                     break;
                 }
-                Err(TchError::Io(err)) => {
-                    log::warn!("Cannot load model (IO error): {err}, not retrying.");
+                Err(TchError::Torch(err)) => {
+                    log::warn!("Cannot load model (internal torch error): {err}, not retrying.");
                     break;
                 }
                 Err(err) => {
-                    log::error!("Cannot load model: {err}, retrying.");
+                    log::error!("Cannot load model (some other reason): {err}, retrying.");
                     std::thread::sleep(std::time::Duration::from_secs(1));
                 }
             }

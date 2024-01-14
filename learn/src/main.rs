@@ -122,6 +122,9 @@ fn main() {
         .unwrap();
     }
 
+    net.save(args.directory.join(format!("model_latest.ot")))
+        .unwrap();
+
     // Initialize buffers.
     let mut exploitation_buffer: Vec<TargetWithContext> =
         Vec::with_capacity(MAX_EXPLOITATION_BUFFER_LEN);
@@ -132,31 +135,52 @@ fn main() {
     // Main training loop.
     for model_steps in starting_steps.. {
         let using_reanalyze = model_steps >= STEPS_BEFORE_REANALYZE;
-        fill_buffers(
-            &mut exploitation_buffer,
-            &mut exploitation_targets_read,
-            &mut reanalyze_buffer,
-            &mut reanalyze_targets_read,
-            &args.directory,
-            model_steps,
-            using_reanalyze,
-        );
 
-        // Create a batch and take a step if there are enough targets.
-        let enough_exploitation_targets = exploitation_buffer.len() >= MIN_EXPLOITATION_BUFFER_LEN;
-        let enough_reanalyze_targets = !using_reanalyze || reanalyze_buffer.len() >= BATCH_SIZE / 2;
-        if enough_exploitation_targets && enough_reanalyze_targets {
-            let tensors = create_batch(
-                using_reanalyze,
+        loop {
+            fill_buffers(
                 &mut exploitation_buffer,
+                &mut exploitation_targets_read,
                 &mut reanalyze_buffer,
-                &mut rng,
+                &mut reanalyze_targets_read,
+                &args.directory,
+                model_steps,
+                using_reanalyze,
             );
-            compute_loss_and_take_step(&net, &mut opt, tensors);
 
-            // Save latest model.
-            if model_steps % STEPS_PER_SAVE == 0 {
-                #[rustfmt::skip]
+            // Create a batch and take a step if there are enough targets.
+            let enough_exploitation_targets =
+                exploitation_buffer.len() >= MIN_EXPLOITATION_BUFFER_LEN;
+            let enough_reanalyze_targets =
+                !using_reanalyze || reanalyze_buffer.len() >= BATCH_SIZE / 2;
+            if enough_exploitation_targets && enough_reanalyze_targets {
+                break;
+            }
+
+            let duration = std::time::Duration::from_secs(30);
+            #[rustfmt::skip]
+                log::info!(
+                    "Not enough targets.\n\
+                    Waiting {duration:?}.\n\
+                    Training steps: {model_steps}\n\
+                    Exploitation buffer size: {}\n\
+                    Reanalyze buffer size: {}",
+                    exploitation_buffer.len(),
+                    reanalyze_buffer.len()
+                );
+            std::thread::sleep(duration);
+        }
+
+        let tensors = create_batch(
+            using_reanalyze,
+            &mut exploitation_buffer,
+            &mut reanalyze_buffer,
+            &mut rng,
+        );
+        compute_loss_and_take_step(&net, &mut opt, tensors);
+
+        // Save latest model.
+        if model_steps % STEPS_PER_SAVE == 0 {
+            #[rustfmt::skip]
                 log::info!(
                     "Saving model.\n\
                      Training steps: {model_steps}\n\
@@ -166,34 +190,20 @@ fn main() {
                     reanalyze_buffer.len()
                 );
 
-                let start = std::time::Instant::now();
-                net.save(args.directory.join(format!("model_latest.ot")))
-                    .unwrap();
-                log::debug!("It took {:?} to save the latest model.", start.elapsed());
-            }
+            let start = std::time::Instant::now();
+            net.save(args.directory.join(format!("model_latest.ot")))
+                .unwrap();
+            log::debug!("It took {:?} to save the latest model.", start.elapsed());
+        }
 
-            // Save checkpoint.
-            if model_steps % STEPS_PER_CHECKPOINT == 0 {
-                let start = std::time::Instant::now();
-                net.save(args.directory.join(format!("model_{model_steps:0>6}.ot")))
-                    .unwrap();
-                log::debug!("It took {:?} to save the checkpoint.", start.elapsed());
-                // I don't know if this helps or hurts or does nothing.
-                opt.zero_grad();
-            }
-        } else {
-            let duration = std::time::Duration::from_secs(30);
-            #[rustfmt::skip]
-            log::info!(
-                "Not enough targets.\n\
-                 Waiting {duration:?}.\n\
-                 Training steps: {model_steps}\n\
-                 Exploitation buffer size: {}\n\
-                 Reanalyze buffer size: {}",
-                exploitation_buffer.len(),
-                reanalyze_buffer.len()
-            );
-            std::thread::sleep(duration);
+        // Save checkpoint.
+        if model_steps % STEPS_PER_CHECKPOINT == 0 {
+            let start = std::time::Instant::now();
+            net.save(args.directory.join(format!("model_{model_steps:0>6}.ot")))
+                .unwrap();
+            log::debug!("It took {:?} to save the checkpoint.", start.elapsed());
+            // I don't know if this helps or hurts or does nothing.
+            opt.zero_grad();
         }
     }
 }
@@ -321,6 +331,7 @@ fn compute_loss_and_take_step(net: &Net, opt: &mut Optimizer, tensors: Tensors) 
 }
 
 fn pre_training(net: &Net, opt: &mut Optimizer, rng: &mut impl Rng, directory: &PathBuf) {
+    log::info!("Pre-training");
     let mut actions = Vec::new();
     let mut states = Vec::new();
     let mut buffer = Vec::with_capacity(INITIAL_RANDOM_TARGETS);

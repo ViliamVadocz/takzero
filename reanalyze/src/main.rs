@@ -64,12 +64,12 @@ fn main() {
                     net = new_net;
                     break;
                 }
-                Err(TchError::Io(err)) => {
-                    log::warn!("Cannot load model (IO error): {err}, not retrying.");
+                Err(TchError::Torch(err)) => {
+                    log::warn!("Cannot load model (internal torch error): {err}, not retrying.");
                     break;
                 }
                 Err(err) => {
-                    log::error!("Cannot load model: {err}, retrying.");
+                    log::error!("Cannot load model (some other reason): {err}, retrying.");
                     std::thread::sleep(std::time::Duration::from_secs(1));
                 }
             }
@@ -85,8 +85,12 @@ fn main() {
         };
 
         if position_buffer.len() < MIN_POSITIONS {
-            log::info!("Not enough positions yet: {}", position_buffer.len());
-            std::thread::sleep(std::time::Duration::from_secs(60));
+            let duration = std::time::Duration::from_secs(60);
+            log::info!(
+                "Not enough positions yet ({}), sleeping for {duration:?}",
+                position_buffer.len()
+            );
+            std::thread::sleep(duration);
         }
 
         // Sample a batch.
