@@ -33,6 +33,9 @@ struct Args {
     /// Path to save graph
     #[arg(long)]
     graph: PathBuf,
+    /// How many models to skip between benchmarks
+    #[arg(long, default_value_t = 1)]
+    step: usize,
 }
 
 #[allow(clippy::assertions_on_constants)]
@@ -42,8 +45,6 @@ const BATCH_SIZE: usize = 128;
 const VISITS: u32 = 1024;
 const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const DEVICE: Device = Device::Cuda(0);
-
-const STEP: usize = 10;
 
 fn main() {
     env_logger::init();
@@ -58,7 +59,7 @@ fn real_main() {
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|p| p.extension().map(|ext| ext == "ot").unwrap_or_default())
-        .step_by(STEP)
+        .step_by(args.step)
         .collect();
     paths.sort();
 
