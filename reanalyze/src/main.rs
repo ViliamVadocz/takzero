@@ -93,6 +93,7 @@ fn main() {
             std::thread::sleep(duration);
             continue;
         }
+        log::debug!("Number of positions: {}", position_buffer.len());
 
         // Sample a batch.
         let batch = position_buffer.choose_multiple(&mut rng, BATCH_SIZE);
