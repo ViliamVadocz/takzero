@@ -13,6 +13,7 @@ The repository contains several libraries and binaries:
 - `puzzle` runs the puzzle benchmark
 - `analysis` includes interactive game analysis
 - `graph` computes Bayesian Elo from match results (from `evaluation`) and creates a graph
+- `tei` a [TEI](https://github.com/MortenLohne/racetrack#tei) implementation
 
 I also have a `python` directory for miscellaneous Python scripts.
 
