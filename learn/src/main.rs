@@ -4,6 +4,7 @@ use std::{
     fs::{read_dir, OpenOptions},
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use clap::Parser;
@@ -53,6 +54,8 @@ const MAX_EXPLOITATION_BUFFER_LEN: usize = 10_000;
 const MAX_REANALYZE_BUFFER_LEN: usize = 10_000;
 const EXPLOITATION_TARGET_USES_AVAILABLE: u32 = 1;
 const REANALYZE_TARGET_USES_AVAILABLE: u32 = 1;
+const MIN_TIME_BETWEEN_BUFFER_READS: Duration = Duration::from_secs(10);
+const SLEEP_WHEN_NOT_ENOUGH_TARGETS: Duration = Duration::from_secs(30);
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -133,19 +136,24 @@ fn main() {
     let mut reanalyze_targets_read = 0;
 
     // Main training loop.
+    let mut last_loaded = Instant::now();
     for model_steps in starting_steps.. {
         let using_reanalyze = model_steps >= STEPS_BEFORE_REANALYZE;
 
+        // Make sure there are enough targets before sampling a batch.
         loop {
-            fill_buffers(
-                &mut exploitation_buffer,
-                &mut exploitation_targets_read,
-                &mut reanalyze_buffer,
-                &mut reanalyze_targets_read,
-                &args.directory,
-                model_steps,
-                using_reanalyze,
-            );
+            if last_loaded.elapsed() >= MIN_TIME_BETWEEN_BUFFER_READS {
+                fill_buffers(
+                    &mut exploitation_buffer,
+                    &mut exploitation_targets_read,
+                    &mut reanalyze_buffer,
+                    &mut reanalyze_targets_read,
+                    &args.directory,
+                    model_steps,
+                    using_reanalyze,
+                );
+                last_loaded = Instant::now();
+            }
 
             // Create a batch and take a step if there are enough targets.
             let enough_exploitation_targets =
@@ -156,26 +164,27 @@ fn main() {
                 break;
             }
 
-            let duration = std::time::Duration::from_secs(30);
             #[rustfmt::skip]
-                log::info!(
-                    "Not enough targets.\n\
-                    Waiting {duration:?}.\n\
-                    Training steps: {model_steps}\n\
-                    Exploitation buffer size: {}\n\
-                    Reanalyze buffer size: {}",
-                    exploitation_buffer.len(),
-                    reanalyze_buffer.len()
-                );
-            std::thread::sleep(duration);
+            log::info!(
+                "Not enough targets.\n\
+                 Waiting {SLEEP_WHEN_NOT_ENOUGH_TARGETS:?}.\n\
+                 Training steps: {model_steps}\n\
+                 Exploitation buffer size: {}\n\
+                 Reanalyze buffer size: {}",
+                exploitation_buffer.len(),
+                reanalyze_buffer.len()
+            );
+            std::thread::sleep(SLEEP_WHEN_NOT_ENOUGH_TARGETS);
         }
 
+        let now = Instant::now();
         let tensors = create_batch(
             using_reanalyze,
             &mut exploitation_buffer,
             &mut reanalyze_buffer,
             &mut rng,
         );
+        log::debug!("creating a batch took {:?}.", now.elapsed());
         compute_loss_and_take_step(&net, &mut opt, tensors);
 
         // Save latest model.
@@ -189,19 +198,14 @@ fn main() {
                     exploitation_buffer.len(),
                     reanalyze_buffer.len()
                 );
-
-            let start = std::time::Instant::now();
             net.save(args.directory.join(format!("model_latest.ot")))
                 .unwrap();
-            log::debug!("It took {:?} to save the latest model.", start.elapsed());
         }
 
         // Save checkpoint.
         if model_steps % STEPS_PER_CHECKPOINT == 0 {
-            let start = std::time::Instant::now();
             net.save(args.directory.join(format!("model_{model_steps:0>6}.ot")))
                 .unwrap();
-            log::debug!("It took {:?} to save the checkpoint.", start.elapsed());
             // I don't know if this helps or hurts or does nothing.
             opt.zero_grad();
         }
@@ -435,7 +439,7 @@ fn fill_buffers(
     model_steps: usize,
     using_reanalyze: bool,
 ) {
-    let start = std::time::Instant::now();
+    let start = Instant::now();
 
     if let Err(error) = fill_buffer_with_targets(
         exploitation_buffer,
