@@ -2,7 +2,7 @@ use std::{
     cmp::Reverse,
     fmt,
     fs::{read_dir, OpenOptions},
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Seek, Write},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -131,9 +131,9 @@ fn main() {
     // Initialize buffers.
     let mut exploitation_buffer: Vec<TargetWithContext> =
         Vec::with_capacity(MAX_EXPLOITATION_BUFFER_LEN);
-    let mut exploitation_targets_read = 0;
+    let mut exploitation_targets_seek = 0;
     let mut reanalyze_buffer: Vec<TargetWithContext> = Vec::with_capacity(MAX_REANALYZE_BUFFER_LEN);
-    let mut reanalyze_targets_read = 0;
+    let mut reanalyze_targets_seek = 0;
 
     // Main training loop.
     let mut last_loaded = Instant::now();
@@ -145,9 +145,9 @@ fn main() {
             if last_loaded.elapsed() >= MIN_TIME_BETWEEN_BUFFER_READS {
                 fill_buffers(
                     &mut exploitation_buffer,
-                    &mut exploitation_targets_read,
+                    &mut exploitation_targets_seek,
                     &mut reanalyze_buffer,
-                    &mut reanalyze_targets_read,
+                    &mut reanalyze_targets_seek,
                     &args.directory,
                     model_steps,
                     using_reanalyze,
@@ -177,14 +177,12 @@ fn main() {
             std::thread::sleep(SLEEP_WHEN_NOT_ENOUGH_TARGETS);
         }
 
-        let now = Instant::now();
         let tensors = create_batch(
             using_reanalyze,
             &mut exploitation_buffer,
             &mut reanalyze_buffer,
             &mut rng,
         );
-        log::debug!("creating a batch took {:?}.", now.elapsed());
         compute_loss_and_take_step(&net, &mut opt, tensors);
 
         // Save latest model.
@@ -238,26 +236,29 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(usize, PathBuf
 /// have already been read.
 fn fill_buffer_with_targets(
     buffer: &mut Vec<TargetWithContext>,
-    targets_already_read: &mut usize,
+    seek: &mut u64,
     file_path: &Path,
     uses_available: u32,
     model_steps: usize,
 ) -> std::io::Result<()> {
+    let mut reader = BufReader::new(OpenOptions::new().read(true).open(file_path)?);
+    reader
+        .seek(std::io::SeekFrom::Start(*seek))
+        .expect("Target file should not get shorter.");
     buffer.extend(
-        BufReader::new(OpenOptions::new().read(true).open(file_path)?)
+        reader
+            .by_ref()
             .lines()
-            .skip(*targets_already_read)
-            .map(|x| {
-                *targets_already_read += 1;
-                x.unwrap()
-            })
-            .filter_map(|line| line.parse().ok())
+            .filter_map(|line| line.unwrap().parse().ok())
             .map(|target| TargetWithContext {
                 target,
                 uses_available,
                 model_steps,
             }),
     );
+    *seek = reader
+        .seek(std::io::SeekFrom::Current(0))
+        .expect("Seeking to the same position should work.");
     Ok(())
 }
 
@@ -432,9 +433,9 @@ fn truncate_buffer_if_needed(buffer: &mut Vec<TargetWithContext>, max_length: us
 
 fn fill_buffers(
     exploitation_buffer: &mut Vec<TargetWithContext>,
-    exploitation_targets_read: &mut usize,
+    exploitation_targets_seek: &mut u64,
     reanalyze_buffer: &mut Vec<TargetWithContext>,
-    reanalyze_targets_read: &mut usize,
+    reanalyze_targets_seek: &mut u64,
     directory: &Path,
     model_steps: usize,
     using_reanalyze: bool,
@@ -443,7 +444,7 @@ fn fill_buffers(
 
     if let Err(error) = fill_buffer_with_targets(
         exploitation_buffer,
-        exploitation_targets_read,
+        exploitation_targets_seek,
         &directory.join("targets-selfplay.txt"),
         EXPLOITATION_TARGET_USES_AVAILABLE,
         model_steps,
@@ -458,7 +459,7 @@ fn fill_buffers(
     if using_reanalyze {
         if let Err(error) = fill_buffer_with_targets(
             reanalyze_buffer,
-            reanalyze_targets_read,
+            reanalyze_targets_seek,
             &directory.join("targets-reanalyze.txt"),
             REANALYZE_TARGET_USES_AVAILABLE,
             model_steps,
