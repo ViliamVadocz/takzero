@@ -211,19 +211,25 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
         }
 
         attempted += puzzle_batch.len();
-        solved += batched_mcts
-            .select_best_actions()
-            .into_iter()
+        let selected_actions = batched_mcts.select_best_actions();
+        solved += selected_actions
+            .iter()
             .zip(solution_batch)
-            .filter(|(a, b)| a == *b)
+            .filter(|(a, b)| a == b)
             .count();
 
         // Print debug information.
         batched_mcts
             .nodes_and_envs()
             .zip(solution_batch)
-            .for_each(|((node, env), solution)| {
-                log::debug!("tps: {}, solution: {solution}", Tps::from(env.clone()));
+            .zip(selected_actions)
+            .enumerate()
+            .for_each(|(index, (((node, env), solution), selected))| {
+                log::debug!(
+                    "[{index}] tps: {}, selected: {selected}, solution: {solution}, solved: {}",
+                    Tps::from(env.clone()),
+                    &selected == solution
+                );
                 log::debug!("{node}");
             });
 
