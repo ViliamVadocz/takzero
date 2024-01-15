@@ -218,6 +218,15 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
             .filter(|(a, b)| a == *b)
             .count();
 
+        // Print debug information.
+        batched_mcts
+            .nodes_and_envs()
+            .zip(solution_batch)
+            .for_each(|((node, env), solution)| {
+                log::debug!("tps: {}, solution: {solution}", Tps::from(env.clone()));
+                log::debug!("{node}");
+            });
+
         // Count how many solutions were proven by the terminal solver.
         proven += if win {
             // Count how many nodes have been solved to a win.
@@ -281,7 +290,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
         )
         .legend(Legend::new().top("bottom"))
         .series(
-            Line::new().name("tinue in 3 solved").data(
+            Line::new().name("tinue in 3").data(
                 points
                     .iter()
                     .map(|p| vec![p.model_steps as f64, p.depth_3_solved])
@@ -289,7 +298,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             ),
         )
         .series(
-            Line::new().name("tinue in 5 solved").data(
+            Line::new().name("tinue in 5").data(
                 points
                     .iter()
                     .map(|p| vec![p.model_steps as f64, p.depth_5_solved])
@@ -297,7 +306,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             ),
         )
         .series(
-            Line::new().name("tinue in 7 solved").data(
+            Line::new().name("tinue in 7").data(
                 points
                     .iter()
                     .map(|p| vec![p.model_steps as f64, p.depth_7_solved])
@@ -305,7 +314,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             ),
         )
         .series(
-            Line::new().name("tinue in 9 solved").data(
+            Line::new().name("tinue in 9").data(
                 points
                     .iter()
                     .map(|p| vec![p.model_steps as f64, p.depth_9_solved])
@@ -313,7 +322,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             ),
         )
         .series(
-            Line::new().name("avoid in 2 solved").data(
+            Line::new().name("avoid in 2").data(
                 points
                     .iter()
                     .map(|p| vec![p.model_steps as f64, p.depth_2_solved])
@@ -321,7 +330,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             ),
         )
         .series(
-            Line::new().name("avoid in 4 solved").data(
+            Line::new().name("avoid in 4").data(
                 points
                     .iter()
                     .map(|p| vec![p.model_steps as f64, p.depth_4_solved])
@@ -329,7 +338,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             ),
         )
         .series(
-            Line::new().name("avoid in 6 proven").data(
+            Line::new().name("avoid in 6").data(
                 points
                     .iter()
                     .map(|p| vec![p.model_steps as f64, p.depth_6_solved])
