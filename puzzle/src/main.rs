@@ -59,6 +59,16 @@ fn real_main() {
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|p| p.extension().map(|ext| ext == "ot").unwrap_or_default())
+        .filter(|p| {
+            p.file_stem()
+                .and_then(|s| {
+                    let lossy = s.to_string_lossy();
+                    let (model, steps) = lossy.split_once('_')?;
+                    steps.parse::<u32>().ok()?;
+                    Some(model == "model")
+                })
+                .unwrap_or_default()
+        })
         .step_by(args.step)
         .collect();
     paths.sort();
@@ -188,7 +198,6 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
         .chunks_exact(BATCH_SIZE)
         .zip(solutions.chunks_exact(BATCH_SIZE))
     {
-        println!("batch");
         batched_mcts
             .nodes_and_envs_mut()
             .zip(puzzle_batch)
