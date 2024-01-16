@@ -67,6 +67,12 @@ impl<E: Environment> Node<E> {
         self.evaluation.ply().is_some_and(|ply| ply == 0)
     }
 
+    /// Return the best action after search.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are no children.
+    #[must_use]
     pub fn select_best_action(&self) -> E::Action {
         if self.evaluation.is_known() {
             // The node is solved, pick the best action.
@@ -84,6 +90,11 @@ impl<E: Environment> Node<E> {
         .clone()
     }
 
+    /// Return an action to use in selfplay.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are no children.
     pub fn select_selfplay_action(
         &self,
         proportional_sample: bool,
@@ -114,8 +125,8 @@ impl<E: Environment> Node<E> {
         }
     }
 
-    // TODO: Check if it should be a variance
-    // TODO: Check if beta is needed
+    /// Get the UBE target from the root after search.
+    #[must_use]
     pub fn ube_target(&self, beta: f32) -> NotNan<f32> {
         // Sort children according to `-V(s) + \beta * \sigma`
         let mut children: Vec<_> = self.children.iter().map(|(_, child)| child).collect();

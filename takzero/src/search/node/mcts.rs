@@ -35,7 +35,7 @@ pub enum Forward<E: Environment> {
 
 pub struct Propagated {
     eval: Eval,
-    uncertainty: NotNan<f32>,
+    variance: NotNan<f32>,
 }
 
 pub struct ActionPolicy<E: Environment> {
@@ -50,17 +50,12 @@ impl<E: Environment> Node<E> {
         if let Eval::Value(mean_value) = &mut self.evaluation {
             *mean_value =
                 (*mean_value * (self.visit_count - 1) as f32 + value) / self.visit_count as f32;
-        } else {
-            // unreachable!("updating the mean value doesn't make sense if the
-            // result is known");
         };
     }
 
     #[inline]
     fn update_standard_deviation(&mut self, variance: NotNan<f32>) {
         if self.evaluation.is_known() {
-            // unreachable!("updating the standard deviation does not make sense if the
-            // result is known")
             return;
         }
         self.std_dev = (self.std_dev * ((self.visit_count - 1) as f32) + variance.sqrt())
@@ -85,7 +80,7 @@ impl<E: Environment> Node<E> {
     fn propagate_child_eval(
         &mut self,
         child_eval: Eval,
-        child_uncertainty: NotNan<f32>,
+        child_variance: NotNan<f32>,
     ) -> Propagated {
         self.node_solver(child_eval);
 
@@ -93,18 +88,18 @@ impl<E: Environment> Node<E> {
         if self.evaluation.is_known() {
             return Propagated {
                 eval: self.evaluation,
-                uncertainty: self.std_dev,
+                variance: self.std_dev * self.std_dev,
             };
         }
         // Otherwise this position is not known and we just
         // back-propagate the child result.
         let negated = child_eval.negate().into();
         self.update_mean_value(negated);
-        self.update_standard_deviation(child_uncertainty);
+        self.update_standard_deviation(child_variance);
 
         Propagated {
             eval: Eval::new_value(negated * DISCOUNT_FACTOR).unwrap(),
-            uncertainty: child_uncertainty * DISCOUNT_FACTOR * DISCOUNT_FACTOR,
+            variance: child_variance * DISCOUNT_FACTOR * DISCOUNT_FACTOR,
         }
     }
 
@@ -149,14 +144,14 @@ impl<E: Environment> Node<E> {
         if let Some(index) = trajectory.next() {
             let Propagated {
                 eval: child_eval,
-                uncertainty: child_uncertainty,
+                variance: child_variance,
             } = self.children[index].1.backward_known_eval(trajectory, eval);
-            self.propagate_child_eval(child_eval, child_uncertainty)
+            self.propagate_child_eval(child_eval, child_variance)
         } else {
             // Leaf reached, time to propagate upwards.
             Propagated {
                 eval,
-                uncertainty: NotNan::default(),
+                variance: NotNan::default(),
             }
         }
     }
@@ -172,19 +167,16 @@ impl<E: Environment> Node<E> {
         mut trajectory: impl Iterator<Item = usize>,
         policy: impl Iterator<Item = ActionPolicy<E>>,
         value: f32,
-        uncertainty: f32,
+        variance: f32,
     ) -> Propagated {
         if let Some(index) = trajectory.next() {
             let Propagated {
                 eval: child_eval,
-                uncertainty: child_uncertainty,
-            } = self.children[index].1.backward_network_eval(
-                trajectory,
-                policy,
-                value,
-                uncertainty,
-            );
-            self.propagate_child_eval(child_eval, child_uncertainty)
+                variance: child_variance,
+            } = self.children[index]
+                .1
+                .backward_network_eval(trajectory, policy, value, variance);
+            self.propagate_child_eval(child_eval, child_variance)
         } else {
             // Finish leaf initialization.
             self.children = policy
@@ -202,12 +194,12 @@ impl<E: Environment> Node<E> {
             // Note that this is not the same as self.propagate_child_eval()
             // because we do not negate!
             self.update_mean_value(value);
-            let uncertainty = NotNan::new(uncertainty).expect("uncertainty should not be NaN");
-            self.update_standard_deviation(uncertainty);
+            let variance = NotNan::new(variance).expect("uncertainty/variance should not be NaN");
+            self.update_standard_deviation(variance);
             Propagated {
                 eval: Eval::new_value(value * DISCOUNT_FACTOR)
                     .expect("value prediction should not be NaN"),
-                uncertainty: uncertainty * DISCOUNT_FACTOR * DISCOUNT_FACTOR,
+                variance: variance * DISCOUNT_FACTOR * DISCOUNT_FACTOR,
             }
         }
     }
