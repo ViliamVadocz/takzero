@@ -256,7 +256,7 @@ fn fill_buffer_with_targets(
     );
     *seek = reader
         .stream_position()
-        .expect("Seeking to the same position should work.");
+        .expect("Target file should not get shorter.");
     Ok(())
 }
 

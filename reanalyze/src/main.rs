@@ -1,7 +1,7 @@
 use std::{
     fmt,
     fs::{read_dir, OpenOptions},
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Seek, Write},
     path::{Path, PathBuf},
 };
 
@@ -55,7 +55,7 @@ fn main() {
     let mut net = Net::new(DEVICE, Some(rng.gen()));
     let mut batched_mcts = BatchedMCTS::new(&mut rng, BETA, RndNormalizationContext::new(0.0));
     let mut position_buffer = Vec::new();
-    let mut replays_read = 0;
+    let mut replays_seek = 0;
 
     loop {
         loop {
@@ -78,7 +78,7 @@ fn main() {
         // Fill the position buffer.
         if let Err(err) = fill_buffer_with_positions_from_replays(
             &mut position_buffer,
-            &mut replays_read,
+            &mut replays_seek,
             &args.directory.join("replays.txt"),
         ) {
             log::error!("Cannot fill position buffer: {err}");
@@ -180,18 +180,18 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(u32, PathBuf)>
 /// Fill the buffer with new positions from the replay file.
 fn fill_buffer_with_positions_from_replays(
     buffer: &mut Vec<Env>,
-    replays_read: &mut usize,
+    replays_seek: &mut u64,
     file_path: &Path,
 ) -> std::io::Result<()> {
+    let mut reader = BufReader::new(OpenOptions::new().read(true).open(file_path)?);
+    reader
+        .seek(std::io::SeekFrom::Start(*replays_seek))
+        .expect("Replay file should not get shorter.");
     buffer.extend(
-        BufReader::new(OpenOptions::new().read(true).open(file_path)?)
+        reader
+            .by_ref()
             .lines()
-            .skip(*replays_read)
-            .map(|x| {
-                *replays_read += 1;
-                x.unwrap()
-            })
-            .filter_map(|line| line.parse().ok())
+            .filter_map(|line| line.unwrap().parse().ok())
             .flat_map(|replay: Replay<Env>| {
                 let mut env = replay.env;
                 replay
@@ -205,6 +205,9 @@ fn fill_buffer_with_positions_from_replays(
                     .into_iter()
             }),
     );
+    *replays_seek = reader
+        .stream_position()
+        .expect("Replay file should not get shorter.");
     Ok(())
 }
 
