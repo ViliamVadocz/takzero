@@ -142,7 +142,7 @@ fn main() {
         if let Err(err) = OpenOptions::new()
             .append(true)
             .create(true)
-            .open(args.directory.join(format!("targets-reanalyze.txt")))
+            .open(args.directory.join("targets-reanalyze.txt"))
             .map(|mut file| file.write_all(contents.as_bytes()))
         {
             log::error!(

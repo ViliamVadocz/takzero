@@ -190,7 +190,7 @@ fn save_targets_to_file(targets: &mut Vec<Target<Env>>, directory: &Path) {
     if let Err(err) = OpenOptions::new()
         .append(true)
         .create(true)
-        .open(directory.join(format!("targets-selfplay.txt")))
+        .open(directory.join("targets-selfplay.txt"))
         .map(|mut file| file.write_all(contents.as_bytes()))
     {
         log::error!(
@@ -205,7 +205,7 @@ fn save_replays_to_file(replays: &mut Vec<Replay<Env>>, directory: &Path) {
     if let Err(err) = OpenOptions::new()
         .append(true)
         .create(true)
-        .open(directory.join(format!("replays.txt")))
+        .open(directory.join("replays.txt"))
         .map(|mut file| file.write_all(contents.as_bytes()))
     {
         log::error!(

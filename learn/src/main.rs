@@ -120,13 +120,12 @@ fn main() {
         starting_steps += PRE_TRAINING_STEPS;
         net.save(
             args.directory
-                .join(format!("model_{:0>6}.ot", starting_steps)),
+                .join(format!("model_{starting_steps:0>6}.ot")),
         )
         .unwrap();
     }
 
-    net.save(args.directory.join(format!("model_latest.ot")))
-        .unwrap();
+    net.save(args.directory.join("model_latest.ot")).unwrap();
 
     // Initialize buffers.
     let mut exploitation_buffer: Vec<TargetWithContext> =
@@ -196,8 +195,7 @@ fn main() {
                     exploitation_buffer.len(),
                     reanalyze_buffer.len()
                 );
-            net.save(args.directory.join(format!("model_latest.ot")))
-                .unwrap();
+            net.save(args.directory.join("model_latest.ot")).unwrap();
         }
 
         // Save checkpoint.
@@ -257,7 +255,7 @@ fn fill_buffer_with_targets(
             }),
     );
     *seek = reader
-        .seek(std::io::SeekFrom::Current(0))
+        .stream_position()
         .expect("Seeking to the same position should work.");
     Ok(())
 }
@@ -335,7 +333,7 @@ fn compute_loss_and_take_step(net: &Net, opt: &mut Optimizer, tensors: Tensors) 
     opt.backward_step(&loss);
 }
 
-fn pre_training(net: &Net, opt: &mut Optimizer, rng: &mut impl Rng, directory: &PathBuf) {
+fn pre_training(net: &Net, opt: &mut Optimizer, rng: &mut impl Rng, directory: &Path) {
     log::info!("Pre-training");
     let mut actions = Vec::new();
     let mut states = Vec::new();
@@ -379,7 +377,7 @@ fn pre_training(net: &Net, opt: &mut Optimizer, rng: &mut impl Rng, directory: &
         .unwrap();
 
     for batch in buffer.chunks_exact(BATCH_SIZE).take(PRE_TRAINING_STEPS) {
-        let tensors = create_input_and_target_tensors(batch.into_iter(), rng);
+        let tensors = create_input_and_target_tensors(batch.iter(), rng);
         compute_loss_and_take_step(net, opt, tensors);
     }
 }

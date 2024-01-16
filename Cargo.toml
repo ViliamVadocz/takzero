@@ -53,3 +53,5 @@ module_name_repetitions = "allow"
 cast_precision_loss = "allow"
 cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
+# assertions on constants are useful
+assertions_on_constants = "allow"

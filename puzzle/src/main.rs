@@ -38,7 +38,6 @@ struct Args {
     step: usize,
 }
 
-#[allow(clippy::assertions_on_constants)]
 const _: () = assert!(N == 5, "Tilpaz is only supported for 5x5");
 
 const BATCH_SIZE: usize = 128;
@@ -144,8 +143,8 @@ fn tinue(connection: &Connection, depth: i64, limit: i64) -> Statement {
         .bind::<&[(_, Value)]>(&[(":depth", depth.into()), (":limit", limit.into())])
         .unwrap();
     assert_eq!(
-        statement.iter().count(),
-        limit as usize,
+        statement.iter().count() as i64,
+        limit,
         "incorrect amount of puzzles"
     );
     statement
@@ -165,8 +164,8 @@ fn avoidance(connection: &Connection, depth: i64, limit: i64) -> Statement {
         .bind::<&[(_, Value)]>(&[(":depth", depth.into()), (":limit", limit.into())])
         .unwrap();
     assert_eq!(
-        statement.iter().count(),
-        limit as usize,
+        statement.iter().count() as i64,
+        limit,
         "incorrect amount of puzzles"
     );
     statement
@@ -299,7 +298,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             Line::new().name("tinue in 3").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_3_solved])
+                    .map(|p| vec![f64::from(p.model_steps), p.depth_3_solved])
                     .collect(),
             ),
         )
@@ -307,7 +306,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             Line::new().name("tinue in 5").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_5_solved])
+                    .map(|p| vec![f64::from(p.model_steps), p.depth_5_solved])
                     .collect(),
             ),
         )
@@ -315,7 +314,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             Line::new().name("tinue in 7").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_7_solved])
+                    .map(|p| vec![f64::from(p.model_steps), p.depth_7_solved])
                     .collect(),
             ),
         )
@@ -323,7 +322,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             Line::new().name("tinue in 9").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_9_solved])
+                    .map(|p| vec![f64::from(p.model_steps), p.depth_9_solved])
                     .collect(),
             ),
         )
@@ -331,7 +330,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             Line::new().name("avoid in 2").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_2_solved])
+                    .map(|p| vec![f64::from(p.model_steps), p.depth_2_solved])
                     .collect(),
             ),
         )
@@ -339,7 +338,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             Line::new().name("avoid in 4").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_4_solved])
+                    .map(|p| vec![f64::from(p.model_steps), p.depth_4_solved])
                     .collect(),
             ),
         )
@@ -347,7 +346,7 @@ fn graph(mut points: Vec<Point>, path: &Path) {
             Line::new().name("avoid in 6").data(
                 points
                     .iter()
-                    .map(|p| vec![p.model_steps as f64, p.depth_6_solved])
+                    .map(|p| vec![f64::from(p.model_steps), p.depth_6_solved])
                     .collect(),
             ),
         );
