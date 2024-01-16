@@ -113,4 +113,32 @@ impl<E: Environment> Node<E> {
                 .clone()
         }
     }
+
+    // TODO: Check if it should be a variance
+    // TODO: Check if beta is needed
+    pub fn ube_target(&self, beta: f32) -> NotNan<f32> {
+        // Sort children according to `-V(s) + \beta * \sigma`
+        let mut children: Vec<_> = self.children.iter().map(|(_, child)| child).collect();
+        children.sort_unstable_by_key(|child| {
+            NotNan::from(child.evaluation.negate()) + child.std_dev * beta
+        });
+
+        // Take the top `highest` children, skipping the top few to get
+        // `lower_of_the_highest` children.
+        let len = children.len();
+        if len < 4 {
+            return self.std_dev;
+        }
+        let highest = len / 2;
+        let lower_of_the_highest = len / 4;
+
+        // Take average of standard deviations.
+        children
+            .into_iter()
+            .skip(len - highest)
+            .take(lower_of_the_highest)
+            .map(|child| child.std_dev)
+            .sum::<NotNan<f32>>()
+            / lower_of_the_highest as f32
+    }
 }
