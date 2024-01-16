@@ -6,6 +6,8 @@ pub mod noise;
 pub mod policy;
 
 use ordered_float::NotNan;
+use rand::Rng;
+use rand_distr::{Distribution, WeightedIndex};
 
 use super::{env::Environment, eval::Eval};
 
@@ -63,5 +65,52 @@ impl<E: Environment> Node<E> {
     #[must_use]
     pub fn is_terminal(&self) -> bool {
         self.evaluation.ply().is_some_and(|ply| ply == 0)
+    }
+
+    pub fn select_best_action(&self) -> E::Action {
+        if self.evaluation.is_known() {
+            // The node is solved, pick the best action.
+            self.children
+                .iter()
+                .min_by_key(|(_, child)| child.evaluation)
+        } else {
+            // Select the action with the most visits.
+            self.children
+                .iter()
+                .max_by_key(|(_, child)| child.visit_count)
+        }
+        .expect("there should be at least one child")
+        .0
+        .clone()
+    }
+
+    pub fn select_selfplay_action(
+        &self,
+        proportional_sample: bool,
+        rng: &mut impl Rng,
+    ) -> E::Action {
+        if self.evaluation.is_known() {
+            // The node is solved, pick the best action.
+            self.children
+                .iter()
+                .min_by_key(|(_, child)| child.evaluation)
+                .expect("there should be at least one child")
+                .0
+                .clone()
+        } else if proportional_sample {
+            // Select an action randomly, proportional to visits.
+            let weighted_index =
+                WeightedIndex::new(self.children.iter().map(|(_, child)| child.visit_count))
+                    .expect("there should be at least one child and visits cannot be negative");
+            self.children[weighted_index.sample(rng)].0.clone()
+        } else {
+            // Select the action with the most visits.
+            self.children
+                .iter()
+                .max_by_key(|(_, child)| child.visit_count)
+                .expect("there should be at least one child")
+                .0
+                .clone()
+        }
     }
 }

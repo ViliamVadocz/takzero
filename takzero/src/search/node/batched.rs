@@ -1,5 +1,4 @@
 use rand::Rng;
-use rand_distr::{Distribution, WeightedIndex};
 
 use super::Node;
 use crate::{
@@ -165,22 +164,7 @@ impl<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> BatchedMCTS<BATCH_SIZ
         self.nodes
             .iter()
             .zip(&self.envs)
-            .map(|(node, _)| {
-                if node.evaluation.is_known() {
-                    // The node is solved, pick the best action.
-                    node.children
-                        .iter()
-                        .min_by_key(|(_, child)| child.evaluation)
-                } else {
-                    // Select the action with the most visits.
-                    node.children
-                        .iter()
-                        .max_by_key(|(_, child)| child.visit_count)
-                }
-                .expect("there should be at least one child")
-                .0
-                .clone()
-            })
+            .map(|(node, _)| node.select_best_action())
             .collect::<Vec<_>>()
             .try_into()
             .expect("the number of nodes and envs should be equal to BATCH_SIZE")
@@ -196,30 +180,7 @@ impl<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> BatchedMCTS<BATCH_SIZ
             .iter()
             .zip(&self.envs)
             .map(|(node, env)| {
-                if node.evaluation.is_known() {
-                    // The node is solved, pick the best action.
-                    node.children
-                        .iter()
-                        .min_by_key(|(_, child)| child.evaluation)
-                        .expect("there should be at least one child")
-                        .0
-                        .clone()
-                } else if env.steps() < weighted_random_steps {
-                    // Select an action randomly, proportional to visits.
-                    let weighted_index = WeightedIndex::new(
-                        node.children.iter().map(|(_, child)| child.visit_count),
-                    )
-                    .expect("there should be at least one child and visits cannot be negative");
-                    node.children[weighted_index.sample(rng)].0.clone()
-                } else {
-                    // Select the action with the most visits.
-                    node.children
-                        .iter()
-                        .max_by_key(|(_, child)| child.visit_count)
-                        .expect("there should be at least one child")
-                        .0
-                        .clone()
-                }
+                node.select_selfplay_action(env.steps() < weighted_random_steps, rng)
             })
             .collect::<Vec<_>>()
             .try_into()
