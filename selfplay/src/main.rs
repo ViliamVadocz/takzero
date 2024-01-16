@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fmt,
     fs::{read_dir, OpenOptions},
     io::Write,
@@ -14,7 +15,13 @@ use takzero::{
         net5::{Env, Net, RndNormalizationContext},
         Network,
     },
-    search::{agent::Agent, env::Environment, eval::Eval, node::batched::BatchedMCTS},
+    search::{
+        agent::Agent,
+        env::Environment,
+        eval::Eval,
+        node::batched::BatchedMCTS,
+        DISCOUNT_FACTOR,
+    },
     target::{policy_target_from_proportional_visits, Augment, Replay, Target},
 };
 use tch::{Device, TchError};
@@ -35,6 +42,9 @@ const WEIGHTED_RANDOM_PLIES: u16 = 30;
 const NOISE_ALPHA: f32 = 0.05;
 const NOISE_RATIO: f32 = 0.1;
 const NOISE_PLIES: u16 = 60;
+const UBE_TARGET_BETA: f32 = 0.2;
+const UBE_TARGET_TOP_K: usize = 4;
+const UBE_TARGET_WINDOW: usize = 10;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -136,20 +146,28 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(u32, PathBuf)>
         .max_by_key(|(s, _)| *s)
 }
 
-type PolicyTarget = (Env, Box<[(Move, NotNan<f32>)]>);
+struct IncompleteTarget {
+    env: Env,
+    policy: Box<[(Move, NotNan<f32>)]>,
+    root_ube_metric: NotNan<f32>,
+}
 
 /// Take a step in each environment.
 /// Generate target policy.
 fn take_a_step(
     batched_mcts: &mut BatchedMCTS<BATCH_SIZE, Env, Net>,
-    policy_targets: &mut [Vec<PolicyTarget>],
+    policy_targets: &mut [Vec<IncompleteTarget>],
     selected_actions: &[Move],
 ) {
     batched_mcts
         .nodes_and_envs()
         .zip(policy_targets)
         .for_each(|((node, env), policy_targets)| {
-            policy_targets.push((env.clone(), policy_target_from_proportional_visits(node)));
+            policy_targets.push(IncompleteTarget {
+                env: env.clone(),
+                policy: policy_target_from_proportional_visits(node),
+                root_ube_metric: node.ube_target(UBE_TARGET_BETA, UBE_TARGET_TOP_K),
+            });
         });
     batched_mcts.step(selected_actions);
 }
@@ -159,7 +177,7 @@ fn take_a_step(
 #[allow(clippy::too_many_arguments)]
 fn restart_envs_and_complete_targets(
     batched_mcts: &mut BatchedMCTS<BATCH_SIZE, Env, Net>,
-    policy_targets: &mut [Vec<PolicyTarget>],
+    policy_targets: &mut [Vec<IncompleteTarget>],
     targets: &mut Vec<Target<Env>>,
     finished_replays: &mut Vec<Replay<Env>>,
     rng: &mut impl Rng,
@@ -170,12 +188,34 @@ fn restart_envs_and_complete_targets(
         .for_each(|(terminal_and_replay, policy_targets)| {
             if let Some((terminal, replay)) = terminal_and_replay {
                 let mut value = Eval::from(terminal);
-                for (env, policy) in policy_targets.drain(..).rev() {
+                let mut ube_window = VecDeque::with_capacity(UBE_TARGET_WINDOW);
+                for IncompleteTarget {
+                    env,
+                    policy,
+                    root_ube_metric,
+                } in policy_targets.drain(..).rev()
+                {
+                    // Update window.
+                    if ube_window.len() >= UBE_TARGET_WINDOW {
+                        ube_window.truncate(UBE_TARGET_WINDOW - 1);
+                    }
+                    // Only put non-zero UBEs in the window.
+                    if root_ube_metric > NotNan::default() {
+                        ube_window.push_front(root_ube_metric);
+                    }
+                    // Take average of window.
+                    let average_std_dev = ube_window.iter().map(|ube| ube.sqrt()).sum::<f32>()
+                        / (ube_window.len() + 1) as f32;
+                    // Apply discount.
+                    ube_window
+                        .iter_mut()
+                        .for_each(|ube| *ube *= DISCOUNT_FACTOR * DISCOUNT_FACTOR);
+
                     value = value.negate();
                     targets.push(Target {
                         env,
                         value: f32::from(value),
-                        ube: 0.0,
+                        ube: average_std_dev * average_std_dev,
                         policy,
                     });
                 }
