@@ -82,7 +82,7 @@ impl<E: Environment> Node<E> {
             .enumerate()
             .filter(|(_, (_, child))| self.evaluation.is_loss() || !child.evaluation.is_win())
             .max_by_key(|(_, (_, child))| {
-                let q = NotNan::from(child.evaluation.negate());
+                let q = child.q_value();
                 let puct = upper_confidence_bound(
                     parent_visit_count,
                     child.visit_count as f32,

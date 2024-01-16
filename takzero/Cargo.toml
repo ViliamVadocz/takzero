@@ -16,3 +16,6 @@ ordered-float.workspace = true
 
 [lints]
 workspace = true
+
+[features]
+virtual = []

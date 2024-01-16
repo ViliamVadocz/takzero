@@ -112,6 +112,10 @@ impl<E: Environment> Node<E> {
 
         loop {
             node.visit_count += 1;
+            #[cfg(feature = "virtual")]
+            {
+                node.virtual_visits += 1;
+            }
             // TODO: Prune all known results earlier
             // once visit count is not used for policy target.
             // Or don't - searching can still help find slower losses.
@@ -146,6 +150,10 @@ impl<E: Environment> Node<E> {
                 eval: child_eval,
                 variance: child_variance,
             } = self.children[index].1.backward_known_eval(trajectory, eval);
+            #[cfg(feature = "virtual")]
+            {
+                self.virtual_visits -= 1;
+            }
             self.propagate_child_eval(child_eval, child_variance)
         } else {
             // Leaf reached, time to propagate upwards.
@@ -176,6 +184,10 @@ impl<E: Environment> Node<E> {
             } = self.children[index]
                 .1
                 .backward_network_eval(trajectory, policy, value, variance);
+            #[cfg(feature = "virtual")]
+            {
+                self.virtual_visits -= 1;
+            }
             self.propagate_child_eval(child_eval, child_variance)
         } else {
             // Finish leaf initialization.

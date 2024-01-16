@@ -13,9 +13,12 @@ pub mod mcts;
 pub mod noise;
 pub mod policy;
 
+#[rustfmt::skip]
 pub struct Node<E: Environment> {
     pub evaluation: Eval,         // V(s_t) or Q(s_prev, a)
     pub visit_count: u32,         // N(s_prev, a)
+    #[cfg(feature = "virtual")]
+    pub virtual_visits: u32,      // count number of unevaluated trajectories through this node
     pub logit: NotNan<f32>,       // log(P(s_prev, a)) (network output)
     pub probability: NotNan<f32>, // P(s_prev, a) (normalized)
     pub std_dev: NotNan<f32>,     // average sqrt(clip(max(UBE(s_t), geo_sum_discount * RND(s_t))))
@@ -25,8 +28,10 @@ pub struct Node<E: Environment> {
 impl<E: Environment> Default for Node<E> {
     fn default() -> Self {
         Self {
-            visit_count: Default::default(),
             evaluation: Eval::default(),
+            visit_count: Default::default(),
+            #[cfg(feature = "virtual")]
+            virtual_visits: Default::default(),
             logit: NotNan::default(),
             probability: NotNan::default(),
             std_dev: NotNan::default(),
@@ -67,6 +72,35 @@ impl<E: Environment> Node<E> {
     #[must_use]
     pub fn is_terminal(&self) -> bool {
         self.evaluation.ply().is_some_and(|ply| ply == 0)
+    }
+
+    /// Returns the visit count, accounting for virtual visits
+    /// if the feature is enabled.
+    #[inline]
+    #[must_use]
+    pub const fn visit_count(&self) -> u32 {
+        #[cfg(feature = "virtual")]
+        {
+            self.visit_count + self.virtual_visits
+        }
+        #[cfg(not(feature = "virtual"))]
+        self.visit_count
+    }
+
+    /// Returns the negated value of this node.
+    /// When using virtual visits, they are counted as losses.
+    #[inline]
+    #[must_use]
+    pub fn q_value(&self) -> NotNan<f32> {
+        #[cfg(feature = "virtual")]
+        {
+            let negated_eval: NotNan<f32> = self.evaluation.negate().into();
+            let multiplied_by_count = negated_eval * self.visit_count as f32;
+            let including_virtual_losses = multiplied_by_count + self.virtual_visits as f32;
+            including_virtual_losses / self.visit_count() as f32
+        }
+        #[cfg(not(feature = "virtual"))]
+        self.evaluation.negate().into()
     }
 
     /// Return the best action after search.
