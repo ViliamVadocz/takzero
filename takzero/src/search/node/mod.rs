@@ -130,13 +130,16 @@ impl<E: Environment> Node<E> {
     /// Get the UBE target from the root after search.
     #[must_use]
     pub fn ube_target(&self, beta: f32, top_k: usize) -> NotNan<f32> {
+        // UBE target = 0.0 when node is solved.
+        if self.evaluation.is_known() {
+            return NotNan::default();
+        }
         // Sort children according to from largest to smallest
         // according to `value + std_dev * beta`.
         let mut children: Vec<_> = self.children.iter().map(|(_, child)| child).collect();
         children.sort_unstable_by_key(|child| {
             Reverse(NotNan::from(child.evaluation.negate()) + child.std_dev * beta)
         });
-
         // Take average of standard deviations.
         let amount = top_k.min(children.len());
         let average_std_dev = children
