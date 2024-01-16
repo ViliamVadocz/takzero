@@ -97,20 +97,7 @@ fn main() {
             Ok(Input::Quit) => break,
             Ok(Input::Go(go_options)) => {
                 go(&net, &env, &mut node, &mut context, go_options);
-                let action = if node.evaluation.is_known() {
-                    // The node is solved, pick the best action.
-                    node.children
-                        .iter()
-                        .min_by_key(|(_, child)| child.evaluation)
-                } else {
-                    // Select the action with the most visits.
-                    node.children
-                        .iter()
-                        .max_by_key(|(_, child)| child.visit_count)
-                }
-                .expect("there should be at least one child")
-                .0;
-                println!("{}", Output::BestMove(action));
+                println!("{}", Output::BestMove(node.select_best_action()));
             }
 
             Ok(_) => log::warn!("unhandled message"),
