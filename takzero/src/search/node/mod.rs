@@ -1,15 +1,17 @@
-pub mod batched;
-pub mod debug;
-// pub mod gumbel;
-pub mod mcts;
-pub mod noise;
-pub mod policy;
+use std::cmp::Reverse;
 
 use ordered_float::NotNan;
 use rand::Rng;
 use rand_distr::{Distribution, WeightedIndex};
 
 use super::{env::Environment, eval::Eval};
+
+pub mod batched;
+pub mod debug;
+// pub mod gumbel;
+pub mod mcts;
+pub mod noise;
+pub mod policy;
 
 pub struct Node<E: Environment> {
     pub evaluation: Eval,         // V(s_t) or Q(s_prev, a)
@@ -127,29 +129,23 @@ impl<E: Environment> Node<E> {
 
     /// Get the UBE target from the root after search.
     #[must_use]
-    pub fn ube_target(&self, beta: f32) -> NotNan<f32> {
-        // Sort children according to `-V(s) + \beta * \sigma`
+    pub fn ube_target(&self, beta: f32, top_k: usize) -> NotNan<f32> {
+        // Sort children according to from largest to smallest
+        // according to `value + std_dev * beta`.
         let mut children: Vec<_> = self.children.iter().map(|(_, child)| child).collect();
         children.sort_unstable_by_key(|child| {
-            NotNan::from(child.evaluation.negate()) + child.std_dev * beta
+            Reverse(NotNan::from(child.evaluation.negate()) + child.std_dev * beta)
         });
 
-        // Take the top `highest` children, skipping the top few to get
-        // `lower_of_the_highest` children.
-        let len = children.len();
-        if len < 4 {
-            return self.std_dev;
-        }
-        let highest = len / 2;
-        let lower_of_the_highest = len / 4;
-
         // Take average of standard deviations.
-        children
+        let amount = top_k.min(children.len());
+        let average_std_dev = children
             .into_iter()
-            .skip(len - highest)
-            .take(lower_of_the_highest)
+            .take(top_k)
             .map(|child| child.std_dev)
             .sum::<NotNan<f32>>()
-            / lower_of_the_highest as f32
+            / amount as f32;
+        // UBE target is a variance.
+        average_std_dev * average_std_dev
     }
 }
