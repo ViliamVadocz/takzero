@@ -36,6 +36,9 @@ const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const MIN_POSITIONS: usize = 4000 * 128; // steps before reanalyze * batch size
 const _: () = assert!(MIN_POSITIONS > BATCH_SIZE);
 
+const UBE_TARGET_BETA: f32 = 0.2;
+const UBE_TARGET_TOP_K: usize = 4;
+
 #[derive(Parser, Debug)]
 struct Args {
     /// Directory where to find models
@@ -127,7 +130,9 @@ fn main() {
                 }
                 .into();
                 let policy = policy_target_from_proportional_visits(node);
-                let ube = 1.0; // TODO
+                let ube = node
+                    .ube_target(UBE_TARGET_BETA, UBE_TARGET_TOP_K)
+                    .into_inner();
                 Target {
                     env: env.clone(),
                     policy,
