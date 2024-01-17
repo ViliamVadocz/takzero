@@ -116,7 +116,7 @@ fn main() {
 
     // Pre-training.
     if starting_steps == 0 {
-        pre_training(&net, &mut opt, &mut rng, &args.directory);
+        pre_training(&mut net, &mut opt, &mut rng, &args.directory);
         starting_steps += PRE_TRAINING_STEPS;
         net.save(
             args.directory
@@ -182,7 +182,7 @@ fn main() {
             &mut reanalyze_buffer,
             &mut rng,
         );
-        compute_loss_and_take_step(&net, &mut opt, tensors);
+        compute_loss_and_take_step(&mut net, &mut opt, tensors);
 
         // Save latest model.
         if model_steps % STEPS_PER_SAVE == 0 {
@@ -310,9 +310,9 @@ fn create_input_and_target_tensors<'a>(
     }
 }
 
-fn compute_loss_and_take_step(net: &Net, opt: &mut Optimizer, tensors: Tensors) {
+fn compute_loss_and_take_step(net: &mut Net, opt: &mut Optimizer, tensors: Tensors) {
     // Get network output.
-    let (policy, network_value, _network_ube) = net.forward_t(&tensors.input, true);
+    let (policy, network_value, network_ube) = net.forward_t(&tensors.input, true);
     let log_softmax_network_policy = policy
         .masked_fill(&tensors.mask, f64::from(f32::MIN))
         .view([-1, output_size::<N>() as i64])
@@ -324,16 +324,29 @@ fn compute_loss_and_take_step(net: &Net, opt: &mut Optimizer, tensors: Tensors) 
     let loss_value = (tensors.target_value - network_value)
         .square()
         .mean(Kind::Float);
-    // TODO: Add UBE back later.
-    // let loss_ube = (target_ube - network_ube).square().mean(Kind::Float);
-    let loss = &loss_policy + &loss_value; //+ &loss_ube;
-    log::info!("loss = {loss:?}, loss_policy = {loss_policy:?}, loss_value = {loss_value:?}");
+    let loss_ube = (tensors.target_ube - network_ube)
+        .square()
+        .mean(Kind::Float);
+    let loss_rnd = net.forward_rnd(&tensors.input, true).mean(Kind::Float);
+    let loss = &loss_policy + &loss_value + &loss_ube + &loss_rnd;
+    #[rustfmt::skip]
+    log::info!(
+        "loss = {loss:?}\n\
+         loss_policy = {loss_policy:?}\n\
+         loss_value = {loss_value:?}\n\
+         loss_ube = {loss_ube:?}\n\
+         loss_rnd = {loss_rnd:?}"
+    );
+
+    // Update network RND training loss.
+    // TODO: Maybe take average of recent losses?
+    net.update_rnd_training_loss(&loss_rnd);
 
     // Take step.
     opt.backward_step(&loss);
 }
 
-fn pre_training(net: &Net, opt: &mut Optimizer, rng: &mut impl Rng, directory: &Path) {
+fn pre_training(net: &mut Net, opt: &mut Optimizer, rng: &mut impl Rng, directory: &Path) {
     log::info!("Pre-training");
     let mut actions = Vec::new();
     let mut states = Vec::new();

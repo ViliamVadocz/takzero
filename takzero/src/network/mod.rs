@@ -1,4 +1,3 @@
-pub mod net4;
 pub mod net5;
 pub mod repr;
 mod residual;
@@ -11,6 +10,10 @@ pub trait Network: Sized {
     fn forward_t(&self, xs: &tch::Tensor, train: bool) -> (tch::Tensor, tch::Tensor, tch::Tensor);
 
     fn forward_rnd(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor;
+
+    fn normalized_rnd(&self, xs: &tch::Tensor) -> tch::Tensor;
+
+    fn update_rnd_training_loss(&mut self, loss: &tch::Tensor);
 
     #[allow(clippy::missing_errors_doc)]
     fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), tch::TchError> {

@@ -12,7 +12,6 @@ use super::{
     residual::ResidualBlock,
     Network,
 };
-#[allow(unused_imports)] // TODO: Remove `allow`s later.
 use crate::{
     network::repr::output_size,
     search::{agent::Agent, SERIES_DISCOUNT},
@@ -28,7 +27,6 @@ pub struct Net {
     vs: nn::VarStore,
     policy_net: nn::SequentialT,
     value_net: nn::SequentialT,
-    #[allow(dead_code)]
     ube_net: nn::SequentialT,
     rnd: Rnd,
 }
@@ -37,6 +35,7 @@ pub struct Net {
 struct Rnd {
     target: nn::SequentialT,
     learning: nn::SequentialT,
+    training_loss: Tensor,
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
@@ -160,6 +159,7 @@ impl Network for Net {
             rnd: Rnd {
                 learning: rnd(&(&root / "rnd_learning")),
                 target: rnd(&(&root / "rnd_target")),
+                training_loss: root.var("rnd_training_loss", &[1], nn::Init::Const(0.0)),
             },
             vs,
         }
@@ -176,9 +176,8 @@ impl Network for Net {
     fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor, Tensor) {
         let policy = self.policy_net.forward_t(xs, train);
         let value = self.value_net.forward_t(xs, train);
-        // TODO: Enable UBE later.
-        // let ube = self.ube_net.forward_t(xs, train);
-        (policy, value, Tensor::new())
+        let ube = self.ube_net.forward_t(xs, train);
+        (policy, value, ube)
     }
 
     fn forward_rnd(&self, xs: &Tensor, train: bool) -> Tensor {
@@ -195,16 +194,21 @@ impl Network for Net {
             )
             .sum_dim_intlist(1, false, None)
     }
+
+    fn normalized_rnd(&self, xs: &Tensor) -> Tensor {
+        (self.forward_rnd(xs, false) - &self.rnd.training_loss.detach()).clamp(0.0, 1.0)
+    }
+
+    fn update_rnd_training_loss(&mut self, loss: &Tensor) {
+        self.rnd.training_loss.set_data(loss);
+    }
 }
 
 impl Agent<Env> for Net {
-    type Context = RndNormalizationContext;
-
     fn policy_value_uncertainty(
         &self,
         env_batch: &[Env],
         actions_batch: &[Vec<<Env as crate::search::env::Environment>::Action>],
-        _context: &mut Self::Context,
     ) -> impl Iterator<Item = (Vec<(Move, NotNan<f32>)>, f32, f32)> {
         assert_eq!(env_batch.len(), actions_batch.len());
         assert!(!env_batch.is_empty());
@@ -217,7 +221,7 @@ impl Agent<Env> for Net {
                 .collect::<Vec<_>>(),
             0,
         );
-        let (policy, values, _ube_uncertainties) = self.forward_t(&xs, false);
+        let (policy, values, ube_uncertainties) = self.forward_t(&xs, false);
         let policy = policy.view([-1, output_size::<N>() as i64]);
         let max_actions = actions_batch.iter().map(Vec::len).max().unwrap_or_default();
         let index = Tensor::from_slice2(
@@ -251,15 +255,14 @@ impl Agent<Env> for Net {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        // let rnd_uncertainties = context.normalize(&self.forward_rnd(&xs, false));
-        // let uncertainties: Vec<_> = ube_uncertainties
-        //     .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
-        //     .clip(0.0, 1.0)
-        //     .view([-1])
-        //     .try_into()
-        //     .unwrap();
-        // TODO: Enable uncertainty calculation later.
-        let uncertainties = std::iter::repeat(1.0);
+        let rnd_uncertainties = self.normalized_rnd(&xs);
+        let uncertainties: Vec<_> = ube_uncertainties
+            .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
+            .clip(0.0, 1.0)
+            .view([-1])
+            .try_into()
+            .unwrap();
+        // let uncertainties = std::iter::repeat(1.0);
 
         indexed_policy
             .zip(values)
@@ -305,5 +308,26 @@ mod tests {
             .for_each(|(game, actions)| game.populate_actions(actions));
         let output = net.policy_value_uncertainty(&games, &actions_batch);
         assert_eq!(output.count(), BATCH_SIZE);
+    }
+
+    #[test]
+    fn update_rnd_persistance() {
+        const RND_LOSS: f32 = 123.456;
+
+        let mut net = Net::new(Device::cuda_if_available(), Some(456));
+        println!("init: {:?}", net.rnd.training_loss);
+        assert!(f32::try_from(&net.rnd.training_loss).unwrap().abs() < f32::EPSILON);
+
+        let loss: tch::Tensor = RND_LOSS.into();
+        net.update_rnd_training_loss(&loss);
+        println!("set: {:?}", net.rnd.training_loss);
+        assert!((f32::try_from(&net.rnd.training_loss).unwrap() - RND_LOSS).abs() < f32::EPSILON);
+
+        net.save("temp-remove-me.ot").unwrap();
+        drop(net);
+
+        let net = Net::load("temp-remove-me.ot", Device::cuda_if_available()).unwrap();
+        println!("load: {:?}", net.rnd.training_loss);
+        assert!((f32::try_from(&net.rnd.training_loss).unwrap() - RND_LOSS).abs() < f32::EPSILON);
     }
 }
