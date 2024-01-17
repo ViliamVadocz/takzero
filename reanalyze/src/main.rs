@@ -47,6 +47,7 @@ struct Args {
     directory: PathBuf,
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     env_logger::init();
     let args = Args::parse();
@@ -133,6 +134,17 @@ fn main() {
                 let ube = node
                     .ube_target(UBE_TARGET_BETA, UBE_TARGET_TOP_K)
                     .into_inner();
+
+                // Log UBE statistics.
+                let root = node.std_dev;
+                let max = node
+                    .children
+                    .iter()
+                    .map(|(_, child)| child.std_dev)
+                    .max()
+                    .unwrap_or_default();
+                log::debug!("[UBE STATS] root: {root:.5}, max: {max:.5}, target: {ube:.5}");
+
                 Target {
                     env: env.clone(),
                     policy,
