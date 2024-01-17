@@ -6,7 +6,7 @@ use clap::Parser;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
-        net5::{Env, Net, RndNormalizationContext},
+        net5::{Env, Net},
         Network,
     },
     search::{
@@ -91,16 +91,8 @@ fn real_main() {
 fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
     let mut evaluation = Evaluation::default();
 
-    let mut white_mcts = BatchedMCTS::from_envs(
-        games.to_owned().try_into().unwrap(),
-        BETA,
-        RndNormalizationContext::new(0.0),
-    );
-    let mut black_mcts = BatchedMCTS::from_envs(
-        games.to_owned().try_into().unwrap(),
-        BETA,
-        RndNormalizationContext::new(0.0),
-    );
+    let mut white_mcts = BatchedMCTS::from_envs(games.to_owned().try_into().unwrap(), BETA);
+    let mut black_mcts = BatchedMCTS::from_envs(games.to_owned().try_into().unwrap(), BETA);
 
     let mut done = [false; BATCH_SIZE];
 

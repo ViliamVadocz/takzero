@@ -9,7 +9,7 @@ use clap::Parser;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net5::{Env, Net, RndNormalizationContext},
+        net5::{Env, Net},
         Network,
     },
     search::{
@@ -56,7 +56,7 @@ fn main() {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = Net::new(DEVICE, Some(rng.gen()));
-    let mut batched_mcts = BatchedMCTS::new(&mut rng, BETA, RndNormalizationContext::new(0.0));
+    let mut batched_mcts = BatchedMCTS::new(&mut rng, BETA);
     let mut position_buffer = Vec::new();
     let mut replays_seek = 0;
 

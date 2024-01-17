@@ -16,24 +16,23 @@ use crate::{
 // TODO: Use itertools to make the zips nicer.
 // TODO: Add rayon later.
 
-pub struct BatchedMCTS<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> {
+pub struct BatchedMCTS<const BATCH_SIZE: usize, E: Environment> {
     nodes: [Node<E>; BATCH_SIZE],
     envs: [E; BATCH_SIZE],
     actions: [Vec<E::Action>; BATCH_SIZE],
     trajectories: [Vec<usize>; BATCH_SIZE],
     replays: [Replay<E>; BATCH_SIZE],
     betas: [f32; BATCH_SIZE],
-    context: A::Context,
 }
 
-impl<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> BatchedMCTS<BATCH_SIZE, E, A> {
-    pub fn new(rng: &mut impl Rng, betas: [f32; BATCH_SIZE], context: A::Context) -> Self {
+impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
+    pub fn new(rng: &mut impl Rng, betas: [f32; BATCH_SIZE]) -> Self {
         let mut actions = Vec::new();
         let envs = std::array::from_fn(|_| E::new_opening(rng, &mut actions));
-        Self::from_envs(envs, betas, context)
+        Self::from_envs(envs, betas)
     }
 
-    pub fn from_envs(envs: [E; BATCH_SIZE], betas: [f32; BATCH_SIZE], context: A::Context) -> Self {
+    pub fn from_envs(envs: [E; BATCH_SIZE], betas: [f32; BATCH_SIZE]) -> Self {
         Self {
             nodes: std::array::from_fn(|_| Node::default()),
             actions: std::array::from_fn(|_| Vec::new()),
@@ -41,7 +40,6 @@ impl<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> BatchedMCTS<BATCH_SIZ
             replays: std::array::from_fn(|i| Replay::new(envs[i].clone())),
             envs,
             betas,
-            context,
         }
     }
 
@@ -59,7 +57,7 @@ impl<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> BatchedMCTS<BATCH_SIZ
     ///
     /// Panics if the actions or trajectories are not empty.
     /// Also panics if any logit is NaN.
-    pub fn simulate(&mut self, agent: &A) {
+    pub fn simulate<A: Agent<E>>(&mut self, agent: &A) {
         assert!(self.actions.iter().all(Vec::is_empty));
         assert!(self.trajectories.iter().all(Vec::is_empty));
 
@@ -90,7 +88,7 @@ impl<const BATCH_SIZE: usize, E: Environment, A: Agent<E>> BatchedMCTS<BATCH_SIZ
         }
 
         let (env_batch, actions_batch): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
-        let output = agent.policy_value_uncertainty(&env_batch, &actions_batch, &mut self.context);
+        let output = agent.policy_value_uncertainty(&env_batch, &actions_batch);
         forward
             .into_iter()
             .zip(

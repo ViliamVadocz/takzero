@@ -3,7 +3,7 @@ use std::{io::Read, time::Instant};
 use protocol::{GoOption, Id, Input, Output, ParseInputError, Position, ValueType};
 use takzero::{
     network::{
-        net5::{Env, Net, RndNormalizationContext, N},
+        net5::{Env, Net, N},
         Network,
     },
     search::node::Node,
@@ -68,8 +68,7 @@ fn main() {
 
     let mut node = Node::default();
     let mut env = Env::default();
-    let mut context = RndNormalizationContext::new(0.0);
-    node.simulate_simple(&net, env.clone(), 0.0, &mut context);
+    node.simulate_simple(&net, env.clone(), 0.0);
 
     loop {
         match get_input(&mut stdin, &mut line) {
@@ -96,7 +95,7 @@ fn main() {
             }
             Ok(Input::Quit) => break,
             Ok(Input::Go(go_options)) => {
-                go(&net, &env, &mut node, &mut context, go_options);
+                go(&net, &env, &mut node, go_options);
                 println!("{}", Output::BestMove(node.select_best_action()));
             }
 
@@ -109,13 +108,7 @@ fn main() {
     }
 }
 
-fn go(
-    net: &Net,
-    env: &Env,
-    node: &mut Node<Env>,
-    context: &mut RndNormalizationContext,
-    go_options: Vec<GoOption>,
-) {
+fn go(net: &Net, env: &Env, node: &mut Node<Env>, go_options: Vec<GoOption>) {
     const BETA: f32 = 0.0;
 
     let mut nodes = None;
@@ -136,7 +129,7 @@ fn go(
 
     let start = Instant::now();
     for visits in 0.. {
-        node.simulate_simple(net, env.clone(), BETA, context);
+        node.simulate_simple(net, env.clone(), BETA);
 
         if nodes.is_some_and(|amount| visits >= amount)
             || move_time.is_some_and(|duration| start.elapsed() >= duration)

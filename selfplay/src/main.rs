@@ -12,7 +12,7 @@ use ordered_float::NotNan;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net5::{Env, Net, RndNormalizationContext},
+        net5::{Env, Net},
         Network,
     },
     search::{
@@ -69,7 +69,7 @@ fn main() {
     let mut targets = Vec::new();
     let mut complete_replays = Vec::new();
 
-    let mut batched_mcts = BatchedMCTS::new(&mut rng, BETA, RndNormalizationContext::new(0.0));
+    let mut batched_mcts = BatchedMCTS::new(&mut rng, BETA);
 
     for steps in 0.. {
         log::info!("Step: {steps}");
@@ -155,7 +155,7 @@ struct IncompleteTarget {
 /// Take a step in each environment.
 /// Generate target policy.
 fn take_a_step(
-    batched_mcts: &mut BatchedMCTS<BATCH_SIZE, Env, Net>,
+    batched_mcts: &mut BatchedMCTS<BATCH_SIZE, Env>,
     policy_targets: &mut [Vec<IncompleteTarget>],
     selected_actions: &[Move],
 ) {
@@ -176,7 +176,7 @@ fn take_a_step(
 /// Complete targets of finished games using the game result.
 #[allow(clippy::too_many_arguments)]
 fn restart_envs_and_complete_targets(
-    batched_mcts: &mut BatchedMCTS<BATCH_SIZE, Env, Net>,
+    batched_mcts: &mut BatchedMCTS<BATCH_SIZE, Env>,
     policy_targets: &mut [Vec<IncompleteTarget>],
     targets: &mut Vec<Target<Env>>,
     finished_replays: &mut Vec<Replay<Env>>,

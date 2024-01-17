@@ -50,7 +50,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(123);
         let mut node = Node::default();
         let env = Game::<3, 0>::default();
-        node.simulate_simple(&Dummy, env, 0.0, &mut ());
+        node.simulate_simple(&Dummy, env, 0.0);
 
         println!("{node}");
         // Sum of probabilities is 1 before noise.

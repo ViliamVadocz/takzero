@@ -224,13 +224,7 @@ impl<E: Environment> Node<E> {
     ///
     /// Panics if the agent does not return a prediction
     /// when needed.
-    pub fn simulate_simple<A: Agent<E>>(
-        &mut self,
-        agent: &A,
-        env: E,
-        beta: f32,
-        context: &mut A::Context,
-    ) -> Propagated {
+    pub fn simulate_simple<A: Agent<E>>(&mut self, agent: &A, env: E, beta: f32) -> Propagated {
         let mut trajectory = Vec::new();
         match self.forward(&mut trajectory, env, beta) {
             Forward::Known(eval) => self.backward_known_eval(trajectory.into_iter(), eval),
@@ -238,7 +232,7 @@ impl<E: Environment> Node<E> {
                 let mut actions = [Vec::new()];
                 env.populate_actions(&mut actions[0]);
                 let (policy, value, uncertainty) = agent
-                    .policy_value_uncertainty(&[env], &actions, context)
+                    .policy_value_uncertainty(&[env], &actions)
                     .next()
                     .expect("agent should return exactly one prediction");
                 // Calculate probabilities from logits.
@@ -289,7 +283,7 @@ mod tests {
         (0..MAX_VISITS)
             .find(|_| {
                 matches!(
-                    root.simulate_simple(&Dummy, game.clone(), 1.0, &mut ()),
+                    root.simulate_simple(&Dummy, game.clone(), 1.0),
                     Propagated {
                         eval: Eval::Win(_),
                         ..
@@ -325,7 +319,7 @@ mod tests {
                     println!("{root}");
                 }
                 matches!(
-                    root.simulate_simple(&Simple, game.clone(), 1.0, &mut ()),
+                    root.simulate_simple(&Simple, game.clone(), 1.0),
                     Propagated {
                         eval: Eval::Win(_),
                         ..
@@ -353,7 +347,7 @@ mod tests {
 
         assert!(f32::from(root.evaluation) == 0.0);
         for _ in 0..VISITS {
-            root.simulate_simple(&SafeCracker, env.clone(), 0.0, &mut ());
+            root.simulate_simple(&SafeCracker, env.clone(), 0.0);
         }
 
         for k in KEY {

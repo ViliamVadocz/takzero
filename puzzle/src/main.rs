@@ -15,7 +15,7 @@ use fast_tak::takparse::{Move, Tps};
 use sqlite::{Connection, Statement, Value};
 use takzero::{
     network::{
-        net5::{Env, Net, RndNormalizationContext, N},
+        net5::{Env, Net, N},
         Network,
     },
     search::node::{batched::BatchedMCTS, Node},
@@ -183,11 +183,7 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
         })
         .unzip();
 
-    let mut batched_mcts = BatchedMCTS::from_envs(
-        std::array::from_fn(|_| Env::default()),
-        BETA,
-        RndNormalizationContext::new(0.0),
-    );
+    let mut batched_mcts = BatchedMCTS::from_envs(std::array::from_fn(|_| Env::default()), BETA);
 
     // Attempt to solve puzzles.
     let mut attempted = 0;

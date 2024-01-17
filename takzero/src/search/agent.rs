@@ -2,18 +2,13 @@ use ordered_float::NotNan;
 
 use super::env::Environment;
 
-// TODO: Context can be part on Net, does not have to be in Agent.
-
 pub trait Agent<E: Environment> {
-    type Context;
-
     /// Always batched.
     /// The policy does not have to be normalized (returning logits).
     fn policy_value_uncertainty(
         &self,
         env_batch: &[E],
         actions_batch: &[Vec<E::Action>],
-        context: &mut Self::Context,
     ) -> impl Iterator<Item = (Vec<(E::Action, NotNan<f32>)>, f32, f32)>;
 }
 
@@ -25,13 +20,10 @@ pub mod dummy {
     pub struct Dummy;
 
     impl<E: Environment> Agent<E> for Dummy {
-        type Context = ();
-
         fn policy_value_uncertainty(
             &self,
             env_batch: &[E],
             actions_batch: &[Vec<<E as Environment>::Action>],
-            _context: &mut Self::Context,
         ) -> impl Iterator<Item = (Vec<(E::Action, NotNan<f32>)>, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
             actions_batch.iter().map(|actions| {
@@ -64,13 +56,10 @@ pub mod simple {
     where
         Reserves<N>: Default,
     {
-        type Context = ();
-
         fn policy_value_uncertainty(
             &self,
             env_batch: &[Game<N, HALF_KOMI>],
             actions_batch: &[Vec<Move>],
-            _context: &mut Self::Context,
         ) -> impl Iterator<Item = (Vec<(Move, NotNan<f32>)>, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
             env_batch.iter().zip(actions_batch).map(|(env, actions)| {

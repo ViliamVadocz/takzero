@@ -268,21 +268,6 @@ impl Agent<Env> for Net {
     }
 }
 
-pub struct RndNormalizationContext {
-    last_training_loss: f64,
-}
-
-impl RndNormalizationContext {
-    #[must_use]
-    pub const fn new(last_training_loss: f64) -> Self {
-        Self { last_training_loss }
-    }
-
-    pub fn normalize(&mut self, rnd: &Tensor) -> Tensor {
-        (rnd - self.last_training_loss).clamp(0.0, 1.0)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::array;
@@ -290,7 +275,7 @@ mod tests {
     use fast_tak::Game;
     use tch::Device;
 
-    use super::{Env, Net, RndNormalizationContext};
+    use super::{Env, Net};
     use crate::{
         network::Network,
         search::{agent::Agent, env::Environment},
@@ -301,10 +286,9 @@ mod tests {
         let net = Net::new(Device::cuda_if_available(), Some(123));
         let game: Env = Game::default();
         let mut moves = Vec::new();
-        let mut context = RndNormalizationContext::new(1.0);
         game.possible_moves(&mut moves);
         let (_policy, _value, _uncertainty) = net
-            .policy_value_uncertainty(&[game], &[moves], &mut context)
+            .policy_value_uncertainty(&[game], &[moves])
             .next()
             .unwrap();
     }
@@ -315,12 +299,11 @@ mod tests {
         let net = Net::new(Device::cuda_if_available(), Some(456));
         let mut games: [Env; BATCH_SIZE] = array::from_fn(|_| Game::default());
         let mut actions_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
-        let mut context = RndNormalizationContext::new(1.0);
         games
             .iter_mut()
             .zip(&mut actions_batch)
             .for_each(|(game, actions)| game.populate_actions(actions));
-        let output = net.policy_value_uncertainty(&games, &actions_batch, &mut context);
+        let output = net.policy_value_uncertainty(&games, &actions_batch);
         assert_eq!(output.count(), BATCH_SIZE);
     }
 }

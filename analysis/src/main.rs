@@ -7,7 +7,7 @@ use clap::Parser;
 use fast_tak::takparse::Move;
 use takzero::{
     network::{
-        net5::{Env, Net, RndNormalizationContext},
+        net5::{Env, Net},
         Network,
     },
     search::node::Node,
@@ -30,7 +30,6 @@ fn main() {
     let agent = Net::load(args.model_path, DEVICE).unwrap();
     let mut env = Env::default();
     let mut node = Node::default();
-    let mut context = RndNormalizationContext::new(0.0);
 
     let mut input = String::new();
     loop {
@@ -52,7 +51,7 @@ fn main() {
             let visits: u32 = trim.parse().unwrap_or(1);
             println!("simulating {visits} visits");
             for _ in 0..visits {
-                node.simulate_simple(&agent, env.clone(), BETA, &mut context);
+                node.simulate_simple(&agent, env.clone(), BETA);
             }
         }
         println!("{node}");

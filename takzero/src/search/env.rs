@@ -147,13 +147,10 @@ pub mod safecrack {
     pub struct SafeCracker;
 
     impl Agent<SafeCrack> for SafeCracker {
-        type Context = ();
-
         fn policy_value_uncertainty(
             &self,
             env_batch: &[SafeCrack],
             actions_batch: &[Vec<<SafeCrack as Environment>::Action>],
-            _context: &mut Self::Context,
         ) -> impl Iterator<Item = (Vec<(Option<u8>, NotNan<f32>)>, f32, f32)> {
             debug_assert_eq!(env_batch.len(), actions_batch.len());
             env_batch.iter().zip(actions_batch).map(|(env, actions)| {
