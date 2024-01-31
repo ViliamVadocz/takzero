@@ -265,7 +265,6 @@ struct Tensors {
     mask: Tensor,
     target_value: Tensor,
     target_policy: Tensor,
-    #[allow(dead_code)]
     target_ube: Tensor,
 }
 
@@ -374,7 +373,7 @@ fn pre_training(net: &mut Net, opt: &mut Optimizer, rng: &mut impl Rng, director
                 env,
                 policy,
                 value: f32::from(value),
-                ube: 1.0,
+                ube: 1.0 - f32::EPSILON,
             });
         }
     }
