@@ -136,7 +136,7 @@ fn main() {
 
     // Main training loop.
     let mut last_loaded = Instant::now();
-    for model_steps in starting_steps.. {
+    for model_steps in (starting_steps + 1).. {
         let using_reanalyze = model_steps >= STEPS_BEFORE_REANALYZE;
 
         // Make sure there are enough targets before sampling a batch.
