@@ -9,8 +9,11 @@ UBE_PATTERN = re.compile(r"loss_ube = \[(\d+\.\d+)\]")
 RND_PATTERN = re.compile(r"loss_rnd = \[(\d+\.\d+)\]")
 
 UBE_STATS_PATTERN = re.compile(
-    r"\[UBE STATS\] ply: (\d+), root: (\d+\.\d+), max: (\d+\.\d+), selected: (\d+\.\d+)"
+    r"\[UBE STATS\] ply: (\d+), bf: (\d+), root: (\d+\.\d+), max: (\d+\.\d+), target: (\d+\.\d+)"
 )
+# UBE_STATS_PATTERN = re.compile(
+#     r"\[UBE STATS\] ply: (\d+), root: (\d+\.\d+), max: (\d+\.\d+), selected: (\d+\.\d+)"
+# )
 
 
 def moving_average(a, n=3):
@@ -40,17 +43,16 @@ def moving_average(a, n=3):
 # )
 # plt.ylim(0, 10)
 
-# Get UBE stats from self-play.
 data_per_step = dict()
 directory = "_data"
 for filename in os.listdir(directory):
-    if "selfplay" not in filename:
+    if "reanalyze" not in filename:
         continue
     f = os.path.join(directory, filename)
     if os.path.isfile(f):
         with open(f) as file:
             contents = file.read()
-        steps = contents.split("Step:")
+        steps = contents.split("Number of positions:")
         for i, step in enumerate(steps[1:]):
             ube_stats = [
                 (int(x[1]), float(x[2]), float(x[3]), float(x[4]))
@@ -59,41 +61,96 @@ for filename in os.listdir(directory):
             data = data_per_step.setdefault(i, [])
             data += ube_stats
 data_per_step = list(data_per_step.values())
+print(len(data_per_step))
 
-self_play_steps = len(data_per_step)
+# ube_per_bf = dict()
+# for data in data_per_step:
+#     for tup in data:
+#         l = ube_per_bf.setdefault(tup[1], [])
+#         l.append(tup[2])
+# ube_per_bf = sorted(ube_per_bf.items())
+# plt.plot(
+#     [x for x, y in ube_per_bf],
+#     [np.mean(y) for x, y in ube_per_bf],
+# )
+# plt.xlabel("Branching factor")
+# plt.ylabel("Root UBE")
+# plt.title("Branching factor vs root UBE")
+# plt.ylim(0, 1)
 
-n = 4
-for i in range(n):
-    step_size = self_play_steps / n
-    start = int(step_size * i)
-    end = int(step_size * (i + 1))
-    ube_per_ply = {i: [] for i in range(150)}
-    for data in data_per_step[start:end]:
-        for tup in data:
-            ube_per_ply[tup[0]].append(tup[1])
-    root = [(i, np.mean(ube)) for i, ube in ube_per_ply.items() if len(ube) > 0][:80]
-    plt.plot([x for x, y in root], [y for x, y in root], label=f"[{start},{end})")
+bf_per_ply = dict()
+for data in data_per_step:
+    for tup in data:
+        l = bf_per_ply.setdefault(tup[0], [])
+        l.append(tup[1])
+bf_per_ply = sorted(bf_per_ply.items())
+print(bf_per_ply[0][0])
+plt.plot(
+    [x for x, y in bf_per_ply][::2],
+    [np.mean(y) for x, y in bf_per_ply][::2],
+    label="black",
+)
+plt.plot(
+    [x for x, y in bf_per_ply][1::2],
+    [np.mean(y) for x, y in bf_per_ply][1::2],
+    label="white",
+)
+plt.xlabel("Game ply")
+plt.ylabel("Branching factor")
+plt.title("Game ply vs branching factor")
 
-plt.xlabel("Game plies (half-moves)")
-plt.ylabel("Mean root UBE")
-plt.title("Root UBE throughout games for several training step ranges")
-plt.ylim(0, 1)
+# n = 1
+# step_size = len(data_per_step) / n
+# for i in range(n):
+#     start = int(step_size * i)
+#     end = int(step_size * (i + 1))
+#     ube_per_ply = {i: [] for i in range(150)}
+#     for data in data_per_step[start:end]:
+#         for tup in data:
+#             ube_per_ply[tup[0]].append(tup[2])
+#     root = [
+#         (i, np.mean(ube), np.std(ube)) for i, ube in ube_per_ply.items() if len(ube) > 0
+#     ]
+#     plt.plot([x for x, _, _ in root], [y for _, y, _ in root], label=f"[{start},{end})")
+#     plt.fill_between(
+#         [x for x, _, _ in root],
+#         [y - z for _, y, z in root],
+#         [y + z for _, y, z in root],
+#         alpha=0.2,
+#     )
+
+# plt.xlabel("Game plies (half-moves)")
+# plt.ylabel("Mean root UBE")
+# plt.title("Root UBE throughout games for several reanalyze step ranges")
+# plt.ylim(0, 1)
 
 
-# def mean(data, ply_step, i):
-#     l = [tup[1] for tup in data if i * ply_step <= tup[0] < (i + 1) * ply_step]
+# def mean_and_std(data, ply_step, i):
+#     l = [tup[2] for tup in data if i * ply_step <= tup[0] < (i + 1) * ply_step]
 #     if len(l) == 0:
-#         return None
-#     return np.mean(l)
+#         return None, None
+#     return (np.mean(l), np.std(l))
+
 
 # ply_step = 20
 # for i in range(4):
-#     root = [mean(data, ply_step, i) for data in data_per_step]
-#     plt.plot(moving_average(root, 100), label=f"[{i * ply_step},{(i + 1) * ply_step})")
+#     root = [mean_and_std(data, ply_step, i) for data in data_per_step]
+#     ube = moving_average([a for a, _ in root], 100)
+#     std = moving_average([b for _, b in root], 100)
+#     plt.plot(
+#         ube,
+#         label=f"[{i * ply_step},{(i + 1) * ply_step})",
+#     )
+#     plt.fill_between(
+#         list(range(len(ube))),
+#         [a - b for a, b in zip(ube, std)],
+#         [a + b for a, b in zip(ube, std)],
+#         alpha=0.2,
+#     )
 
-# plt.xlabel("Self-play steps")
+# plt.xlabel("reanalyze steps")
 # plt.ylabel("Root UBE (Moving average size 100)")
-# plt.title("Root UBE during self-play, for several game ply (half-move) ranges")
+# plt.title("Root UBE during reanalyze, for several game ply (half-move) ranges")
 # plt.ylim(0, 1)
 
 # plt.hist(
