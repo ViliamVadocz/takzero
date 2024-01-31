@@ -143,7 +143,11 @@ fn main() {
                     .map(|(_, child)| child.std_dev)
                     .max()
                     .unwrap_or_default();
-                log::debug!("[UBE STATS] root: {root:.5}, max: {max:.5}, target: {ube:.5}");
+                log::debug!(
+                    "[UBE STATS] ply: {}, bf: {} root: {root:.5}, max: {max:.5}, target: {ube:.5}",
+                    env.ply,
+                    policy.len()
+                );
 
                 Target {
                     env: env.clone(),
