@@ -144,7 +144,7 @@ fn main() {
                     .max()
                     .unwrap_or_default();
                 log::debug!(
-                    "[UBE STATS] ply: {}, bf: {} root: {root:.5}, max: {max:.5}, target: {ube:.5}",
+                    "[UBE STATS] ply: {}, bf: {}, root: {root:.5}, max: {max:.5}, target: {ube:.5}",
                     env.ply,
                     policy.len()
                 );

@@ -109,7 +109,7 @@ fn main() {
         batched_mcts
             .nodes_and_envs()
             .zip(&selected_actions)
-            .for_each(|((node, _env), action)| {
+            .for_each(|((node, env), action)| {
                 let root = node.std_dev;
                 let max = node
                     .children
@@ -123,7 +123,10 @@ fn main() {
                     .find(|(a, _)| a == action)
                     .map(|(_, child)| child.std_dev)
                     .unwrap_or_default();
-                log::debug!("[UBE STATS] root: {root:.5}, max: {max:.5}, selected: {selected:.5}");
+                log::debug!(
+                    "[UBE STATS] ply: {}, root: {root:.5}, max: {max:.5}, selected: {selected:.5}",
+                    env.ply,
+                );
             });
         take_a_step(&mut batched_mcts, &mut policy_targets, &selected_actions);
         restart_envs_and_complete_targets(
