@@ -122,6 +122,7 @@ fn rnd(path: &nn::Path) -> nn::SequentialT {
     const OUTPUT: i64 = 512;
     nn::seq_t()
         .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
+        .add_fn(|x| x / x.norm())
         .add(nn::linear(
             path / "input_linear",
             input_size::<N>() as i64,
@@ -262,7 +263,6 @@ impl Agent<Env> for Net {
             .view([-1])
             .try_into()
             .unwrap();
-        // let uncertainties = std::iter::repeat(1.0);
 
         indexed_policy
             .zip(values)
