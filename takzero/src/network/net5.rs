@@ -20,7 +20,7 @@ use crate::{
 pub const N: usize = 5;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
-const FILTERS: i64 = 128;
+const FILTERS: i64 = 256;
 
 #[derive(Debug)]
 pub struct Net {
