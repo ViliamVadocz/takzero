@@ -19,7 +19,7 @@ pub struct Node<E: Environment> {
     pub virtual_visits: u32,      // count number of unevaluated trajectories through this node
     pub logit: NotNan<f32>,       // log(P(s_prev, a)) (network output)
     pub probability: NotNan<f32>, // P(s_prev, a) (normalized)
-    pub std_dev: NotNan<f32>,     // average sqrt(clip(max(UBE(s_t), geo_sum_discount * RND(s_t))))
+    pub std_dev: NotNan<f32>,     // average sqrt(clamp(max(UBE(s_t), geo_sum_discount * RND(s_t))))
     pub children: Box<[(E::Action, Self)]>,
 }
 
@@ -40,10 +40,15 @@ impl<E: Environment> Default for Node<E> {
 
 impl<E: Environment> Node<E> {
     #[must_use]
-    pub fn from_logit_and_probability(logit: NotNan<f32>, probability: NotNan<f32>) -> Self {
+    pub fn from_logit_and_probability_and_parent_std_dev(
+        logit: NotNan<f32>,
+        probability: NotNan<f32>,
+        std_dev: NotNan<f32>,
+    ) -> Self {
         Self {
             logit,
             probability,
+            std_dev,
             ..Default::default()
         }
     }
