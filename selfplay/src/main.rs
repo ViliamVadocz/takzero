@@ -239,7 +239,7 @@ fn restart_envs_and_complete_targets(
                         env,
                         value: f32::from(value),
                         // average_std_dev * average_std_dev
-                        ube: (*ube_window.iter().last().unwrap()).into(),
+                        ube: ube_window.iter().last().copied().unwrap_or_default().into(),
                         policy,
                     });
                 }
