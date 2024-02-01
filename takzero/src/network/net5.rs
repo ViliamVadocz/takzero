@@ -122,9 +122,10 @@ fn ube_net(path: &nn::Path) -> nn::SequentialT {
 fn rnd(path: &nn::Path) -> nn::SequentialT {
     const HIDDEN_LAYER: i64 = 1024;
     const OUTPUT: i64 = 512;
+    const RND_INPUT_SCALE: f64 = 1000.0;
     nn::seq_t()
         .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
-        .add_fn(|x| x / x.norm())
+        .add_fn(|x| RND_INPUT_SCALE * x / x.norm())
         .add(nn::linear(
             path / "input_linear",
             input_size::<N>() as i64,
