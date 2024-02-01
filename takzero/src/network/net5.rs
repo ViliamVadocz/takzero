@@ -122,7 +122,7 @@ fn ube_net(path: &nn::Path) -> nn::SequentialT {
 fn rnd(path: &nn::Path) -> nn::SequentialT {
     const HIDDEN_LAYER: i64 = 1024;
     const OUTPUT: i64 = 512;
-    const RND_INPUT_SCALE: f64 = 1000.0;
+    const RND_INPUT_SCALE: f64 = 50.0;
     nn::seq_t()
         .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
         .add_fn(|x| RND_INPUT_SCALE * x / x.norm())
@@ -205,7 +205,10 @@ impl Network for Net {
     }
 
     fn update_rnd_training_loss(&mut self, loss: &Tensor) {
-        self.rnd.training_loss.set_data(loss);
+        const RATIO: f64 = 0.9;
+        // Linearly interpolate between old and new loss to reduce noise.
+        let new_loss = &self.rnd.training_loss * RATIO + loss * (1.0 - RATIO);
+        self.rnd.training_loss.set_data(&new_loss);
     }
 }
 
