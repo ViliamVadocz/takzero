@@ -12,7 +12,7 @@ use ordered_float::NotNan;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net5::{Env, Net, N},
+        net5::{Env, Net, MAXIMUM_VARIANCE, N},
         repr::{game_to_tensor, move_mask, output_size, policy_tensor},
         Network,
     },
@@ -373,7 +373,7 @@ fn pre_training(net: &mut Net, opt: &mut Optimizer, rng: &mut impl Rng, director
                 env,
                 policy,
                 value: f32::from(value),
-                ube: 1.0 - f32::EPSILON,
+                ube: MAXIMUM_VARIANCE as f32 - f32::EPSILON,
             });
         }
     }

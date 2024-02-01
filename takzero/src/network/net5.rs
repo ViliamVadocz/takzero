@@ -22,6 +22,8 @@ pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
 const FILTERS: i64 = 256;
 
+pub const MAXIMUM_VARIANCE: f64 = 4.0; // Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
+
 #[derive(Debug)]
 pub struct Net {
     vs: nn::VarStore,
@@ -197,7 +199,8 @@ impl Network for Net {
     }
 
     fn normalized_rnd(&self, xs: &Tensor) -> Tensor {
-        (self.forward_rnd(xs, false) - &self.rnd.training_loss.detach()).clamp(0.0, 1.0)
+        (self.forward_rnd(xs, false) - &self.rnd.training_loss.detach())
+            .clamp(0.0, MAXIMUM_VARIANCE)
     }
 
     fn update_rnd_training_loss(&mut self, loss: &Tensor) {
@@ -259,7 +262,7 @@ impl Agent<Env> for Net {
         let rnd_uncertainties = self.normalized_rnd(&xs);
         let uncertainties: Vec<_> = ube_uncertainties
             .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
-            .clip(0.0, 1.0)
+            .clamp(0.0, MAXIMUM_VARIANCE)
             .view([-1])
             .try_into()
             .unwrap();
