@@ -1,5 +1,3 @@
-use std::cmp::Reverse;
-
 use ordered_float::NotNan;
 use rand::Rng;
 use rand_distr::{Distribution, WeightedIndex};
@@ -162,27 +160,43 @@ impl<E: Environment> Node<E> {
     }
 
     /// Get the UBE target from the root after search.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there are no children.
     #[must_use]
-    pub fn ube_target(&self, beta: f32, top_k: usize) -> NotNan<f32> {
+    pub fn ube_target(&self, _beta: f32, _top_k: usize) -> NotNan<f32> {
         // UBE target = 0.0 when node is solved.
-        if self.evaluation.is_known() {
-            return NotNan::default();
+        if self.evaluation.is_known() || self.needs_initialization() {
+            NotNan::default()
+        } else {
+            let std_dev = self
+                .children
+                .iter()
+                .min_by_key(|(_, child)| child.evaluation)
+                .expect("There should always be at least one child")
+                .1
+                .std_dev;
+            std_dev * std_dev
         }
-        // Sort children according to from largest to smallest
-        // according to `value + std_dev * beta`.
-        let mut children: Vec<_> = self.children.iter().map(|(_, child)| child).collect();
-        children.sort_unstable_by_key(|child| {
-            Reverse(NotNan::from(child.evaluation.negate()) + child.std_dev * beta)
-        });
-        // Take average of standard deviations.
-        let amount = top_k.min(children.len());
-        let average_std_dev = children
-            .into_iter()
-            .take(top_k)
-            .map(|child| child.std_dev)
-            .sum::<NotNan<f32>>()
-            / amount as f32;
-        // UBE target is a variance.
-        average_std_dev * average_std_dev
+
+        // Temporarily commented out.
+
+        // // Sort children according to from largest to smallest
+        // // according to `value + std_dev * beta`.
+        // let mut children: Vec<_> = self.children.iter().map(|(_, child)|
+        // child).collect(); children.sort_unstable_by_key(|child| {
+        //     Reverse(NotNan::from(child.evaluation.negate()) + child.std_dev *
+        // beta) });
+        // // Take average of standard deviations.
+        // let amount = top_k.min(children.len());
+        // let average_std_dev = children
+        //     .into_iter()
+        //     .take(top_k)
+        //     .map(|child| child.std_dev)
+        //     .sum::<NotNan<f32>>()
+        //     / amount as f32;
+        // // UBE target is a variance.
+        // average_std_dev * average_std_dev
     }
 }

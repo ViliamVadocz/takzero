@@ -226,9 +226,9 @@ fn restart_envs_and_complete_targets(
                     if root_ube_metric > NotNan::default() {
                         ube_window.push_front(root_ube_metric);
                     }
-                    // Take average of window.
-                    let average_std_dev = ube_window.iter().map(|ube| ube.sqrt()).sum::<f32>()
-                        / (ube_window.len() + 1) as f32;
+                    // // Take average of window.
+                    // let average_std_dev = ube_window.iter().map(|ube| ube.sqrt()).sum::<f32>()
+                    //     / (ube_window.len() + 1) as f32;
                     // Apply discount.
                     ube_window
                         .iter_mut()
@@ -238,7 +238,8 @@ fn restart_envs_and_complete_targets(
                     targets.push(Target {
                         env,
                         value: f32::from(value),
-                        ube: average_std_dev * average_std_dev,
+                        // average_std_dev * average_std_dev
+                        ube: (*ube_window.iter().last().unwrap()).into(),
                         policy,
                     });
                 }
