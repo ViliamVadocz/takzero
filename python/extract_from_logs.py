@@ -43,25 +43,25 @@ def moving_average(a, n=3):
 # )
 # plt.ylim(0, 10)
 
-data_per_step = dict()
-directory = "_data"
-for filename in os.listdir(directory):
-    if "reanalyze" not in filename:
-        continue
-    f = os.path.join(directory, filename)
-    if os.path.isfile(f):
-        with open(f) as file:
-            contents = file.read()
-        steps = contents.split("Number of positions:")
-        for i, step in enumerate(steps[1:]):
-            ube_stats = [
-                (int(x[1]), float(x[2]), float(x[3]), float(x[4]))
-                for x in re.finditer(UBE_STATS_PATTERN, step)
-            ]
-            data = data_per_step.setdefault(i, [])
-            data += ube_stats
-data_per_step = list(data_per_step.values())
-print(len(data_per_step))
+# data_per_step = dict()
+# directory = "_data"
+# for filename in os.listdir(directory):
+#     if "reanalyze" not in filename:
+#         continue
+#     f = os.path.join(directory, filename)
+#     if os.path.isfile(f):
+#         with open(f) as file:
+#             contents = file.read()
+#         steps = contents.split("Number of positions:")
+#         for i, step in enumerate(steps[1:]):
+#             ube_stats = [
+#                 (int(x[1]), float(x[2]), float(x[3]), float(x[4]))
+#                 for x in re.finditer(UBE_STATS_PATTERN, step)
+#             ]
+#             data = data_per_step.setdefault(i, [])
+#             data += ube_stats
+# data_per_step = list(data_per_step.values())
+# print(len(data_per_step))
 
 # ube_per_bf = dict()
 # for data in data_per_step:
@@ -78,26 +78,26 @@ print(len(data_per_step))
 # plt.title("Branching factor vs root UBE")
 # plt.ylim(0, 1)
 
-bf_per_ply = dict()
-for data in data_per_step:
-    for tup in data:
-        l = bf_per_ply.setdefault(tup[0], [])
-        l.append(tup[1])
-bf_per_ply = sorted(bf_per_ply.items())
-print(bf_per_ply[0][0])
-plt.plot(
-    [x for x, y in bf_per_ply][::2],
-    [np.mean(y) for x, y in bf_per_ply][::2],
-    label="black",
-)
-plt.plot(
-    [x for x, y in bf_per_ply][1::2],
-    [np.mean(y) for x, y in bf_per_ply][1::2],
-    label="white",
-)
-plt.xlabel("Game ply")
-plt.ylabel("Branching factor")
-plt.title("Game ply vs branching factor")
+# bf_per_ply = dict()
+# for data in data_per_step:
+#     for tup in data:
+#         l = bf_per_ply.setdefault(tup[0], [])
+#         l.append(tup[1])
+# bf_per_ply = sorted(bf_per_ply.items())
+# print(bf_per_ply[0][0])
+# plt.plot(
+#     [x for x, y in bf_per_ply][::2],
+#     [np.mean(y) for x, y in bf_per_ply][::2],
+#     label="black",
+# )
+# plt.plot(
+#     [x for x, y in bf_per_ply][1::2],
+#     [np.mean(y) for x, y in bf_per_ply][1::2],
+#     label="white",
+# )
+# plt.xlabel("Game ply")
+# plt.ylabel("Branching factor")
+# plt.title("Game ply vs branching factor")
 
 # n = 1
 # step_size = len(data_per_step) / n
@@ -161,5 +161,22 @@ plt.title("Game ply vs branching factor")
 # plt.xlabel("Game ply (half-move)")
 # plt.ylabel("Density")
 
-plt.legend()
+with open("_data\\replays.txt", "r") as file:
+    game_lengths = [
+        len(line.split("]")[1].strip().split()) + 1
+        for line in file.readlines()
+        if len(line) > 2
+    ]
+
+# plt.hist(game_lengths, bins=[x for x in range(130)], density=True)
+# plt.xlabel("Game length in plies (half-moves)")
+# plt.ylabel("Density")
+
+plt.plot(moving_average(game_lengths, 256))
+plt.ylabel("Moving average of game length (size = 256)")
+plt.xlabel("Replays")
+plt.title("Game length during self-play")
+plt.ylim(0)
+
+# plt.legend()
 plt.show()
