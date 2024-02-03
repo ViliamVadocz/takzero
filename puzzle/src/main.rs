@@ -57,7 +57,7 @@ fn real_main() {
     let mut paths: Vec<_> = read_dir(args.model)
         .unwrap()
         .map(|entry| entry.unwrap().path())
-        .filter(|p| p.extension().map(|ext| ext == "ot").unwrap_or_default())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "ot"))
         .filter(|p| {
             p.file_stem()
                 .and_then(|s| {

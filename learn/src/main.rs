@@ -215,7 +215,7 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(usize, PathBuf
     read_dir(directory)
         .unwrap()
         .filter_map(|res| res.ok().map(|entry| entry.path()))
-        .filter(|p| p.extension().map(|ext| ext == "ot").unwrap_or_default())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "ot"))
         .filter_map(|p| {
             Some((
                 p.file_stem()?
@@ -383,6 +383,7 @@ fn pre_training(net: &mut Net, opt: &mut Optimizer, rng: &mut impl Rng, director
     OpenOptions::new()
         .write(true)
         .create(true)
+        .truncate(true)
         .open(directory.join("targets-initial.txt"))
         .unwrap()
         .write_all(content.as_bytes())

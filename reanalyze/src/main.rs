@@ -184,7 +184,7 @@ fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(u32, PathBuf)>
     read_dir(directory)
         .unwrap()
         .filter_map(|res| res.ok().map(|entry| entry.path()))
-        .filter(|p| p.extension().map(|ext| ext == "ot").unwrap_or_default())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "ot"))
         .filter_map(|p| {
             Some((
                 p.file_stem()?
@@ -241,12 +241,11 @@ fn get_replays(directory: &Path, _model_steps: u32, rng: &mut impl Rng) -> Vec<R
     read_dir(directory)
         .unwrap()
         .filter_map(|res| res.ok().map(|entry| entry.path()))
-        .filter(|p| p.extension().map(|ext| ext == "txt").unwrap_or_default())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "txt"))
         .filter(|p| {
             p.file_stem()
                 .and_then(|s| s.to_str()?.split_once('_'))
-                .map(|(before, _after)| before == "replays")
-                .unwrap_or_default()
+                .is_some_and(|(before, _after)| before == "replays")
         })
         .filter_map(|p| {
             Some(

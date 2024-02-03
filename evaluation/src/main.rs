@@ -46,7 +46,7 @@ fn real_main() {
         let paths: Vec<_> = read_dir(&args.model_path)
             .unwrap()
             .map(|entry| entry.unwrap().path())
-            .filter(|path| path.extension().map(|ext| ext == "ot").unwrap_or_default())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "ot"))
             .collect();
         if paths.len() < 2 {
             let time = std::time::Duration::from_secs(600);
