@@ -209,7 +209,7 @@ impl Network for Net {
     }
 
     fn update_rnd_normalization(&mut self, min: &Tensor, max: &Tensor) {
-        log::debug!("Updating RND normalization to min: {min} and max: {max}");
+        log::debug!("Updating RND normalization to min: {min:?} and max: {max:?}");
         self.rnd.min.set_data(min);
         self.rnd.max.set_data(max);
     }
