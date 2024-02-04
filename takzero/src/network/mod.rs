@@ -13,7 +13,7 @@ pub trait Network: Sized {
 
     fn normalized_rnd(&self, xs: &tch::Tensor) -> tch::Tensor;
 
-    fn update_rnd_training_loss(&mut self, loss: &tch::Tensor);
+    fn update_rnd_normalization(&mut self, min: &tch::Tensor, max: &tch::Tensor);
 
     #[allow(clippy::missing_errors_doc)]
     fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), tch::TchError> {

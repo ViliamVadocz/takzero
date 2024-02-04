@@ -3,7 +3,6 @@ use ordered_float::NotNan;
 use tch::{
     nn::{self, ModuleT},
     Device,
-    Reduction,
     Tensor,
 };
 
@@ -22,7 +21,8 @@ pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
 const FILTERS: i64 = 256;
 
-pub const MAXIMUM_VARIANCE: f64 = 4.0; // Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
+// Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
+pub const MAXIMUM_VARIANCE: f64 = 4.0;
 
 #[derive(Debug)]
 pub struct Net {
@@ -37,7 +37,9 @@ pub struct Net {
 struct Rnd {
     target: nn::SequentialT,
     learning: nn::SequentialT,
-    training_loss: Tensor,
+    // Normalization variables
+    min: Tensor,
+    max: Tensor,
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
@@ -125,7 +127,7 @@ fn rnd(path: &nn::Path) -> nn::SequentialT {
     const RND_INPUT_SCALE: f64 = 50.0;
     nn::seq_t()
         .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
-        .add_fn(|x| RND_INPUT_SCALE * x / x.norm())
+        .add_fn(|x| RND_INPUT_SCALE * x / x.square().sum_dim_intlist(1, true, None))
         .add(nn::linear(
             path / "input_linear",
             input_size::<N>() as i64,
@@ -163,7 +165,9 @@ impl Network for Net {
             rnd: Rnd {
                 learning: rnd(&(&root / "rnd_learning")),
                 target: rnd(&(&root / "rnd_target")),
-                training_loss: root.var("rnd_training_loss", &[1], nn::Init::Const(0.0)),
+                min: root.var("min", &[1], nn::Init::Const(0.0)),
+                // TODO: Think about a good default
+                max: root.var("max", &[1], nn::Init::Const(1.0)),
             },
             vs,
         }
@@ -185,30 +189,29 @@ impl Network for Net {
     }
 
     fn forward_rnd(&self, xs: &Tensor, train: bool) -> Tensor {
-        self.rnd
+        let learning = self
+            .rnd
             .learning
-            .forward_t(xs, train)
-            .mse_loss(
-                &self
-                    .rnd
-                    .target
-                    .forward_t(&xs.set_requires_grad(false), false)
-                    .detach(),
-                Reduction::None,
-            )
-            .sum_dim_intlist(1, false, None)
+            .forward_t(&xs.set_requires_grad(false), train);
+        let target = self
+            .rnd
+            .target
+            .forward_t(&xs.set_requires_grad(false), false)
+            .detach();
+        (learning - target).square().sum_dim_intlist(1, false, None)
     }
 
     fn normalized_rnd(&self, xs: &Tensor) -> Tensor {
-        (self.forward_rnd(xs, false) - &self.rnd.training_loss.detach())
-            .clamp(0.0, MAXIMUM_VARIANCE)
+        let min = self.rnd.min.detach();
+        let max = self.rnd.max.detach();
+        let normalized = (self.forward_rnd(xs, false) - &min) / (max - min);
+        normalized.clamp(0.0, 1.0) * MAXIMUM_VARIANCE
     }
 
-    fn update_rnd_training_loss(&mut self, loss: &Tensor) {
-        const RATIO: f64 = 0.9;
-        // Linearly interpolate between old and new loss to reduce noise.
-        let new_loss = &self.rnd.training_loss * RATIO + loss * (1.0 - RATIO);
-        self.rnd.training_loss.set_data(&new_loss);
+    fn update_rnd_normalization(&mut self, min: &Tensor, max: &Tensor) {
+        log::debug!("Updating RND normalization to min: {min} and max: {max}");
+        self.rnd.min.set_data(min);
+        self.rnd.max.set_data(max);
     }
 }
 
@@ -319,22 +322,24 @@ mod tests {
 
     #[test]
     fn update_rnd_persistance() {
-        const RND_LOSS: f32 = 123.456;
+        const NEW_MIN: f32 = 123.456;
+        const NEW_MAX: f32 = 789.987;
 
         let mut net = Net::new(Device::cuda_if_available(), Some(456));
-        println!("init: {:?}", net.rnd.training_loss);
-        assert!(f32::try_from(&net.rnd.training_loss).unwrap().abs() < f32::EPSILON);
+        println!("init: {:?} {:?}", net.rnd.min, net.rnd.max);
+        assert!(f32::try_from(&net.rnd.min).unwrap().abs() < f32::EPSILON);
+        assert!((f32::try_from(&net.rnd.max).unwrap() - 1.0).abs() < f32::EPSILON);
 
-        let loss: tch::Tensor = RND_LOSS.into();
-        net.update_rnd_training_loss(&loss);
-        println!("set: {:?}", net.rnd.training_loss);
-        assert!((f32::try_from(&net.rnd.training_loss).unwrap() - RND_LOSS).abs() < f32::EPSILON);
+        net.update_rnd_normalization(&NEW_MIN.into(), &NEW_MAX.into());
+        println!("set: {:?} {:?}", net.rnd.min, net.rnd.max);
+        assert!((f32::try_from(&net.rnd.min).unwrap() - NEW_MIN).abs() < f32::EPSILON);
+        assert!((f32::try_from(&net.rnd.max).unwrap() - NEW_MAX).abs() < f32::EPSILON);
 
         net.save("temp-remove-me.ot").unwrap();
         drop(net);
 
         let net = Net::load("temp-remove-me.ot", Device::cuda_if_available()).unwrap();
-        println!("load: {:?}", net.rnd.training_loss);
-        assert!((f32::try_from(&net.rnd.training_loss).unwrap() - RND_LOSS).abs() < f32::EPSILON);
+        assert!((f32::try_from(&net.rnd.min).unwrap() - NEW_MIN).abs() < f32::EPSILON);
+        assert!((f32::try_from(&net.rnd.max).unwrap() - NEW_MAX).abs() < f32::EPSILON);
     }
 }

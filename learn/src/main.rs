@@ -12,7 +12,7 @@ use ordered_float::NotNan;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net5::{Env, Net, MAXIMUM_VARIANCE, N},
+        net5::{Env, Net, HALF_KOMI, MAXIMUM_VARIANCE, N},
         repr::{game_to_tensor, move_mask, output_size, policy_tensor},
         Network,
     },
@@ -25,6 +25,10 @@ use tch::{
     Kind,
     Tensor,
 };
+
+use crate::rnd_normalization::{reference_games, update_rnd};
+
+mod rnd_normalization;
 
 // The environment to learn.
 #[rustfmt::skip] #[allow(dead_code)]
@@ -85,6 +89,7 @@ impl TargetWithContext {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     env_logger::init();
     let args = Args::parse();
@@ -113,10 +118,19 @@ fn main() {
     };
 
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
+    // Load RND reference games.
+    let (early_reference, late_reference) = reference_games(DEVICE);
 
     // Pre-training.
     if starting_steps == 0 {
-        pre_training(&mut net, &mut opt, &mut rng, &args.directory);
+        pre_training(
+            &mut net,
+            &mut opt,
+            &mut rng,
+            &args.directory,
+            &early_reference,
+            &late_reference,
+        );
         starting_steps += PRE_TRAINING_STEPS;
         net.save(
             args.directory
@@ -182,7 +196,13 @@ fn main() {
             &mut reanalyze_buffer,
             &mut rng,
         );
-        compute_loss_and_take_step(&mut net, &mut opt, tensors);
+        compute_loss_and_take_step(
+            &mut net,
+            &mut opt,
+            tensors,
+            &early_reference,
+            &late_reference,
+        );
 
         // Save latest model.
         if model_steps % STEPS_PER_SAVE == 0 {
@@ -309,7 +329,13 @@ fn create_input_and_target_tensors<'a>(
     }
 }
 
-fn compute_loss_and_take_step(net: &mut Net, opt: &mut Optimizer, tensors: Tensors) {
+fn compute_loss_and_take_step(
+    net: &mut Net,
+    opt: &mut Optimizer,
+    tensors: Tensors,
+    early_reference: &Tensor,
+    late_reference: &Tensor,
+) {
     // Get network output.
     let (policy, network_value, network_ube) = net.forward_t(&tensors.input, true);
     let log_softmax_network_policy = policy
@@ -337,15 +363,21 @@ fn compute_loss_and_take_step(net: &mut Net, opt: &mut Optimizer, tensors: Tenso
          loss_rnd = {loss_rnd:?}"
     );
 
-    // Update network RND training loss.
-    // TODO: Maybe take average of recent losses?
-    net.update_rnd_training_loss(&loss_rnd);
+    // Update network RND min and max for normalization.
+    update_rnd(net, early_reference, late_reference);
 
     // Take step.
     opt.backward_step(&loss);
 }
 
-fn pre_training(net: &mut Net, opt: &mut Optimizer, rng: &mut impl Rng, directory: &Path) {
+fn pre_training(
+    net: &mut Net,
+    opt: &mut Optimizer,
+    rng: &mut impl Rng,
+    directory: &Path,
+    early_reference: &Tensor,
+    late_reference: &Tensor,
+) {
     log::info!("Pre-training");
     let mut actions = Vec::new();
     let mut states = Vec::new();
@@ -391,7 +423,7 @@ fn pre_training(net: &mut Net, opt: &mut Optimizer, rng: &mut impl Rng, director
 
     for batch in buffer.chunks_exact(BATCH_SIZE).take(PRE_TRAINING_STEPS) {
         let tensors = create_input_and_target_tensors(batch.iter(), rng);
-        compute_loss_and_take_step(net, opt, tensors);
+        compute_loss_and_take_step(net, opt, tensors, early_reference, late_reference);
     }
 }
 
