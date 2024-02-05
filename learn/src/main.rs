@@ -119,7 +119,7 @@ fn main() {
 
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
     // Load RND reference games.
-    let (early_reference, late_reference) = reference_games(DEVICE);
+    let (early_reference, late_reference) = reference_games(DEVICE, &mut rng);
 
     // Pre-training.
     if starting_steps == 0 {
