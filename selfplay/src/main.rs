@@ -12,7 +12,7 @@ use ordered_float::NotNan;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net5::{Env, Net},
+        net4::{Env, Net},
         Network,
     },
     search::{
