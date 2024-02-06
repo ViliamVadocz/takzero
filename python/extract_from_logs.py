@@ -15,6 +15,10 @@ UBE_STATS_SELFPLAY_PATTERN = re.compile(
     r"\[UBE STATS\] ply: (\d+), root: (\d+\.\d+), max: (\d+\.\d+), selected: (\d+\.\d+)"
 )
 
+RND_MIN_MAX_PATTERN = re.compile(
+    r"Updating RND normalization to min: \[(\d+\.\d+)\] and max: \[(\d+\.\d+)\]"
+)
+
 
 def moving_average(a, n=3):
     l = [x for x in a if x is not None]
@@ -46,8 +50,8 @@ def plot_loss(contents, pattern, title, size=128):
     plt.show()
 
 
-def plot_all_losses():
-    with open("_data/out/learn-9274603.err") as file:
+def plot_all_losses(learn_path):
+    with open(learn_path, "r") as file:
         contents = file.read()
 
     plot_loss(contents, POLICY_PATTERN, "Policy Loss During Training")
@@ -56,13 +60,34 @@ def plot_all_losses():
     plot_loss(contents, RND_PATTERN, "RND Loss During Training")
 
 
-def get_ube_stats(selfplay: bool):
+def plot_rnd_min_max(learn_path):
+    with open(learn_path, "r") as file:
+        contents = file.read()
+
+    rnd_min_max = [
+        (float(x[1]), float(x[2])) for x in re.finditer(RND_MIN_MAX_PATTERN, contents)
+    ]
+    print(len(rnd_min_max))
+
+    plt.plot([x[0] for x in rnd_min_max], label="min")
+    plt.plot([x[1] for x in rnd_min_max], label="max")
+
+    plt.title("RND reference min and max during training")
+    plt.xlabel("Training steps")
+    plt.ylabel("MSE")
+    plt.ylim(0, rnd_min_max[-1][1] * 2)
+
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+
+def get_ube_stats(selfplay: bool, directory: str):
     must_contain = "selfplay" if selfplay else "reanalyze"
     split_text = "Step:" if selfplay else "Number of positions:"
     pattern = UBE_STATS_SELFPLAY_PATTERN if selfplay else UBE_STATS_REANALYZE_PATTERN
     things = 3 if selfplay else 4
 
-    directory = "_data/out/"
     data_per_step = dict()
     for filename in os.listdir(directory):
         if must_contain not in filename:
@@ -86,8 +111,8 @@ def get_ube_stats(selfplay: bool):
     return data_per_step
 
 
-def plot_ube_vs_bf():
-    reanalyze_ube = get_ube_stats(False)
+def plot_ube_vs_bf(directory):
+    reanalyze_ube = get_ube_stats(False, directory)
 
     root_ube_per_bf = dict()
     max_ube_per_bf = dict()
@@ -130,8 +155,8 @@ def plot_ube_vs_bf():
     plt.show()
 
 
-def plot_game_ply_per_bf():
-    reanalyze_ube = get_ube_stats(False)
+def plot_game_ply_per_bf(directory):
+    reanalyze_ube = get_ube_stats(False, directory)
 
     bf_per_ply = dict()
     for data in reanalyze_ube.values():
@@ -160,8 +185,10 @@ def plot_game_ply_per_bf():
     plt.show()
 
 
-def plot_ube_over_plies_across_training(number_of_training_ranges: int, selfplay: bool):
-    ube_stats = list(get_ube_stats(selfplay).values())
+def plot_ube_over_plies_across_training(
+    number_of_training_ranges: int, selfplay: bool, directory: str
+):
+    ube_stats = list(get_ube_stats(selfplay, directory).values())
     root_ube_index = 1 if selfplay else 2
     title = "Selfplay" if selfplay else "Reanalyze"
 
@@ -225,8 +252,10 @@ def mean_and_std(data, ply_step, i):
     return (np.mean(l), np.std(l))
 
 
-def plot_ube_over_training_across_plies(ply_step, num_steps, selfplay, size=128):
-    ube_stats = list(get_ube_stats(selfplay).values())
+def plot_ube_over_training_across_plies(
+    ply_step, num_steps, selfplay, directory, size=128
+):
+    ube_stats = list(get_ube_stats(selfplay, directory).values())
     title = "Selfplay" if selfplay else "Reanalyze"
 
     for i in range(num_steps):
@@ -255,8 +284,8 @@ def plot_ube_over_training_across_plies(ply_step, num_steps, selfplay, size=128)
     plt.show()
 
 
-def get_game_lengths():
-    with open("_data\\replays.txt", "r") as file:
+def get_game_lengths(replay_path):
+    with open(replay_path, "r") as file:
         return [
             len(line.split("]")[1].strip().split()) + 1
             for line in file.readlines()
@@ -264,29 +293,29 @@ def get_game_lengths():
         ]
 
 
-def plot_all_game_lengths():
-    plt.hist(get_game_lengths(), bins=[x for x in range(130)], density=True)
+def plot_all_game_lengths(replay_path):
+    plt.hist(get_game_lengths(replay_path), bins=[x for x in range(130)], density=True)
     plt.title("Histogram of Game Length")
     plt.xlabel("Game Plies (Half-Moves)")
     plt.ylabel("Density")
     plt.show()
 
 
-def plot_all_game_lengths_per_color():
-    game_lengths = get_game_lengths()
+def plot_all_game_lengths_per_color(replay_path, max_len=130):
+    game_lengths = get_game_lengths(replay_path)
     plt.hist(
-        game_lengths[::2],
-        bins=[x * 2 for x in range(65)],
+        [l for l in game_lengths if l % 2 == 1],
+        bins=[x for x in range(max_len)],
         density=True,
         label="white",
-        alpha=0.5,
+        # alpha=0.5,
     )
     plt.hist(
-        game_lengths[1::2],
-        bins=[x * 2 for x in range(65)],
+        [l for l in game_lengths if l % 2 == 0],
+        bins=[x for x in range(max_len)],
         density=True,
         label="black",
-        alpha=0.5,
+        # alpha=0.5,
     )
     plt.title("Histogram of Game Length")
     plt.xlabel("Game Plies (Half-Moves)")
@@ -369,3 +398,15 @@ def plot_win_rate(period):
 
     plt.legend()
     plt.show()
+
+
+if __name__ == "__main__":
+    # plot_all_losses("out/learn-9277117.err")
+    # plot_rnd_min_max("out/learn-9277117.err")
+    # plot_ube_over_plies_across_training(1, True, "./out")
+    # plot_ube_over_training_across_plies(100, 1, True, "./out")
+    # plot_game_ply_per_bf("./out")
+    # plot_all_game_lengths("./replays.txt")
+    # plot_all_game_lengths_per_color("./replays.txt", max_len=80)
+    # plot_ube_vs_bf("./out")
+    pass
