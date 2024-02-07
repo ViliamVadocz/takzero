@@ -284,10 +284,17 @@ def plot_ube_over_training_across_plies(
     plt.show()
 
 
+def length_of_game_from_line(line: str):
+    split = line.split("]")
+    if len(split) < 2:
+        return None
+    return len(line.split("]")[1].strip().split()) + 1
+
+
 def get_game_lengths(replay_path):
     with open(replay_path, "r") as file:
         return [
-            len(line.split("]")[1].strip().split()) + 1
+            length_of_game_from_line(line)
             for line in file.readlines()
             if len(line.split("]")) > 1
         ]
@@ -348,12 +355,24 @@ class WinType(Enum):
         return None
 
 
-def get_wins():
-    with open("_data\\replays.txt", "r") as file:
+def get_wins(replay_path):
+    with open(replay_path, "r") as file:
         return [
             x
             for x in (WinType.from_line(line) for line in file.readlines())
             if x is not None
+        ]
+
+
+def get_wins_within_range(replay_path, min_length, max_length):
+    with open(replay_path, "r") as file:
+        return [
+            x
+            for x, l in (
+                (WinType.from_line(line), length_of_game_from_line(line))
+                for line in file.readlines()
+            )
+            if x is not None and l is not None and min_length <= l < max_length
         ]
 
 
@@ -368,8 +387,7 @@ def win_rate(wins, period, win_type):
     ]
 
 
-def plot_win_rate(period):
-    wins = get_wins()
+def plot_win_rate(wins, period):
     wins = wins[: len(wins) - len(wins) % period]
 
     black_road = win_rate(wins, period, WinType.BLACK_ROAD)
@@ -409,4 +427,9 @@ if __name__ == "__main__":
     # plot_all_game_lengths("./replays.txt")
     # plot_all_game_lengths_per_color("./replays.txt", max_len=80)
     # plot_ube_vs_bf("./out")
+    # plot_win_rate(get_wins("replays.txt"), 1000)
+    # wins = get_wins_within_range("replays.txt", 0, 30)
+    # plot_win_rate(wins, 1000)
+    # wins = get_wins_within_range("replays.txt", 30, 120)
+    # plot_win_rate(wins, 1000)
     pass
