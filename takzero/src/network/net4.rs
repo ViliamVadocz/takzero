@@ -11,7 +11,10 @@ use super::{
     residual::ResidualBlock,
     Network,
 };
-use crate::{network::repr::output_size, search::agent::Agent};
+use crate::{
+    network::repr::output_size,
+    search::{agent::Agent, SERIES_DISCOUNT},
+};
 
 pub const N: usize = 4;
 pub const HALF_KOMI: i8 = 4;
@@ -263,9 +266,9 @@ impl Agent<Env> for Net {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        // let rnd_uncertainties = self.normalized_rnd(&xs);
+        let rnd_uncertainties = self.normalized_rnd(&xs);
         let uncertainties: Vec<_> = ube_uncertainties
-            // .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
+            .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
             .clamp(0.0, MAXIMUM_VARIANCE)
             .view([-1])
             .try_into()
