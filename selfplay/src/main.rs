@@ -44,7 +44,7 @@ const NOISE_RATIO: f32 = 0.1;
 const NOISE_PLIES: u16 = 60;
 const UBE_TARGET_BETA: f32 = 0.2;
 const UBE_TARGET_TOP_K: usize = 4;
-const UBE_TARGET_WINDOW: usize = 10;
+const UBE_TARGET_WINDOW: usize = 20;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -222,12 +222,11 @@ fn restart_envs_and_complete_targets(
                     if ube_window.len() >= UBE_TARGET_WINDOW {
                         ube_window.truncate(UBE_TARGET_WINDOW - 1);
                     }
-                    // Only put non-zero UBEs in the window.
-                    if root_ube_metric > NotNan::default() {
-                        ube_window.push_front(root_ube_metric);
-                    }
-                    // // Take average of window.
-                    // let average_std_dev = ube_window.iter().map(|ube| ube.sqrt()).sum::<f32>()
+                    ube_window.push_front(root_ube_metric);
+                    // Take average of window. (TODO: When adding back, make sure to only add
+                    // non-zero UBE to window.)
+                    // let average_std_dev =
+                    // ube_window.iter().map(|ube| ube.sqrt()).sum::<f32>()
                     //     / (ube_window.len() + 1) as f32;
                     // Apply discount.
                     ube_window
