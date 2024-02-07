@@ -11,15 +11,12 @@ use super::{
     residual::ResidualBlock,
     Network,
 };
-use crate::{
-    network::repr::output_size,
-    search::{agent::Agent, SERIES_DISCOUNT},
-};
+use crate::{network::repr::output_size, search::agent::Agent};
 
 pub const N: usize = 4;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
-const FILTERS: i64 = 256;
+const FILTERS: i64 = 128;
 
 // Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
 pub const MAXIMUM_VARIANCE: f64 = 4.0;
@@ -266,9 +263,9 @@ impl Agent<Env> for Net {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        let rnd_uncertainties = self.normalized_rnd(&xs);
+        // let rnd_uncertainties = self.normalized_rnd(&xs);
         let uncertainties: Vec<_> = ube_uncertainties
-            .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
+            // .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
             .clamp(0.0, MAXIMUM_VARIANCE)
             .view([-1])
             .try_into()
