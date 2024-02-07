@@ -37,7 +37,6 @@ const _: () = assert_net::<Net>();
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
 const VISITS: u32 = 800;
-const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const WEIGHTED_RANDOM_PLIES: u16 = 30;
 const NOISE_ALPHA: f32 = 0.05;
 const NOISE_RATIO: f32 = 0.1;
@@ -69,7 +68,20 @@ fn main() {
     let mut targets = Vec::new();
     let mut complete_replays = Vec::new();
 
-    let mut batched_mcts = BatchedMCTS::new(&mut rng, BETA);
+    let mut batched_mcts = BatchedMCTS::new(&mut rng);
+    let betas: [f32; BATCH_SIZE] = std::array::from_fn(|i| {
+        if cfg!(feature = "exploration") {
+            if i < BATCH_SIZE / 4 {
+                0.2
+            } else if i < BATCH_SIZE / 2 {
+                0.02
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        }
+    });
 
     for steps in 0.. {
         log::info!("Step: {steps}");
@@ -93,14 +105,14 @@ fn main() {
         log::debug!("Loading model took {:?}.", start.elapsed());
 
         // One simulation batch to initialize root policy if it has not been done yet.
-        batched_mcts.simulate(&net);
+        batched_mcts.simulate(&net, &betas);
 
         // Apply noise.
         batched_mcts.apply_noise(&mut rng, NOISE_PLIES, NOISE_ALPHA, NOISE_RATIO);
 
         // Search.
         for _ in 0..VISITS {
-            batched_mcts.simulate(&net);
+            batched_mcts.simulate(&net, &betas);
         }
 
         let selected_actions =
@@ -135,6 +147,7 @@ fn main() {
             &mut targets,
             &mut complete_replays,
             &mut rng,
+            &betas,
         );
 
         if !targets.is_empty() {
@@ -204,12 +217,22 @@ fn restart_envs_and_complete_targets(
     targets: &mut Vec<Target<Env>>,
     finished_replays: &mut Vec<Replay<Env>>,
     rng: &mut impl Rng,
+    betas: &[f32],
 ) {
+    #[allow(unused_variables)]
     batched_mcts
         .restart_terminal_envs(rng)
         .zip(policy_targets)
-        .for_each(|(terminal_and_replay, policy_targets)| {
+        .zip(betas)
+        .for_each(|((terminal_and_replay, policy_targets), beta)| {
             if let Some((terminal, replay)) = terminal_and_replay {
+                finished_replays.push(replay);
+                // Don't create targets when beta is not 0.
+                #[cfg(feature = "exploration")]
+                if *beta > 0.0 {
+                    return;
+                }
+                // Create targets.
                 let mut value = Eval::from(terminal);
                 let mut ube_window = VecDeque::with_capacity(UBE_TARGET_WINDOW);
                 for IncompleteTarget {
@@ -223,11 +246,13 @@ fn restart_envs_and_complete_targets(
                         ube_window.truncate(UBE_TARGET_WINDOW - 1);
                     }
                     ube_window.push_front(root_ube_metric);
+
                     // Take average of window. (TODO: When adding back, make sure to only add
                     // non-zero UBE to window.)
                     // let average_std_dev =
                     // ube_window.iter().map(|ube| ube.sqrt()).sum::<f32>()
                     //     / (ube_window.len() + 1) as f32;
+
                     // Apply discount.
                     ube_window
                         .iter_mut()
@@ -242,7 +267,6 @@ fn restart_envs_and_complete_targets(
                         policy,
                     });
                 }
-                finished_replays.push(replay);
             }
         });
 }

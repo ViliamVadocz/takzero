@@ -22,24 +22,22 @@ pub struct BatchedMCTS<const BATCH_SIZE: usize, E: Environment> {
     actions: [Vec<E::Action>; BATCH_SIZE],
     trajectories: [Vec<usize>; BATCH_SIZE],
     replays: [Replay<E>; BATCH_SIZE],
-    betas: [f32; BATCH_SIZE],
 }
 
 impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
-    pub fn new(rng: &mut impl Rng, betas: [f32; BATCH_SIZE]) -> Self {
+    pub fn new(rng: &mut impl Rng) -> Self {
         let mut actions = Vec::new();
         let envs = std::array::from_fn(|_| E::new_opening(rng, &mut actions));
-        Self::from_envs(envs, betas)
+        Self::from_envs(envs)
     }
 
-    pub fn from_envs(envs: [E; BATCH_SIZE], betas: [f32; BATCH_SIZE]) -> Self {
+    pub fn from_envs(envs: [E; BATCH_SIZE]) -> Self {
         Self {
             nodes: std::array::from_fn(|_| Node::default()),
             actions: std::array::from_fn(|_| Vec::new()),
             trajectories: std::array::from_fn(|_| Vec::new()),
             replays: std::array::from_fn(|i| Replay::new(envs[i].clone())),
             envs,
-            betas,
         }
     }
 
@@ -57,7 +55,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
     ///
     /// Panics if the actions or trajectories are not empty.
     /// Also panics if any logit is NaN.
-    pub fn simulate<A: Agent<E>>(&mut self, agent: &A) {
+    pub fn simulate<A: Agent<E>>(&mut self, agent: &A, betas: &[f32]) {
         assert!(self.actions.iter().all(Vec::is_empty));
         assert!(self.trajectories.iter().all(Vec::is_empty));
 
@@ -67,7 +65,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
             .zip(&self.envs)
             .zip(&mut self.actions)
             .zip(&mut self.trajectories)
-            .zip(&self.betas)
+            .zip(betas)
             .filter_map(|((((node, env), actions), trajectory), beta)| {
                 match node.forward(trajectory, env.clone(), *beta) {
                     Forward::Known(eval) => {

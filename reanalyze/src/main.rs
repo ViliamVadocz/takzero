@@ -33,7 +33,7 @@ const _: () = assert_net::<Net>();
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
 const VISITS: u32 = 800;
-const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
+const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const MIN_POSITIONS: usize = 4000 * 128; // steps before reanalyze * batch size
 const _: () = assert!(MIN_POSITIONS > BATCH_SIZE);
 
@@ -58,7 +58,7 @@ fn main() {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = Net::new(DEVICE, Some(rng.gen()));
-    let mut batched_mcts = BatchedMCTS::new(&mut rng, BETA);
+    let mut batched_mcts = BatchedMCTS::<BATCH_SIZE, _>::new(&mut rng);
     let mut position_buffer = Vec::new();
     let mut replays_seek = 0;
 
@@ -112,7 +112,7 @@ fn main() {
 
         // Perform search.
         for _ in 0..VISITS {
-            batched_mcts.simulate(&net);
+            batched_mcts.simulate(&net, &ZERO_BETA);
         }
 
         // Create targets.

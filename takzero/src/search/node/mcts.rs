@@ -106,7 +106,12 @@ impl<E: Environment> Node<E> {
     /// Run the forward part of MCTS.
     /// One of `backward_known_eval` and `backward_network_eval`
     /// must be called afterwards.
-    pub fn forward(&mut self, trajectory: &mut Vec<usize>, mut env: E, beta: f32) -> Forward<E> {
+    pub fn forward(
+        &mut self,
+        trajectory: &mut Vec<usize>,
+        mut env: E,
+        mut beta: f32,
+    ) -> Forward<E> {
         debug_assert!(trajectory.is_empty());
         let mut node = self;
 
@@ -132,6 +137,8 @@ impl<E: Environment> Node<E> {
 
             // TODO: replace with .select_with_improved_policy() later
             let index = node.select_with_puct(beta);
+            // Only use beta at root. TODO: Maybe a flag or param?
+            beta = 0.0;
             trajectory.push(index);
             let (action, child) = &mut node.children[index];
             env.step(action.clone());

@@ -19,7 +19,7 @@ use tch::Device;
 const DEVICE: Device = Device::Cuda(0);
 
 const BATCH_SIZE: usize = 64;
-const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
+const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const VISITS: usize = 400;
 const MAX_MOVES: usize = 60;
 
@@ -91,8 +91,8 @@ fn real_main() {
 fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
     let mut evaluation = Evaluation::default();
 
-    let mut white_mcts = BatchedMCTS::from_envs(games.to_owned().try_into().unwrap(), BETA);
-    let mut black_mcts = BatchedMCTS::from_envs(games.to_owned().try_into().unwrap(), BETA);
+    let mut white_mcts = BatchedMCTS::from_envs(games.to_owned().try_into().unwrap());
+    let mut black_mcts = BatchedMCTS::from_envs(games.to_owned().try_into().unwrap());
 
     let mut done = [false; BATCH_SIZE];
 
@@ -110,11 +110,11 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                 (&mut black_mcts, &mut white_mcts)
             };
             for _ in 0..VISITS {
-                current.simulate(agent);
+                current.simulate(agent, &ZERO_BETA);
             }
 
             // Pick the top actions and take a step.
-            let top_actions = current.select_best_actions();
+            let top_actions: [_; BATCH_SIZE] = current.select_best_actions();
             current.step(&top_actions);
             other.step(&top_actions);
 

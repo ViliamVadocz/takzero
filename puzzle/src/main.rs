@@ -42,7 +42,7 @@ const _: () = assert!(N == 5, "Tilpaz is only supported for 5x5");
 
 const BATCH_SIZE: usize = 128;
 const VISITS: u32 = 1024;
-const BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
+const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const DEVICE: Device = Device::Cuda(0);
 
 fn main() {
@@ -183,7 +183,7 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
         })
         .unzip();
 
-    let mut batched_mcts = BatchedMCTS::from_envs(std::array::from_fn(|_| Env::default()), BETA);
+    let mut batched_mcts = BatchedMCTS::from_envs(std::array::from_fn(|_| Env::default()));
 
     // Attempt to solve puzzles.
     let mut attempted = 0;
@@ -202,11 +202,11 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
             });
 
         for _ in 0..VISITS {
-            batched_mcts.simulate(agent);
+            batched_mcts.simulate(agent, &ZERO_BETA);
         }
 
         attempted += puzzle_batch.len();
-        let selected_actions = batched_mcts.select_best_actions();
+        let selected_actions: [_; BATCH_SIZE] = batched_mcts.select_best_actions();
         solved += selected_actions
             .iter()
             .zip(solution_batch)
