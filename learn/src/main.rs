@@ -202,6 +202,7 @@ fn main() {
             tensors,
             &early_reference,
             &late_reference,
+            true,
         );
 
         // Save latest model.
@@ -335,6 +336,7 @@ fn compute_loss_and_take_step(
     tensors: Tensors,
     early_reference: &Tensor,
     late_reference: &Tensor,
+    train_ube: bool,
 ) {
     // Get network output.
     let (policy, network_value, network_ube) = net.forward_t(&tensors.input, true);
@@ -349,9 +351,14 @@ fn compute_loss_and_take_step(
     let loss_value = (tensors.target_value - network_value)
         .square()
         .mean(Kind::Float);
-    let loss_ube = (tensors.target_ube - network_ube)
-        .square()
-        .mean(Kind::Float);
+    let loss_ube = if train_ube {
+        (tensors.target_ube - network_ube)
+            .square()
+            .mean(Kind::Float)
+    } else {
+        // We don't want to train UBE in pre-training.
+        Tensor::zeros_like(&loss_value)
+    };
     let loss_rnd = net.forward_rnd(&tensors.input, true).mean(Kind::Float);
     let loss = &loss_policy + &loss_value + &loss_ube + &loss_rnd;
     #[rustfmt::skip]
@@ -423,7 +430,7 @@ fn pre_training(
 
     for batch in buffer.chunks_exact(BATCH_SIZE).take(PRE_TRAINING_STEPS) {
         let tensors = create_input_and_target_tensors(batch.iter(), rng);
-        compute_loss_and_take_step(net, opt, tensors, early_reference, late_reference);
+        compute_loss_and_take_step(net, opt, tensors, early_reference, late_reference, false);
     }
 }
 
