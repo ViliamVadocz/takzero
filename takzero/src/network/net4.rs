@@ -11,10 +11,7 @@ use super::{
     residual::ResidualBlock,
     Network,
 };
-use crate::{
-    network::repr::output_size,
-    search::{agent::Agent, SERIES_DISCOUNT},
-};
+use crate::{network::repr::output_size, search::agent::Agent};
 
 pub const N: usize = 4;
 pub const HALF_KOMI: i8 = 4;
@@ -118,7 +115,6 @@ fn ube_net(path: &nn::Path) -> nn::SequentialT {
             1,
             nn::LinearConfig::default(),
         ))
-        .add_fn(Tensor::exp)
 }
 
 fn rnd(path: &nn::Path) -> nn::SequentialT {
@@ -268,7 +264,8 @@ impl Agent<Env> for Net {
         // Uncertainty.
         let rnd_uncertainties = self.normalized_rnd(&xs);
         let uncertainties: Vec<_> = ube_uncertainties
-            .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
+            .exp() // Exponent because UBE prediction is log(variance)
+            .maximum(&rnd_uncertainties)
             .clamp(0.0, MAXIMUM_VARIANCE)
             .view([-1])
             .try_into()

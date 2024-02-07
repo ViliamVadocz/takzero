@@ -61,6 +61,9 @@ const REANALYZE_TARGET_USES_AVAILABLE: u32 = 1;
 const MIN_TIME_BETWEEN_BUFFER_READS: Duration = Duration::from_secs(10);
 const SLEEP_WHEN_NOT_ENOUGH_TARGETS: Duration = Duration::from_secs(30);
 
+// Target
+const MINIMUM_UBE_TARGET: f64 = -10.0;
+
 #[derive(Parser, Debug)]
 struct Args {
     /// Directory where to find targets
@@ -319,7 +322,11 @@ fn create_input_and_target_tensors<'a>(
         .view([BATCH_SIZE as i64, output_size::<N>() as i64])
         .to(DEVICE);
     let target_value = Tensor::from_slice(&value_targets).unsqueeze(1).to(DEVICE);
-    let target_ube = Tensor::from_slice(&ube_targets).unsqueeze(1).to(DEVICE);
+    let target_ube = Tensor::from_slice(&ube_targets)
+        .unsqueeze(1)
+        .to(DEVICE)
+        .log()
+        .clamp(MINIMUM_UBE_TARGET, MAXIMUM_VARIANCE.ln());
 
     Tensors {
         input,
