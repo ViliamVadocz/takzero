@@ -11,7 +11,7 @@ use takzero::{
     },
     search::{
         env::{Environment, Terminal},
-        node::batched::BatchedMCTS,
+        node::{batched::BatchedMCTS, Node},
     },
 };
 use tch::Device;
@@ -136,16 +136,16 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                     t
                 })
                 .unzip();
-            // Also reset the other environments (and nodes).
+            // Also reset other's nodes and envs.
             other
-                .restart_terminal_envs(&mut thread_rng())
-                .for_each(drop);
-
-            // Also restart other's envs. Does not matter that they will be different,
-            // because they are already marked as done.
-            other
-                .restart_terminal_envs(&mut thread_rng())
-                .for_each(drop);
+                .nodes_and_envs_mut()
+                .zip(current.nodes_and_envs())
+                .zip(&done)
+                .filter(|(_, done)| **done)
+                .for_each(|(((node, other_env), (_, current_env)), _)| {
+                    *node = Node::default();
+                    *other_env = current_env.clone();
+                });
 
             for replay in replays {
                 log::debug!("{}", replay.to_string().trim_end());
