@@ -68,9 +68,9 @@ fn real_main() {
                 })
                 .unwrap_or_default()
         })
-        .step_by(args.step)
         .collect();
     paths.sort();
+    let paths: Vec<_> = paths.into_iter().step_by(args.step).collect();
 
     let mut points = Vec::new();
     for path in paths {

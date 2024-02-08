@@ -28,6 +28,9 @@ struct Args {
     /// Path to models
     #[arg(long)]
     model_path: PathBuf,
+    /// How many models to skip when creating match-ups
+    #[arg(long, default_value_t = 1)]
+    step: usize,
 }
 
 fn main() {
@@ -43,7 +46,7 @@ fn real_main() {
     let mut rng = StdRng::seed_from_u64(seed);
 
     loop {
-        let paths: Vec<_> = read_dir(&args.model_path)
+        let mut paths: Vec<_> = read_dir(&args.model_path)
             .unwrap()
             .map(|entry| entry.unwrap().path())
             .filter(|path| {
@@ -51,6 +54,8 @@ fn real_main() {
                     && path.file_stem().is_some_and(|stem| stem != "model_latest")
             })
             .collect();
+        paths.sort();
+        let paths: Vec<_> = paths.into_iter().step_by(args.step).collect();
         if paths.len() < 2 {
             let time = std::time::Duration::from_secs(600);
             log::info!("Too few models. Sleeping for {time:?}.");
