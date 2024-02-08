@@ -12,3 +12,7 @@ Cargo.lock
 *.txt
 
 _data/
+out/
+
+graph.html
+match_results.csv
