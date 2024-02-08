@@ -136,6 +136,10 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
                     t
                 })
                 .unzip();
+            // Also reset the other environments (and nodes).
+            other
+                .restart_terminal_envs(&mut thread_rng())
+                .for_each(drop);
 
             // Also restart other's envs. Does not matter that they will be different,
             // because they are already marked as done.
