@@ -6,7 +6,7 @@ use clap::Parser;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
-        net5::{Env, Net},
+        net4::{Env, Net},
         Network,
     },
     search::{
@@ -21,7 +21,7 @@ const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 64;
 const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const VISITS: usize = 400;
-const MAX_MOVES: usize = 60;
+const MAX_MOVES: usize = 80;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -46,7 +46,10 @@ fn real_main() {
         let paths: Vec<_> = read_dir(&args.model_path)
             .unwrap()
             .map(|entry| entry.unwrap().path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "ot"))
+            .filter(|path| {
+                path.extension().is_some_and(|ext| ext == "ot")
+                    && path.file_stem().is_some_and(|stem| stem != "model_latest")
+            })
             .collect();
         if paths.len() < 2 {
             let time = std::time::Duration::from_secs(600);
