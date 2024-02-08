@@ -1,4 +1,5 @@
 import re
+import sys
 from pathlib import Path
 
 # [2024-01-04T08:25:25Z INFO  evaluation] model_000500.ot vs. model_000300.ot: Evaluation { wins: 29, losses: 1, draws: 2 } 90.6%
@@ -13,7 +14,7 @@ STEP = 100
 with open(SAVE_FILE, "w"):
     pass
 
-files = Path("_data").glob("eval-*.err")
+files = Path(sys.argv[1]).glob("eval-*.err")
 for path in files:
     with open(path, "r") as file:
         contents = file.read()

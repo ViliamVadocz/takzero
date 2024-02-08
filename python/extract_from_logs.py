@@ -419,17 +419,36 @@ def plot_win_rate(wins, period):
 
 
 if __name__ == "__main__":
-    # plot_all_losses("out/learn-9277117.err")
-    # plot_rnd_min_max("out/learn-9277117.err")
-    # plot_ube_over_plies_across_training(1, True, "./out")
-    # plot_ube_over_training_across_plies(100, 1, True, "./out")
-    # plot_game_ply_per_bf("./out")
-    # plot_all_game_lengths("./replays.txt")
-    # plot_all_game_lengths_per_color("./replays.txt", max_len=80)
-    # plot_ube_vs_bf("./out")
-    # plot_win_rate(get_wins("replays.txt"), 1000)
-    # wins = get_wins_within_range("replays.txt", 0, 30)
-    # plot_win_rate(wins, 1000)
-    # wins = get_wins_within_range("replays.txt", 30, 120)
-    # plot_win_rate(wins, 1000)
-    pass
+    import sys
+
+    match sys.argv[1:]:
+        case ["loss", path]:
+            plot_all_losses(path)
+        case ["rnd-min-max", path]:
+            plot_rnd_min_max(path)
+        case ["ube-plies", path, num_ranges]:
+            num_ranges = int(num_ranges)
+            plot_ube_over_plies_across_training(num_ranges, True, path)
+            plot_ube_over_plies_across_training(num_ranges, False, path)
+        case ["ube-train", path, steps]:
+            max_ply = 80
+            steps = int(steps)
+            plot_ube_over_training_across_plies(max_ply // steps, steps, True, path)
+            plot_ube_over_training_across_plies(max_ply // steps, steps, False, path)
+        case ["bf-ply", path]:
+            plot_game_bf_per_ply(path)
+        case ["ube-bf", path]:
+            plot_ube_vs_bf(path)
+        case ["game-stats", path]:
+            plot_all_game_lengths(path)
+            plot_all_game_lengths_per_color(path, max_len=80)
+            plot_win_rate(get_wins(path), 1000)
+        case ["wins-split", path, ply]:
+            max_ply = 100
+            ply = int(ply)
+            wins = get_wins_within_range(path, 0, ply)
+            plot_win_rate(wins, 1000)
+            wins = get_wins_within_range(path, ply, max_ply)
+            plot_win_rate(wins, 1000)
+        case _:
+            print("unknown", sys.argv)
