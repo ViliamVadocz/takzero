@@ -21,9 +21,8 @@ RND_MIN_MAX_PATTERN = re.compile(
 
 
 def moving_average(a, n=3):
-    l = [x for x in a if x is not None]
-    assert len(l) != 0
-    ret = np.cumsum(l, dtype=float)
+    assert len(a) != 0
+    ret = np.cumsum(a, dtype=float)
     ret[n:] = ret[n:] - ret[:-n]
     return ret[n - 1 :] / n
 
@@ -155,7 +154,7 @@ def plot_ube_vs_bf(directory):
     plt.show()
 
 
-def plot_game_ply_per_bf(directory):
+def plot_game_bf_per_ply(directory):
     reanalyze_ube = get_ube_stats(False, directory)
 
     bf_per_ply = dict()
@@ -248,8 +247,8 @@ def plot_ube_over_plies_across_training(
 def mean_and_std(data, ply_step, i):
     l = [tup[2] for tup in data if i * ply_step <= tup[0] < (i + 1) * ply_step]
     if len(l) == 0:
-        return None, None
-    return (np.mean(l), np.std(l))
+        return None
+    return np.mean(l), np.std(l)
 
 
 def plot_ube_over_training_across_plies(
@@ -259,16 +258,23 @@ def plot_ube_over_training_across_plies(
     title = "Selfplay" if selfplay else "Reanalyze"
 
     for i in range(num_steps):
-        root = [mean_and_std(data, ply_step, i) for data in ube_stats]
+        root = [
+            (i, x)
+            for i, x in enumerate(mean_and_std(data, ply_step, i) for data in ube_stats)
+            if x is not None
+        ]
+        known_steps = [i for i, _ in root][size // 2 : 1 - size // 2]
+        root = [x for _, x in root]
         ube = moving_average([a for a, _ in root], size)
-        std = moving_average([b for _, b in root], size)
         plt.plot(
+            known_steps,
             ube,
             label=f"[{i * ply_step},{(i + 1) * ply_step})",
         )
         if num_steps == 1:
+            std = moving_average([b for _, b in root], size)
             plt.fill_between(
-                list(range(len(ube))),
+                known_steps,
                 [a - b for a, b in zip(ube, std)],
                 [a + b for a, b in zip(ube, std)],
                 alpha=0.2,
