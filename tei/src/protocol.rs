@@ -194,8 +194,8 @@ impl fmt::Display for ValueType {
 impl fmt::Display for Output {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Id(Id::Name(name)) => writeln!(f, "id name {name}"),
-            Self::Id(Id::Author(name)) => writeln!(f, "id author {name}"),
+            Self::Id(Id::Name(name)) => write!(f, "id name {name}"),
+            Self::Id(Id::Author(name)) => write!(f, "id author {name}"),
             Self::Option {
                 name,
                 value_type,
@@ -205,11 +205,11 @@ impl fmt::Display for Output {
                 if let Some(default) = default {
                     write!(f, " default {default}")?;
                 }
-                writeln!(f)
+                Ok(())
             }
-            Self::Ok => writeln!(f, "teiok"),
-            Self::ReadyOk => writeln!(f, "readyok"),
-            Self::BestMove(the_move) => writeln!(f, "bestmove {the_move}"),
+            Self::Ok => write!(f, "teiok"),
+            Self::ReadyOk => write!(f, "readyok"),
+            Self::BestMove(the_move) => write!(f, "bestmove {the_move}"),
         }
     }
 }
