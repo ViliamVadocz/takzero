@@ -1,4 +1,4 @@
-use std::{io::Read, time::Instant};
+use std::time::Instant;
 
 use protocol::{GoOption, Id, Input, Output, ParseInputError, Position, ValueType};
 use takzero::{
@@ -15,10 +15,10 @@ mod protocol;
 fn main() {
     env_logger::init();
     let mut line = String::new();
-    let mut stdin = std::io::stdin();
+    let stdin = std::io::stdin();
 
     // Wait for first `tei` message.
-    let Ok(Input::Tei) = get_input(&mut stdin, &mut line) else {
+    let Ok(Input::Tei) = get_input(&stdin, &mut line) else {
         log::error!("first message received should be `tei`");
         return;
     };
@@ -39,7 +39,7 @@ fn main() {
     // Configure engine options.
     let mut model_path = None;
     loop {
-        match get_input(&mut stdin, &mut line) {
+        match get_input(&stdin, &mut line) {
             Ok(Input::IsReady) => break,
             Ok(Input::Option { name, value }) => {
                 if name == "model" {
@@ -71,7 +71,7 @@ fn main() {
     node.simulate_simple(&net, env.clone(), 0.0);
 
     loop {
-        match get_input(&mut stdin, &mut line) {
+        match get_input(&stdin, &mut line) {
             Ok(Input::IsReady) => println!("{}", Output::ReadyOk),
             Ok(Input::NewGame { size }) => {
                 if size != N {
@@ -147,8 +147,8 @@ enum GetInputError {
     Parse(#[from] ParseInputError),
 }
 
-fn get_input(stdin: &mut std::io::Stdin, line: &mut String) -> Result<Input, GetInputError> {
+fn get_input(stdin: &std::io::Stdin, line: &mut String) -> Result<Input, GetInputError> {
     line.clear();
-    stdin.read_to_string(line)?;
+    stdin.read_line(line)?;
     Ok(line.trim().parse()?)
 }
