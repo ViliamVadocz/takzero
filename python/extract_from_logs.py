@@ -244,6 +244,46 @@ def plot_ube_over_plies_across_training(
     plt.show()
 
 
+def plot_ube_max_over_plies_across_training(selfplay: bool, directory: str):
+    ube_stats = list(get_ube_stats(selfplay, directory).values())
+    root_ube_index = 1 if selfplay else 2
+    title = "Selfplay" if selfplay else "Reanalyze"
+
+    ube_per_ply = {}
+    for data in ube_stats:
+        for tup in data:
+            a, b, c = ube_per_ply.setdefault(tup[0], ([], [], []))
+            a.append(tup[root_ube_index])
+            b.append(tup[root_ube_index + 1])
+            c.append(tup[root_ube_index + 2])
+
+    ube = [
+        (i, root, max, target_or_selected)
+        for i, (root, max, target_or_selected) in ube_per_ply.items()
+        if len(root) > 0
+    ]
+    ube.sort()
+
+    plt.plot(
+        [x for x, _, _, _ in ube], [np.mean(y) for _, y, _, _ in ube], label="root"
+    )
+    plt.plot([x for x, _, _, _ in ube], [np.mean(y) for _, _, y, _ in ube], label="max")
+    plt.plot(
+        [x for x, _, _, _ in ube],
+        [np.mean(y) for _, _, _, y in ube],
+        label="selected" if selfplay else "target",
+    )
+
+    plt.title(f"UBE During {title} Over Game Plies")
+    plt.xlabel("Game plies (half-moves)")
+    plt.ylabel("Average UBE Statistic")
+    plt.ylim(0)
+
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+
 def mean_and_std(data, ply_step, i):
     l = [tup[2] for tup in data if i * ply_step <= tup[0] < (i + 1) * ply_step]
     if len(l) == 0:
@@ -436,6 +476,9 @@ if __name__ == "__main__":
             num_ranges = int(num_ranges)
             plot_ube_over_plies_across_training(num_ranges, True, path)
             plot_ube_over_plies_across_training(num_ranges, False, path)
+        case ["ube-plies-max", path]:
+            # plot_ube_max_over_plies_across_training(True, path)
+            plot_ube_max_over_plies_across_training(False, path)
         case ["ube-train", path, steps]:
             max_ply = 80
             steps = int(steps)
