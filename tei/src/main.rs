@@ -14,6 +14,7 @@ use thiserror::Error;
 mod protocol;
 
 const MAX_ERRORS_IN_A_ROW: usize = 5;
+const NODES_PER_INFO: usize = 200;
 
 #[allow(clippy::too_many_lines)]
 fn main() {
@@ -179,11 +180,21 @@ fn go(net: &Net, env: &Env, node: &mut Node<Env>, go_options: Vec<GoOption>) {
     }
 
     let start = Instant::now();
-    for visits in 0.. {
+    for visits in 1.. {
         node.simulate_simple(net, env.clone(), BETA);
 
+        let elapsed = start.elapsed();
+
+        if visits % NODES_PER_INFO == 0 {
+            println!("{}", Output::Info {
+                time: elapsed,
+                nodes: visits,
+                score: node.evaluation,
+            });
+        }
+
         if nodes.is_some_and(|amount| visits >= amount)
-            || move_time.is_some_and(|duration| start.elapsed() >= duration)
+            || move_time.is_some_and(|duration| elapsed >= duration)
         {
             break;
         }

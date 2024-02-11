@@ -4,6 +4,7 @@
 use std::{fmt, num::ParseIntError, str::FromStr, time::Duration};
 
 use fast_tak::takparse::{Move, ParseMoveError, ParseTpsError, Tps};
+use takzero::search::eval::Eval;
 use thiserror::Error;
 
 pub enum Input {
@@ -170,6 +171,11 @@ pub enum Output {
     Ok,
     ReadyOk,
     BestMove(Move),
+    Info {
+        time: Duration,
+        nodes: usize,
+        score: Eval,
+    },
 }
 
 pub enum Id {
@@ -229,6 +235,18 @@ impl fmt::Display for Output {
             Self::Ok => write!(f, "teiok"),
             Self::ReadyOk => write!(f, "readyok"),
             Self::BestMove(the_move) => write!(f, "bestmove {the_move}"),
+            Self::Info { time, nodes, score } => {
+                let centipawns = (f32::from(*score) * 100.0) as i32;
+                write!(
+                    f,
+                    "info time {} nodes {nodes} score {centipawns}",
+                    time.as_millis()
+                )?;
+                if let Some(ply) = score.ply() {
+                    write!(f, " mate {ply}")?;
+                }
+                Ok(())
+            }
         }
     }
 }
