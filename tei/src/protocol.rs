@@ -30,6 +30,7 @@ pub enum Position {
     Tps(Tps),
 }
 
+#[derive(Debug)]
 pub enum GoOption {
     WhiteTime(Duration),
     BlackTime(Duration),
@@ -76,7 +77,7 @@ impl FromStr for Input {
         match words.next().ok_or(ParseInputError::MissingFirstWord)? {
             "tei" => Ok(Self::Tei),
             "isready" => Ok(Self::IsReady),
-            "option" => {
+            "setoption" => {
                 words
                     .next()
                     .filter(|&word| word == "name")
@@ -103,7 +104,10 @@ impl FromStr for Input {
                 let position = match words.next().ok_or(ParseInputError::MissingPosition)? {
                     "startpos" => Position::StartPos,
                     "tps" => {
-                        let tps: Tps = words.next().ok_or(ParseInputError::MissingTps)?.parse()?;
+                        let pos = words.next().ok_or(ParseInputError::MissingTps)?;
+                        let player = words.next().ok_or(ParseInputError::MissingTps)?;
+                        let move_number = words.next().ok_or(ParseInputError::MissingTps)?;
+                        let tps: Tps = format!("{pos} {player} {move_number}").parse()?;
                         Position::Tps(tps)
                     }
                     _ => return Err(ParseInputError::Unrecognized),
@@ -123,7 +127,7 @@ impl FromStr for Input {
                                 .next()
                                 .ok_or(ParseInputError::MissingSeconds)?
                                 .parse()?;
-                            let duration = Duration::from_secs(seconds);
+                            let duration = Duration::from_millis(seconds);
                             match word {
                                 "wtime" => GoOption::WhiteTime(duration),
                                 "btime" => GoOption::BlackTime(duration),
@@ -159,6 +163,9 @@ pub enum Output {
         name: &'static str,
         value_type: ValueType,
         default: Option<&'static str>,
+        min: Option<&'static str>,
+        max: Option<&'static str>,
+        variables: &'static [&'static str],
     },
     Ok,
     ReadyOk,
@@ -200,10 +207,22 @@ impl fmt::Display for Output {
                 name,
                 value_type,
                 default,
+                min,
+                max,
+                variables,
             } => {
                 write!(f, "option name {name} type {value_type}")?;
                 if let Some(default) = default {
                     write!(f, " default {default}")?;
+                }
+                if let Some(min) = min {
+                    write!(f, " min {min}")?;
+                }
+                if let Some(max) = max {
+                    write!(f, " max {max}")?;
+                }
+                for var in *variables {
+                    write!(f, " var {var}")?;
                 }
                 Ok(())
             }
