@@ -25,7 +25,7 @@ with open("match_results_baseline.csv") as f:
     baseline_players = {a: i + l for (i, a) in enumerate({m.a for m in baseline})}
 
 proc = Popen(
-    [".\\graph\\bayeselo.exe"], stdin=PIPE, stdout=PIPE, stderr=PIPE, text=True
+    [".\\python\\bayeselo.exe"], stdin=PIPE, stdout=PIPE, stderr=PIPE, text=True
 )
 proc.stdin.write("prompt off\n")
 
@@ -64,6 +64,7 @@ comparison = [
     (0, 35, 24, 5),
     (50000, 20, 29, 15),
     (100000, 25, 30, 9),
+    (150000, 29, 18, 17),
     (200000, 22, 23, 19),
 ]
 
@@ -104,7 +105,6 @@ elo = [
     (m[1].split("_"), int(m[2]))
     for m in re.finditer(re.compile(r"(\w+_\d+)\s+(-?\d+)"), out)
 ]
-print(elo)
 
 baseline = sorted([(int(digits), e) for (name, digits), e in elo if "baseline" in name])
 exploration = sorted(
