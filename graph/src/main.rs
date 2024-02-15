@@ -19,7 +19,9 @@ fn main() {
     let chart = Chart::new()
         .title(
             Title::new()
-                .text("Ratio of Unique Positions to All Positions Seen During Training")
+                .text(
+                    "Ratio of Unique Positions to All Positions Seen During Training (10k Chunks)",
+                )
                 .subtext("Accounting for Symmetries")
                 .left("center")
                 .top(0),
@@ -29,8 +31,9 @@ fn main() {
         .grid(Grid::new())
         .legend(
             Legend::new()
-                .data(vec!["Baseline", "Exploration"])
-                .right(10),
+                .data(vec!["Baseline", "Exploration", "No-exploration"])
+                .bottom(10)
+                .left(10),
         )
         .series(
             Line::new()
@@ -43,9 +46,15 @@ fn main() {
                 .data(get_unique_positions("exploration-replays.txt"))
                 .name("Exploration")
                 .symbol(Symbol::None),
+        )
+        .series(
+            Line::new()
+                .data(get_unique_positions("replays.txt"))
+                .name("No-exploration")
+                .symbol(Symbol::None),
         );
 
-    let mut renderer = HtmlRenderer::new("graph", 1000, 600).theme(Theme::Infographic);
+    let mut renderer = HtmlRenderer::new("graph", 1200, 800).theme(Theme::Infographic);
     renderer.save(&chart, "graph.html").unwrap();
 }
 
@@ -54,7 +63,7 @@ fn get_unique_positions(path: impl AsRef<Path>) -> Vec<Vec<f64>> {
     let mut positions: HashMap<_, u64> = HashMap::new();
     let mut points = Vec::with_capacity(4096);
     for (i, line) in BufReader::new(file).lines().enumerate() {
-        if i % 2_000 == 0 {
+        if i % 10_000 == 0 {
             points.push(vec![
                 i as f64,
                 if i == 0 {
@@ -63,6 +72,7 @@ fn get_unique_positions(path: impl AsRef<Path>) -> Vec<Vec<f64>> {
                     positions.keys().len() as f64 / positions.values().sum::<u64>() as f64
                 },
             ]);
+            positions.clear();
         }
         let Ok(replay): Result<Replay<Env>, _> = line.unwrap().parse() else {
             println!("skipping line {i}");
@@ -75,7 +85,7 @@ fn get_unique_positions(path: impl AsRef<Path>) -> Vec<Vec<f64>> {
             *positions.entry(env.clone().canonical()).or_default() += 1;
         }
     }
-    println!("unique positions: {}", positions.keys().len());
-    println!("total positions: {}", positions.values().sum::<u64>());
+    // println!("unique positions: {}", positions.keys().len());
+    // println!("total positions: {}", positions.values().sum::<u64>());
     points
 }

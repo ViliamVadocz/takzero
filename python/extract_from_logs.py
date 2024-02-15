@@ -477,7 +477,7 @@ if __name__ == "__main__":
             plot_ube_over_plies_across_training(num_ranges, True, path)
             plot_ube_over_plies_across_training(num_ranges, False, path)
         case ["ube-plies-max", path]:
-            # plot_ube_max_over_plies_across_training(True, path)
+            plot_ube_max_over_plies_across_training(True, path)
             plot_ube_max_over_plies_across_training(False, path)
         case ["ube-train", path, steps]:
             max_ply = 80
