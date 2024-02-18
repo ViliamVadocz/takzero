@@ -10,7 +10,7 @@ use clap::Parser;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net4::{Env, Net},
+        net4_big::{Env, Net},
         Network,
     },
     search::{
