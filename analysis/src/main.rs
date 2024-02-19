@@ -7,7 +7,7 @@ use clap::Parser;
 use fast_tak::takparse::Move;
 use takzero::{
     network::{
-        net4::{Env, Net},
+        net4_big::{Env, Net},
         Network,
     },
     search::node::Node,

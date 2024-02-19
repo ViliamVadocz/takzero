@@ -57,7 +57,7 @@ fn main() {
     log::info!("seed = {seed}");
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
-    let mut net = Net::new(DEVICE, Some(rng.gen()));
+    let mut net;
     let mut batched_mcts = BatchedMCTS::<BATCH_SIZE, _>::new(&mut rng);
     let mut position_buffer = Vec::new();
     let mut replays_seek = 0;
