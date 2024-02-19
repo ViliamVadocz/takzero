@@ -195,15 +195,17 @@ def plot_ube_over_plies_across_training(
     for i in range(number_of_training_ranges):
         start = int(step_size * i)
         end = int(step_size * (i + 1))
-        ube_per_ply = {i: [] for i in range(150)}
+        ube_per_ply = dict()
         for data in ube_stats[start:end]:
             for tup in data:
-                ube_per_ply[tup[0]].append(tup[root_ube_index])
+                root_ube = ube_per_ply.setdefault(tup[0], [])
+                root_ube.append(tup[root_ube_index])
         root = [
             (i, np.mean(ube), np.std(ube))
             for i, ube in ube_per_ply.items()
             if len(ube) > 0
         ]
+        root.sort()
 
         if number_of_training_ranges == 1:
             white = root[::2]
