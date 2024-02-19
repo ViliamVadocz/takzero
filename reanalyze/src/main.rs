@@ -70,8 +70,8 @@ fn main() {
                     break;
                 }
                 Err(TchError::Torch(err)) => {
-                    log::warn!("Cannot load model (internal torch error): {err}, not retrying.");
-                    break;
+                    log::warn!("Cannot load model (internal torch error): {err}, retrying.");
+                    std::thread::sleep(std::time::Duration::from_secs(1));
                 }
                 Err(err) => {
                     log::error!("Cannot load model (some other reason): {err}, retrying.");
