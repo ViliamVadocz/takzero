@@ -15,6 +15,7 @@ use takzero::{
         net4_big::{Env, Net, HALF_KOMI, MAXIMUM_VARIANCE, N},
         repr::{game_to_tensor, move_mask, output_size, policy_tensor},
         Network,
+        RndNetwork,
     },
     search::{agent::Agent, env::Environment, eval::Eval},
     target::{Augment, Target},

@@ -7,20 +7,18 @@ use tch::{
 };
 
 use super::{
-    repr::{game_to_tensor, input_channels, input_size, move_index, output_channels},
+    repr::{game_to_tensor, input_channels, move_index, output_channels},
     residual::ResidualBlock,
+    EnsembleNetwork,
     Network,
-    RndNetwork,
 };
-use crate::{
-    network::repr::output_size,
-    search::{agent::Agent, SERIES_DISCOUNT},
-};
+use crate::{network::repr::output_size, search::agent::Agent};
 
-pub const N: usize = 5;
+pub const N: usize = 4;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
 const FILTERS: i64 = 256;
+const ENSEMBLE_SIZE: usize = 256;
 
 // Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
 pub const MAXIMUM_VARIANCE: f64 = 4.0;
@@ -28,23 +26,18 @@ pub const MAXIMUM_VARIANCE: f64 = 4.0;
 #[derive(Debug)]
 pub struct Net {
     vs: nn::VarStore,
+    core: nn::SequentialT,
     policy_net: nn::SequentialT,
     value_net: nn::SequentialT,
     ube_net: nn::SequentialT,
-    rnd: Rnd,
+    ensemble: Ensemble,
 }
 
 #[derive(Debug)]
-struct Rnd {
-    target: nn::SequentialT,
-    learning: nn::SequentialT,
-    // Normalization variables
-    min: Tensor,
-    max: Tensor,
-}
+struct Ensemble([nn::SequentialT; ENSEMBLE_SIZE]);
 
 fn core(path: &nn::Path) -> nn::SequentialT {
-    const CORE_RES_BLOCKS: u32 = 10;
+    const CORE_RES_BLOCKS: u32 = 20;
     let mut core = nn::seq_t()
         .add(nn::conv2d(
             path / "input_conv2d",
@@ -75,7 +68,7 @@ fn core(path: &nn::Path) -> nn::SequentialT {
 }
 
 fn policy_net(path: &nn::Path) -> nn::SequentialT {
-    core(&(path / "core")).add(nn::conv2d(
+    nn::seq_t().add(nn::conv2d(
         path / "conv2d",
         FILTERS,
         output_channels::<N>() as i64,
@@ -89,7 +82,7 @@ fn policy_net(path: &nn::Path) -> nn::SequentialT {
 }
 
 fn value_net(path: &nn::Path) -> nn::SequentialT {
-    core(&(path / "core"))
+    nn::seq_t()
         .add(nn::conv2d(path / "conv2d", FILTERS, 1, 1, nn::ConvConfig {
             stride: 1,
             ..Default::default()
@@ -106,7 +99,7 @@ fn value_net(path: &nn::Path) -> nn::SequentialT {
 }
 
 fn ube_net(path: &nn::Path) -> nn::SequentialT {
-    core(&(path / "core"))
+    nn::seq_t()
         .add(nn::conv2d(path / "conv2d", FILTERS, 1, 1, nn::ConvConfig {
             stride: 1,
             ..Default::default()
@@ -117,36 +110,6 @@ fn ube_net(path: &nn::Path) -> nn::SequentialT {
             path / "linear",
             (N * N) as i64,
             1,
-            nn::LinearConfig::default(),
-        ))
-        .add_fn(Tensor::exp)
-}
-
-fn rnd(path: &nn::Path) -> nn::SequentialT {
-    const HIDDEN_LAYER: i64 = 1024;
-    const OUTPUT: i64 = 512;
-    const RND_INPUT_SCALE: f64 = 50.0;
-    nn::seq_t()
-        .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
-        .add_fn(|x| RND_INPUT_SCALE * x / x.square().sum_dim_intlist(1, true, None))
-        .add(nn::linear(
-            path / "input_linear",
-            input_size::<N>() as i64,
-            HIDDEN_LAYER,
-            nn::LinearConfig::default(),
-        ))
-        .add_fn(Tensor::relu)
-        .add(nn::linear(
-            path / "hidden_linear",
-            HIDDEN_LAYER,
-            HIDDEN_LAYER,
-            nn::LinearConfig::default(),
-        ))
-        .add_fn(Tensor::relu)
-        .add(nn::linear(
-            path / "final_linear",
-            HIDDEN_LAYER,
-            OUTPUT,
             nn::LinearConfig::default(),
         ))
 }
@@ -160,16 +123,13 @@ impl Network for Net {
         let vs = nn::VarStore::new(device);
         let root = vs.root();
         Self {
+            core: core(&(&root / "core")),
             policy_net: policy_net(&(&root / "policy")),
             value_net: value_net(&(&root / "value")),
             ube_net: ube_net(&(&root / "ube")),
-            rnd: Rnd {
-                learning: rnd(&(&root / "rnd_learning")),
-                target: rnd(&(&root / "rnd_target")),
-                min: root.var("min", &[1], nn::Init::Const(0.0)),
-                // TODO: Think about a good default
-                max: root.var("max", &[1], nn::Init::Const(1.0)),
-            },
+            ensemble: Ensemble(std::array::from_fn(|i| {
+                value_net(&(&root / format!("ensemble head {i}")))
+            })),
             vs,
         }
     }
@@ -183,38 +143,27 @@ impl Network for Net {
     }
 }
 
-impl RndNetwork for Net {
-    fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor, Tensor) {
-        let policy = self.policy_net.forward_t(xs, train);
-        let value = self.value_net.forward_t(xs, train);
-        let ube = self.ube_net.forward_t(xs, train);
-        (policy, value, ube)
+impl EnsembleNetwork for Net {
+    fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor, Tensor, Tensor) {
+        let core = self.core.forward_t(xs, train);
+        let policy = self.policy_net.forward_t(&core, train);
+        let value = self.value_net.forward_t(&core, train);
+        // Detached UBE so it does not mess with baseline
+        let ube = self.ube_net.forward_t(&core.detach(), train);
+        let ensemble = self.forward_ensemble(&core.detach(), train);
+        (policy, value, ube, ensemble)
     }
 
-    fn forward_rnd(&self, xs: &Tensor, train: bool) -> Tensor {
-        let learning = self
-            .rnd
-            .learning
-            .forward_t(&xs.set_requires_grad(false), train);
-        let target = self
-            .rnd
-            .target
-            .forward_t(&xs.set_requires_grad(false), false)
-            .detach();
-        (learning - target).square().sum_dim_intlist(1, false, None)
-    }
-
-    fn normalized_rnd(&self, xs: &Tensor) -> Tensor {
-        let min = self.rnd.min.detach();
-        let max = self.rnd.max.detach();
-        let normalized = (self.forward_rnd(xs, false) - &min) / (max - min);
-        normalized.clamp(0.0, 1.0) * MAXIMUM_VARIANCE
-    }
-
-    fn update_rnd_normalization(&mut self, min: &Tensor, max: &Tensor) {
-        log::debug!("Updating RND normalization to min: {min:?} and max: {max:?}");
-        self.rnd.min.set_data(min);
-        self.rnd.max.set_data(max);
+    fn forward_ensemble(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor {
+        Tensor::concat(
+            &self
+                .ensemble
+                .0
+                .iter()
+                .map(|nn| nn.forward_t(xs, train))
+                .collect::<Vec<_>>(),
+            1,
+        )
     }
 }
 
@@ -231,11 +180,12 @@ impl Agent<Env> for Net {
         let xs = Tensor::cat(
             &env_batch
                 .iter()
-                .map(|env| game_to_tensor(env, device))
+                .map(|env| game_to_tensor(env, Device::Cpu))
                 .collect::<Vec<_>>(),
             0,
-        );
-        let (policy, values, ube_uncertainties) = self.forward_t(&xs, false);
+        )
+        .to(device);
+        let (policy, values, ube_uncertainties, ensemble) = self.forward_t(&xs, false);
         let policy = policy.view([-1, output_size::<N>() as i64]);
         let max_actions = actions_batch.iter().map(Vec::len).max().unwrap_or_default();
         let index = Tensor::from_slice2(
@@ -269,9 +219,10 @@ impl Agent<Env> for Net {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        let rnd_uncertainties = self.normalized_rnd(&xs);
+        let ensemble_variances = ensemble.var_dim(1i64, false, false);
         let uncertainties: Vec<_> = ube_uncertainties
-            .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
+            .exp() // Exponent because UBE prediction is log(variance)
+            .maximum(&ensemble_variances)
             .clamp(0.0, MAXIMUM_VARIANCE)
             .view([-1])
             .try_into()
@@ -289,11 +240,11 @@ mod tests {
     use std::array;
 
     use fast_tak::Game;
-    use tch::Device;
+    use tch::{Device, Tensor};
 
     use super::{Env, Net};
     use crate::{
-        network::{Network, RndNetwork},
+        network::{net4_ensemble::ENSEMBLE_SIZE, repr::game_to_tensor, EnsembleNetwork, Network},
         search::{agent::Agent, env::Environment},
     };
 
@@ -324,25 +275,19 @@ mod tests {
     }
 
     #[test]
-    fn update_rnd_persistance() {
-        const NEW_MIN: f32 = 123.456;
-        const NEW_MAX: f32 = 789.987;
+    fn batch_ensemble_size() {
+        const BATCH_SIZE: usize = 128;
+        let net = Net::new(Device::cuda_if_available(), Some(456));
+        let games: [Env; BATCH_SIZE] = array::from_fn(|_| Game::default());
+        let xs = Tensor::cat(
+            &games
+                .iter()
+                .map(|env| game_to_tensor(env, Device::cuda_if_available()))
+                .collect::<Vec<_>>(),
+            0,
+        );
 
-        let mut net = Net::new(Device::cuda_if_available(), Some(456));
-        println!("init: {:?} {:?}", net.rnd.min, net.rnd.max);
-        assert!(f32::try_from(&net.rnd.min).unwrap().abs() < f32::EPSILON);
-        assert!((f32::try_from(&net.rnd.max).unwrap() - 1.0).abs() < f32::EPSILON);
-
-        net.update_rnd_normalization(&NEW_MIN.into(), &NEW_MAX.into());
-        println!("set: {:?} {:?}", net.rnd.min, net.rnd.max);
-        assert!((f32::try_from(&net.rnd.min).unwrap() - NEW_MIN).abs() < f32::EPSILON);
-        assert!((f32::try_from(&net.rnd.max).unwrap() - NEW_MAX).abs() < f32::EPSILON);
-
-        net.save("temp-remove-me.ot").unwrap();
-        drop(net);
-
-        let net = Net::load("temp-remove-me.ot", Device::cuda_if_available()).unwrap();
-        assert!((f32::try_from(&net.rnd.min).unwrap() - NEW_MIN).abs() < f32::EPSILON);
-        assert!((f32::try_from(&net.rnd.max).unwrap() - NEW_MAX).abs() < f32::EPSILON);
+        let ensemble = net.forward_t(&xs, false).3;
+        assert_eq!(ensemble.size(), [BATCH_SIZE as i64, ENSEMBLE_SIZE as i64]);
     }
 }

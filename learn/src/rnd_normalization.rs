@@ -3,7 +3,7 @@ use std::fmt::Write;
 use fast_tak::takparse::{Move, Tps};
 use rand::{seq::IteratorRandom, Rng};
 use takzero::{
-    network::{repr::game_to_tensor, Network},
+    network::{repr::game_to_tensor, RndNetwork},
     search::env::Environment,
 };
 use tch::{Device, Tensor};

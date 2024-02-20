@@ -10,6 +10,7 @@ use super::{
     repr::{game_to_tensor, input_channels, input_size, move_index, output_channels},
     residual::ResidualBlock,
     Network,
+    RndNetwork,
 };
 use crate::{network::repr::output_size, search::agent::Agent};
 
@@ -176,7 +177,9 @@ impl Network for Net {
     fn vs_mut(&mut self) -> &mut nn::VarStore {
         &mut self.vs
     }
+}
 
+impl RndNetwork for Net {
     fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor, Tensor) {
         let policy = self.policy_net.forward_t(xs, train);
         let value = self.value_net.forward_t(xs, train);
@@ -287,7 +290,7 @@ mod tests {
 
     use super::{Env, Net};
     use crate::{
-        network::Network,
+        network::{Network, RndNetwork},
         search::{agent::Agent, env::Environment},
     };
 

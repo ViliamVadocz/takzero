@@ -1,5 +1,6 @@
 pub mod net4;
 pub mod net4_big;
+pub mod net4_ensemble;
 pub mod net5;
 pub mod repr;
 mod residual;
@@ -8,14 +9,6 @@ pub trait Network: Sized {
     fn new(device: tch::Device, seed: Option<i64>) -> Self;
     fn vs(&self) -> &tch::nn::VarStore;
     fn vs_mut(&mut self) -> &mut tch::nn::VarStore;
-
-    fn forward_t(&self, xs: &tch::Tensor, train: bool) -> (tch::Tensor, tch::Tensor, tch::Tensor);
-
-    fn forward_rnd(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor;
-
-    fn normalized_rnd(&self, xs: &tch::Tensor) -> tch::Tensor;
-
-    fn update_rnd_normalization(&mut self, min: &tch::Tensor, max: &tch::Tensor);
 
     #[allow(clippy::missing_errors_doc)]
     fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), tch::TchError> {
@@ -37,4 +30,22 @@ pub trait Network: Sized {
             .expect("variables in both VarStores should have identical names");
         nn
     }
+}
+
+pub trait RndNetwork: Network {
+    fn forward_t(&self, xs: &tch::Tensor, train: bool) -> (tch::Tensor, tch::Tensor, tch::Tensor);
+
+    fn forward_rnd(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor;
+    fn normalized_rnd(&self, xs: &tch::Tensor) -> tch::Tensor;
+    fn update_rnd_normalization(&mut self, min: &tch::Tensor, max: &tch::Tensor);
+}
+
+pub trait EnsembleNetwork: Network {
+    fn forward_t(
+        &self,
+        xs: &tch::Tensor,
+        train: bool,
+    ) -> (tch::Tensor, tch::Tensor, tch::Tensor, tch::Tensor);
+
+    fn forward_ensemble(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor;
 }
