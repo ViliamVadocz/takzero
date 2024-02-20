@@ -18,7 +18,7 @@ pub const N: usize = 4;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
 const FILTERS: i64 = 256;
-const ENSEMBLE_SIZE: usize = 256;
+const ENSEMBLE_SIZE: usize = 16;
 
 // Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
 pub const MAXIMUM_VARIANCE: f64 = 4.0;

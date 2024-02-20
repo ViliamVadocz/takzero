@@ -1,0 +1,17 @@
+[package]
+name = "ensemble_experiment"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+charming = "0.2.4"
+tch.workspace = true
+takzero.workspace = true
+fast-tak.workspace = true
+env_logger.workspace = true
+log.workspace = true
+rand.workspace = true
+ordered-float.workspace = true
+
+[lints]
+workspace = true
