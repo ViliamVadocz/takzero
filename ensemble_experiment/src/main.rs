@@ -4,6 +4,14 @@ use std::{
     path::Path,
 };
 
+use charming::{
+    component::{Axis, Grid, Legend, Title},
+    element::Symbol,
+    series::Line,
+    theme::Theme,
+    Chart,
+    HtmlRenderer,
+};
 use fast_tak::takparse::Move;
 use rand::{
     seq::{IteratorRandom, SliceRandom},
@@ -13,7 +21,14 @@ use rand::{
 use takzero::{
     network::{
         net4_ensemble::{Env, Net, N},
-        repr::{game_to_tensor, move_mask, output_size, policy_tensor},
+        repr::{
+            game_to_tensor,
+            input_channels,
+            move_mask,
+            output_channels,
+            output_size,
+            policy_tensor,
+        },
         EnsembleNetwork,
         Network,
     },
@@ -35,7 +50,7 @@ const LEARNING_RATE: f64 = 1e-4;
 fn targets(path: impl AsRef<Path>) -> impl Iterator<Item = Target<Env>> {
     BufReader::new(OpenOptions::new().read(true).open(path).unwrap())
         .lines()
-        .filter_map(|line| line.unwrap().parse::<Target<Env>>().ok())
+        .filter_map(|line| line.ok()?.parse::<Target<Env>>().ok())
 }
 
 fn random_env(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> Env {
@@ -50,6 +65,21 @@ fn random_env(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> Env {
     env
 }
 
+fn reference_envs(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> (Vec<Env>, Tensor) {
+    let games: Vec<_> = (0..BATCH_SIZE)
+        .map(|_| random_env(ply, actions, rng))
+        .collect();
+    let tensor = Tensor::cat(
+        &games
+            .iter()
+            .map(|g| game_to_tensor(g, Device::Cpu))
+            .collect::<Vec<_>>(),
+        0,
+    )
+    .to(DEVICE);
+    (games, tensor)
+}
+
 struct Tensors {
     input: Tensor,
     mask: Tensor,
@@ -57,10 +87,39 @@ struct Tensors {
     target_policy: Tensor,
 }
 
+impl Default for Tensors {
+    fn default() -> Self {
+        let policy = Tensor::zeros(
+            [
+                BATCH_SIZE as i64,
+                output_channels::<N>() as i64,
+                N as i64,
+                N as i64,
+            ],
+            (Kind::Float, DEVICE),
+        );
+        Self {
+            input: Tensor::zeros(
+                [
+                    BATCH_SIZE as i64,
+                    input_channels::<N>() as i64,
+                    N as i64,
+                    N as i64,
+                ],
+                (Kind::Float, DEVICE),
+            ),
+            mask: Tensor::zeros_like(&policy).to_dtype(Kind::Bool, false, false),
+            target_value: Tensor::new(),
+            target_policy: policy,
+        }
+    }
+}
+
 fn create_input_and_target_tensors(
+    tensors: &mut Tensors,
     batch: impl Iterator<Item = Target<Env>>,
     rng: &mut impl Rng,
-) -> Tensors {
+) {
     // Create input tensors.
     let mut inputs = Vec::with_capacity(BATCH_SIZE);
     let mut policy_targets = Vec::with_capacity(BATCH_SIZE);
@@ -78,23 +137,16 @@ fn create_input_and_target_tensors(
     }
 
     // Get network output.
-    let input = Tensor::cat(&inputs, 0).to(DEVICE);
-    let mask = Tensor::cat(&masks, 0).to(DEVICE);
+    tensors.input.copy_(&Tensor::cat(&inputs, 0));
+    tensors.mask.copy_(&Tensor::cat(&masks, 0));
     // Get the target.
-    let target_policy = Tensor::stack(&policy_targets, 0)
-        .view([BATCH_SIZE as i64, output_size::<N>() as i64])
-        .to(DEVICE);
-    let target_value = Tensor::from_slice(&value_targets).unsqueeze(1).to(DEVICE);
-
-    Tensors {
-        input,
-        mask,
-        target_value,
-        target_policy,
-    }
+    tensors
+        .target_policy
+        .copy_(&Tensor::cat(&policy_targets, 0));
+    tensors.target_value = Tensor::from_slice(&value_targets).unsqueeze(1).to(DEVICE);
 }
 
-fn compute_loss_and_take_step(net: &Net, opt: &mut Optimizer, tensors: Tensors) {
+fn compute_loss_and_take_step(net: &Net, opt: &mut Optimizer, tensors: &Tensors) {
     // Get network output.
     let (policy, network_value, _, ensemble) = net.forward_t(&tensors.input, true);
     let log_softmax_network_policy = policy
@@ -103,67 +155,144 @@ fn compute_loss_and_take_step(net: &Net, opt: &mut Optimizer, tensors: Tensors) 
         .log_softmax(1, Kind::Float);
 
     // Calculate loss.
-    let loss_policy = -(log_softmax_network_policy * &tensors.target_policy).sum(Kind::Float)
+    let loss_policy = -(log_softmax_network_policy
+        * &tensors
+            .target_policy
+            .view([BATCH_SIZE as i64, output_size::<N>() as i64]))
+        .sum(Kind::Float)
         / i64::try_from(BATCH_SIZE).unwrap();
-    let loss_value = (tensors.target_value - network_value)
+    let loss_value = (&tensors.target_value - network_value)
         .square()
         .mean(Kind::Float);
-
-    let loss = &loss_policy + &loss_value;
-    #[rustfmt::skip]
-    log::info!(
-        "loss = {loss:?}\n\
-         loss_policy = {loss_policy:?}\n\
-         loss_value = {loss_value:?}"
-    );
-
+    let loss_ensemble = (&tensors.target_value - ensemble)
+        .square()
+        .mean(Kind::Float);
+    let loss = &loss_policy + &loss_value + &loss_ensemble;
+    // #[rustfmt::skip]
+    // println!(
+    //     "loss = {loss:?}\n\
+    //      loss_policy = {loss_policy:?}\n\
+    //      loss_value = {loss_value:?}\n\
+    //      loss_ensemble = {loss_ensemble:?}"
+    // );
     // Take step.
     opt.backward_step(&loss);
-
-    // TODO: Update ensemble
-    todo!("{:?}", ensemble);
 }
 
 fn main() {
     let mut selfplay = targets("targets-selfplay-no-explore-01.txt").skip(BATCH_SIZE * 15_000);
     let mut reanalyze = targets("targets-reanalyze-no-explore-01.txt").skip(BATCH_SIZE * 10_000);
+    println!("loaded targets");
 
-    let mut buffer = Vec::new();
+    let mut buffer = Vec::with_capacity(16_384);
     buffer.extend(selfplay.by_ref().take(5_000));
     buffer.extend(reanalyze.by_ref().take(5_000));
+    println!("created buffer");
 
     let seed: u64 = 12345;
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut net = Net::new(Device::Cuda(0), Some(rng.gen()));
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
+    println!("created network");
 
-    // TODO: Create reference positions.
+    // Create reference positions.
     let mut actions = Vec::new();
-    let _early_positions: Vec<_> = (0..64)
-        .map(|_| random_env(5, &mut actions, &mut rng))
-        .collect();
-    let _mid_positions: Vec<_> = (0..64)
-        .map(|_| random_env(50, &mut actions, &mut rng))
-        .collect();
-    let _late_positions: Vec<_> = (0..64)
-        .map(|_| random_env(120, &mut actions, &mut rng))
-        .collect();
+    let (_early_positions, early_tensor) = reference_envs(5, &mut actions, &mut rng);
+    let (_mid_positions, mid_tensor) = reference_envs(30, &mut actions, &mut rng);
+    let (_late_positions, late_tensor) = reference_envs(120, &mut actions, &mut rng);
+    let mut lines = [vec![], vec![], vec![]];
 
+    let mut tensors = Tensors::default();
     for step in 1..=STEPS {
-        print!("{step} / {STEPS}");
+        println!("{step} / {STEPS}");
+
         buffer.extend(selfplay.by_ref().take(BATCH_SIZE / 2));
         buffer.extend(reanalyze.by_ref().take(BATCH_SIZE / 2));
         buffer.shuffle(&mut rng);
 
-        let tensors =
-            create_input_and_target_tensors(buffer.drain(buffer.len() - BATCH_SIZE..), &mut rng);
-        compute_loss_and_take_step(&net, &mut opt, tensors);
+        create_input_and_target_tensors(
+            &mut tensors,
+            buffer.drain(buffer.len() - BATCH_SIZE..),
+            &mut rng,
+        );
+        compute_loss_and_take_step(&net, &mut opt, &tensors);
 
-        // TODO:
-        // Keep track of variance and values on reference positions
-        // - early, middle, late
-        // - make many so that I can then pick out the interesting positions
-        // Make graphs
+        if step % 100 == 1 {
+            let (_, value, _, ensemble) = net.forward_t(&early_tensor, false);
+            lines[0].push((
+                step as f64,
+                f64::try_from((ensemble.mean_dim(1, false, None) - value).mean(None)).unwrap(),
+                f64::try_from(ensemble.var_dim(1i64, false, false).mean(None)).unwrap(),
+            ));
+            let (_, value, _, ensemble) = net.forward_t(&mid_tensor, false);
+            lines[1].push((
+                step as f64,
+                f64::try_from((ensemble.mean_dim(1, false, None) - value).mean(None)).unwrap(),
+                f64::try_from(ensemble.var_dim(1i64, false, false).mean(None)).unwrap(),
+            ));
+            let (_, value, _, ensemble) = net.forward_t(&late_tensor, false);
+            lines[2].push((
+                step as f64,
+                f64::try_from((ensemble.mean_dim(1, false, None) - value).mean(None)).unwrap(),
+                f64::try_from(ensemble.var_dim(1i64, false, false).mean(None)).unwrap(),
+            ));
+        }
     }
+    plot(lines);
+}
+
+fn plot(mut lines: [Vec<(f64, f64, f64)>; 3]) {
+    let chart = Chart::new()
+        .title(
+            Title::new()
+                .text("Ensemble Variance During Training")
+                .left("center")
+                .top(0),
+        )
+        .x_axis(Axis::new().name("Training steps"))
+        .y_axis(Axis::new().name("Variance"))
+        .grid(Grid::new())
+        .legend(
+            Legend::new()
+                .data(vec!["Early (5 ply)", "Middle (30 ply)", "Late (<=120 ply)"])
+                .bottom(10)
+                .left(30),
+        )
+        .series(
+            Line::new()
+                .data(
+                    std::mem::take(&mut lines[0])
+                        .into_iter()
+                        .map(|(s, _, v)| vec![s, v])
+                        .collect(),
+                )
+                .name("Early (5 ply)")
+                .symbol(Symbol::None),
+        )
+        .series(
+            Line::new()
+                .data(
+                    std::mem::take(&mut lines[1])
+                        .into_iter()
+                        .map(|(s, _, v)| vec![s, v])
+                        .collect(),
+                )
+                .name("Middle (30 ply)")
+                .symbol(Symbol::None),
+        )
+        .series(
+            Line::new()
+                .data(
+                    std::mem::take(&mut lines[2])
+                        .into_iter()
+                        .map(|(s, _, v)| vec![s, v])
+                        .collect(),
+                )
+                .name("Late (<=120 ply)")
+                .symbol(Symbol::None),
+        );
+
+    let mut renderer = HtmlRenderer::new("graph", 1400, 700).theme(Theme::Infographic);
+    renderer.save(&chart, "graph.html").unwrap();
 }

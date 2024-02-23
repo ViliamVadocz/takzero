@@ -6,8 +6,7 @@ use clap::Parser;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
-        net4,
-        net4_big::{self, Env, Net},
+        net4_big::{Env, Net},
         Network,
     },
     search::{
@@ -35,6 +34,7 @@ struct Args {
     step: usize,
 }
 
+#[cfg(never)]
 fn compare_small_big() {
     let small = net4::Net::load("baseline-small.ot", Device::Cuda(0)).unwrap();
     let big = net4_big::Net::load("baseline-big.ot", Device::Cuda(0)).unwrap();
@@ -56,8 +56,7 @@ fn compare_small_big() {
 fn main() {
     env_logger::init();
     log::info!("Begin.");
-    // tch::no_grad(real_main);
-    tch::no_grad(compare_small_big);
+    tch::no_grad(real_main);
 }
 
 #[allow(unused)]
