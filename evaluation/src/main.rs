@@ -6,10 +6,12 @@ use clap::Parser;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
-        net4_big::{Env, Net},
+        net4,
+        net4_big::{self, Env, Net},
         Network,
     },
     search::{
+        agent::Agent,
         env::{Environment, Terminal},
         node::{batched::BatchedMCTS, Node},
     },
@@ -33,12 +35,32 @@ struct Args {
     step: usize,
 }
 
+fn compare_small_big() {
+    let small = net4::Net::load("baseline-small.ot", Device::Cuda(0)).unwrap();
+    let big = net4_big::Net::load("baseline-big.ot", Device::Cuda(0)).unwrap();
+
+    let seed: u64 = thread_rng().gen();
+    log::info!("seed: {seed}");
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    let mut actions = Vec::new();
+    loop {
+        let games: [Env; BATCH_SIZE] = array::from_fn(|_| Env::new_opening(&mut rng, &mut actions));
+        let res = compete(&small, &big, &games);
+        log::info!("small vs. big: {res:?} {:.1}%", res.win_rate() * 100.0);
+        let res = compete(&big, &small, &games);
+        log::info!("big vs. small: {res:?} {:.1}%", res.win_rate() * 100.0);
+    }
+}
+
 fn main() {
     env_logger::init();
     log::info!("Begin.");
-    tch::no_grad(real_main);
+    // tch::no_grad(real_main);
+    tch::no_grad(compare_small_big);
 }
 
+#[allow(unused)]
 fn real_main() {
     let args = Args::parse();
     let seed: u64 = thread_rng().gen();
@@ -96,7 +118,11 @@ fn real_main() {
 /// Pit two networks against each other in the given games. Evaluation is from
 /// the perspective of white.
 #[allow(dead_code)]
-fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
+fn compete<W, B>(white: &W, black: &B, games: &[Env]) -> Evaluation
+where
+    W: Network + Agent<Env>,
+    B: Network + Agent<Env>,
+{
     let mut evaluation = Evaluation::default();
 
     let mut white_mcts = BatchedMCTS::from_envs(games.to_owned().try_into().unwrap());
@@ -105,7 +131,7 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
     let mut done = [false; BATCH_SIZE];
 
     'outer: for _ in 0..MAX_MOVES {
-        for (agent, is_white) in [(white, true), (black, false)] {
+        for is_white in [true, false] {
             // Check if all games are done.
             if done.iter().all(|x| *x) {
                 break 'outer;
@@ -117,8 +143,14 @@ fn compete(white: &Net, black: &Net, games: &[Env]) -> Evaluation {
             } else {
                 (&mut black_mcts, &mut white_mcts)
             };
-            for _ in 0..VISITS {
-                current.simulate(agent, &ZERO_BETA);
+            if is_white {
+                for _ in 0..VISITS {
+                    current.simulate(white, &ZERO_BETA);
+                }
+            } else {
+                for _ in 0..VISITS {
+                    current.simulate(black, &ZERO_BETA);
+                }
             }
 
             // Pick the top actions and take a step.
