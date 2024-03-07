@@ -53,10 +53,10 @@ const _: () = assert!(INITIAL_RANDOM_TARGETS >= PRE_TRAINING_STEPS * BATCH_SIZE)
 
 // Buffers
 const STEPS_BEFORE_REANALYZE: usize = 5000;
-const MIN_EXPLOITATION_BUFFER_LEN: usize = 2_000;
+const MIN_EXPLOITATION_BUFFER_LEN: usize = 10_000;
 const _: () = assert!(MIN_EXPLOITATION_BUFFER_LEN >= BATCH_SIZE);
-const MAX_EXPLOITATION_BUFFER_LEN: usize = 10_000;
-const MAX_REANALYZE_BUFFER_LEN: usize = 10_000;
+// const MAX_EXPLOITATION_BUFFER_LEN: usize = 10_000;
+// const MAX_REANALYZE_BUFFER_LEN: usize = 10_000;
 const EXPLOITATION_TARGET_FORCED_USES: u32 = 4;
 const REANALYZE_TARGET_FORCED_USES: u32 = 4;
 const MIN_TIME_BETWEEN_BUFFER_READS: Duration = Duration::from_secs(10);
@@ -147,9 +147,9 @@ fn main() {
 
     // Initialize buffers.
     let mut exploitation_buffer: Vec<TargetWithContext> =
-        Vec::with_capacity(MAX_EXPLOITATION_BUFFER_LEN);
+        Vec::with_capacity(2 * MIN_EXPLOITATION_BUFFER_LEN);
     let mut exploitation_targets_seek = 0;
-    let mut reanalyze_buffer: Vec<TargetWithContext> = Vec::with_capacity(MAX_REANALYZE_BUFFER_LEN);
+    let mut reanalyze_buffer: Vec<TargetWithContext> = Vec::new();
     let mut reanalyze_targets_seek = 0;
 
     // Main training loop.
