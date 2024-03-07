@@ -57,8 +57,8 @@ const MIN_EXPLOITATION_BUFFER_LEN: usize = 2_000;
 const _: () = assert!(MIN_EXPLOITATION_BUFFER_LEN >= BATCH_SIZE);
 const MAX_EXPLOITATION_BUFFER_LEN: usize = 10_000;
 const MAX_REANALYZE_BUFFER_LEN: usize = 10_000;
-const EXPLOITATION_TARGET_USES_AVAILABLE: u32 = 1;
-const REANALYZE_TARGET_USES_AVAILABLE: u32 = 1;
+const EXPLOITATION_TARGET_FORCED_USES: u32 = 4;
+const REANALYZE_TARGET_FORCED_USES: u32 = 4;
 const MIN_TIME_BETWEEN_BUFFER_READS: Duration = Duration::from_secs(10);
 const SLEEP_WHEN_NOT_ENOUGH_TARGETS: Duration = Duration::from_secs(30);
 
@@ -77,15 +77,15 @@ struct TargetWithContext {
     /// The target.
     target: Target<Env>,
     /// How many uses are available until you cannot use this target.
-    uses_available: u32,
+    forced_uses: u32,
     /// The model steps at the time of loading this target.
     model_steps: usize,
 }
 
 impl TargetWithContext {
     fn reuse(mut self) -> Option<Self> {
-        if self.uses_available > 1 {
-            self.uses_available -= 1;
+        if self.forced_uses > 1 {
+            self.forced_uses -= 1;
             Some(self)
         } else {
             None
@@ -261,7 +261,7 @@ fn fill_buffer_with_targets(
     buffer: &mut Vec<TargetWithContext>,
     seek: &mut u64,
     file_path: &Path,
-    uses_available: u32,
+    forced_uses: u32,
     model_steps: usize,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(OpenOptions::new().read(true).open(file_path)?);
@@ -275,7 +275,7 @@ fn fill_buffer_with_targets(
             .filter_map(|line| line.unwrap().parse().ok())
             .map(|target| TargetWithContext {
                 target,
-                uses_available,
+                forced_uses,
                 model_steps,
             }),
     );
@@ -450,7 +450,7 @@ fn create_batch(
 ) -> Tensors {
     // TODO: Can we avoid doing an O(n) operation here?
     // Ideally we would like to sample without replacement,
-    // Then swap_remove those targets which have uses_available == 0.
+    // Then swap_remove those targets which have forced_uses == 0.
     exploitation_buffer.shuffle(rng);
     reanalyze_buffer.shuffle(rng);
 
@@ -478,13 +478,14 @@ fn create_batch(
     tensors
 }
 
+#[allow(unused)]
 fn truncate_buffer_if_needed(buffer: &mut Vec<TargetWithContext>, max_length: usize, name: &str) {
     if buffer.len() > max_length {
         log::info!(
             "Truncating {name} buffer because it is too big. {}",
             buffer.len()
         );
-        buffer.sort_unstable_by_key(|t| Reverse((t.model_steps, t.uses_available)));
+        buffer.sort_unstable_by_key(|t| Reverse((t.model_steps, t.forced_uses)));
         buffer.truncate(max_length);
     }
 }
@@ -504,27 +505,28 @@ fn fill_buffers(
         exploitation_buffer,
         exploitation_targets_seek,
         &directory.join("targets-selfplay.txt"),
-        EXPLOITATION_TARGET_USES_AVAILABLE,
+        EXPLOITATION_TARGET_FORCED_USES,
         model_steps,
     ) {
         log::error!("Cannot read selfplay targets: {error}");
     }
-    truncate_buffer_if_needed(
-        exploitation_buffer,
-        MAX_EXPLOITATION_BUFFER_LEN,
-        "exploitation",
-    );
+    // truncate_buffer_if_needed(
+    //     exploitation_buffer,
+    //     MAX_EXPLOITATION_BUFFER_LEN,
+    //     "exploitation",
+    // );
     if using_reanalyze {
         if let Err(error) = fill_buffer_with_targets(
             reanalyze_buffer,
             reanalyze_targets_seek,
             &directory.join("targets-reanalyze.txt"),
-            REANALYZE_TARGET_USES_AVAILABLE,
+            REANALYZE_TARGET_FORCED_USES,
             model_steps,
         ) {
             log::error!("Cannot read reanalyze targets: {error}");
         }
-        truncate_buffer_if_needed(reanalyze_buffer, MAX_EXPLOITATION_BUFFER_LEN, "reanalyze");
+        // truncate_buffer_if_needed(reanalyze_buffer,
+        // MAX_EXPLOITATION_BUFFER_LEN, "reanalyze");
     }
 
     log::debug!("It took {:?} to add targets to buffer.", start.elapsed());
