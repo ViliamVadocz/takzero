@@ -56,6 +56,8 @@ const STEPS_BEFORE_REANALYZE: usize = 5000;
 const MIN_EXPLOITATION_BUFFER_LEN: usize = 10_000;
 const _: () = assert!(MIN_EXPLOITATION_BUFFER_LEN >= BATCH_SIZE);
 // const MAX_EXPLOITATION_BUFFER_LEN: usize = 10_000;
+const MIN_REANALYZE_BUFFER_LEN: usize = 2_000;
+const _: () = assert!(MIN_REANALYZE_BUFFER_LEN >= BATCH_SIZE);
 // const MAX_REANALYZE_BUFFER_LEN: usize = 10_000;
 const EXPLOITATION_TARGET_FORCED_USES: u32 = 4;
 const REANALYZE_TARGET_FORCED_USES: u32 = 4;
@@ -176,7 +178,7 @@ fn main() {
             let enough_exploitation_targets =
                 exploitation_buffer.len() >= MIN_EXPLOITATION_BUFFER_LEN;
             let enough_reanalyze_targets =
-                !using_reanalyze || reanalyze_buffer.len() >= BATCH_SIZE / 2;
+                !using_reanalyze || reanalyze_buffer.len() >= MIN_REANALYZE_BUFFER_LEN;
             if enough_exploitation_targets && enough_reanalyze_targets {
                 break;
             }
