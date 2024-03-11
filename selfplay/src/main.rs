@@ -246,11 +246,6 @@ fn restart_envs_and_complete_targets(
         .for_each(|((terminal_and_replay, policy_targets), beta)| {
             if let Some((terminal, replay)) = terminal_and_replay {
                 finished_replays.push(replay);
-                // Don't create targets when beta is not 0.
-                #[cfg(feature = "exploration")]
-                if *beta > 0.0 {
-                    return;
-                }
                 // Create targets.
                 let mut value = Eval::from(terminal);
                 let mut ube_window = VecDeque::with_capacity(UBE_TARGET_WINDOW);
@@ -278,13 +273,15 @@ fn restart_envs_and_complete_targets(
                         .for_each(|ube| *ube *= DISCOUNT_FACTOR * DISCOUNT_FACTOR);
 
                     value = value.negate();
-                    targets.push(Target {
-                        env,
-                        value: f32::from(value),
-                        // average_std_dev * average_std_dev
-                        ube: ube_window.iter().last().copied().unwrap_or_default().into(),
-                        policy,
-                    });
+                    if *beta == 0.0 || env.ply >= WEIGHTED_RANDOM_PLIES {
+                        targets.push(Target {
+                            env,
+                            value: f32::from(value),
+                            // average_std_dev * average_std_dev
+                            ube: ube_window.iter().last().copied().unwrap_or_default().into(),
+                            policy,
+                        });
+                    }
                 }
             }
         });
