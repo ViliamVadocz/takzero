@@ -53,13 +53,11 @@ const _: () = assert!(INITIAL_RANDOM_TARGETS >= PRE_TRAINING_STEPS * BATCH_SIZE)
 
 // Buffers
 const STEPS_BEFORE_REANALYZE: usize = 5000;
-const MIN_EXPLOITATION_BUFFER_LEN: usize = 10_000;
-const _: () = assert!(MIN_EXPLOITATION_BUFFER_LEN >= BATCH_SIZE);
-// const MAX_EXPLOITATION_BUFFER_LEN: usize = 10_000;
+const MIN_SELFPLAY_BUFFER_LEN: usize = 10_000;
+const _: () = assert!(MIN_SELFPLAY_BUFFER_LEN >= BATCH_SIZE);
 const MIN_REANALYZE_BUFFER_LEN: usize = 2_000;
 const _: () = assert!(MIN_REANALYZE_BUFFER_LEN >= BATCH_SIZE);
-// const MAX_REANALYZE_BUFFER_LEN: usize = 10_000;
-const EXPLOITATION_TARGET_FORCED_USES: u32 = 4;
+const SELFPLAY_TARGET_FORCED_USES: u32 = 4;
 const REANALYZE_TARGET_FORCED_USES: u32 = 4;
 const MIN_TIME_BETWEEN_BUFFER_READS: Duration = Duration::from_secs(10);
 const SLEEP_WHEN_NOT_ENOUGH_TARGETS: Duration = Duration::from_secs(30);
@@ -149,7 +147,7 @@ fn main() {
 
     // Initialize buffers.
     let mut exploitation_buffer: Vec<TargetWithContext> =
-        Vec::with_capacity(2 * MIN_EXPLOITATION_BUFFER_LEN);
+        Vec::with_capacity(2 * MIN_SELFPLAY_BUFFER_LEN);
     let mut exploitation_targets_seek = 0;
     let mut reanalyze_buffer: Vec<TargetWithContext> = Vec::new();
     let mut reanalyze_targets_seek = 0;
@@ -172,11 +170,26 @@ fn main() {
                     using_reanalyze,
                 );
                 last_loaded = Instant::now();
+                // Write buffer sizes to file for synchronization.
+                if let Ok(mut file) = OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .create(true)
+                    .open(args.directory.join("buffer_lengths.txt"))
+                {
+                    if let Err(err) = file.write_fmt(format_args!(
+                        "{},{},{}",
+                        exploitation_buffer.len(),
+                        reanalyze_buffer.len(),
+                        exploitation_buffer.len() + reanalyze_buffer.len(),
+                    )) {
+                        log::error!("Writing buffer sizes to file: {err}");
+                    }
+                }
             }
 
             // Create a batch and take a step if there are enough targets.
-            let enough_exploitation_targets =
-                exploitation_buffer.len() >= MIN_EXPLOITATION_BUFFER_LEN;
+            let enough_exploitation_targets = exploitation_buffer.len() >= MIN_SELFPLAY_BUFFER_LEN;
             let enough_reanalyze_targets =
                 !using_reanalyze || reanalyze_buffer.len() >= MIN_REANALYZE_BUFFER_LEN;
             if enough_exploitation_targets && enough_reanalyze_targets {
@@ -507,16 +520,12 @@ fn fill_buffers(
         exploitation_buffer,
         exploitation_targets_seek,
         &directory.join("targets-selfplay.txt"),
-        EXPLOITATION_TARGET_FORCED_USES,
+        SELFPLAY_TARGET_FORCED_USES,
         model_steps,
     ) {
         log::error!("Cannot read selfplay targets: {error}");
     }
-    // truncate_buffer_if_needed(
-    //     exploitation_buffer,
-    //     MAX_EXPLOITATION_BUFFER_LEN,
-    //     "exploitation",
-    // );
+
     if using_reanalyze {
         if let Err(error) = fill_buffer_with_targets(
             reanalyze_buffer,
@@ -527,8 +536,6 @@ fn fill_buffers(
         ) {
             log::error!("Cannot read reanalyze targets: {error}");
         }
-        // truncate_buffer_if_needed(reanalyze_buffer,
-        // MAX_EXPLOITATION_BUFFER_LEN, "reanalyze");
     }
 
     log::debug!("It took {:?} to add targets to buffer.", start.elapsed());

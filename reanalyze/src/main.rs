@@ -21,6 +21,7 @@ use takzero::{
     target::{policy_target_from_proportional_visits, Augment, Replay, Target},
 };
 use tch::{Device, TchError};
+use thiserror::Error;
 
 #[rustfmt::skip]
 #[allow(dead_code)] const fn assert_env<E: Environment>() where Target<E>: Augment + fmt::Display {}
@@ -36,6 +37,7 @@ const VISITS: u32 = 800;
 const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const MIN_POSITIONS: usize = 4000 * 128; // steps before reanalyze * batch size
 const _: () = assert!(MIN_POSITIONS > BATCH_SIZE);
+const MAX_REANALYZE_BUFFER_LEN: usize = 32_000;
 
 const UBE_TARGET_BETA: f32 = 0.2;
 const UBE_TARGET_TOP_K: usize = 4;
@@ -64,6 +66,19 @@ fn main() {
 
     loop {
         loop {
+            let reanalyze = match read_buffer_lengths(&args.directory) {
+                Ok((_, reanalyze)) => reanalyze,
+                Err(err) => {
+                    log::error!("Could not read buffer lengths: {err}");
+                    continue;
+                }
+            };
+            if reanalyze > MAX_REANALYZE_BUFFER_LEN {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                continue;
+            }
+            log::debug!("Checked that there more reanalyze targets are needed.");
+
             match Net::load(&args.directory.join("model_latest.ot"), DEVICE) {
                 Ok(new_net) => {
                     net = new_net;
@@ -256,4 +271,32 @@ fn get_replays(directory: &Path, _model_steps: u32, rng: &mut impl Rng) -> Vec<R
         })
         .flatten()
         .choose_multiple(rng, BATCH_SIZE)
+}
+
+#[derive(Debug, Error)]
+enum ReadBufferLengthsError {
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("missing component")]
+    MissingComponent,
+    #[error("wrong checksum")]
+    WrongCheckSum,
+}
+
+fn read_buffer_lengths(directory: &Path) -> Result<(usize, usize), ReadBufferLengthsError> {
+    let buffer_lengths = std::fs::read_to_string(directory.join("buffer_lengths.txt"))?;
+    let mut nums = buffer_lengths.split(',').filter_map(|s| s.parse().ok());
+    let selfplay: usize = nums
+        .next()
+        .ok_or(ReadBufferLengthsError::MissingComponent)?;
+    let reanalyze: usize = nums
+        .next()
+        .ok_or(ReadBufferLengthsError::MissingComponent)?;
+    let checksum: usize = nums
+        .next()
+        .ok_or(ReadBufferLengthsError::MissingComponent)?;
+    if selfplay + reanalyze != checksum {
+        return Err(ReadBufferLengthsError::WrongCheckSum);
+    }
+    Ok((selfplay, reanalyze))
 }

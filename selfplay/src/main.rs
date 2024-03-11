@@ -25,6 +25,7 @@ use takzero::{
     target::{policy_target_from_proportional_visits, Augment, Replay, Target},
 };
 use tch::{Device, TchError};
+use thiserror::Error;
 
 #[rustfmt::skip]
 #[allow(dead_code)] const fn assert_env<E: Environment>() where Target<E>: Augment + fmt::Display {}
@@ -44,6 +45,7 @@ const NOISE_PLIES: u16 = 60;
 const UBE_TARGET_BETA: f32 = 0.2;
 const UBE_TARGET_TOP_K: usize = 4;
 const UBE_TARGET_WINDOW: usize = 20;
+const MAX_SELFPLAY_BUFFER_LEN: usize = 32_000;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -53,6 +55,7 @@ struct Args {
     directory: PathBuf,
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     env_logger::init();
     let args = Args::parse();
@@ -87,6 +90,19 @@ fn main() {
         log::info!("Step: {steps}");
         let start = std::time::Instant::now();
         loop {
+            let exploitation = match read_buffer_lengths(&args.directory) {
+                Ok((exploitation, _)) => exploitation,
+                Err(err) => {
+                    log::error!("Could not read buffer lengths: {err}");
+                    continue;
+                }
+            };
+            if exploitation > MAX_SELFPLAY_BUFFER_LEN {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                continue;
+            }
+            log::debug!("Checked that there more selfplay targets are needed.");
+
             match Net::load(&args.directory.join("model_latest.ot"), DEVICE) {
                 Ok(new_net) => {
                     net = new_net;
@@ -102,7 +118,10 @@ fn main() {
                 }
             }
         }
-        log::debug!("Loading model took {:?}.", start.elapsed());
+        log::debug!(
+            "Waiting until more targets are needed and loading model took {:?}.",
+            start.elapsed()
+        );
 
         // One simulation batch to initialize root policy if it has not been done yet.
         batched_mcts.simulate(&net, &betas);
@@ -299,4 +318,32 @@ fn save_replays_to_file(replays: &mut Vec<Replay<Env>>, directory: &Path) {
             "Could not save replays to file [{err}], so here they are instead:\n{contents}"
         );
     }
+}
+
+#[derive(Debug, Error)]
+enum ReadBufferLengthsError {
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("missing component")]
+    MissingComponent,
+    #[error("wrong checksum")]
+    WrongCheckSum,
+}
+
+fn read_buffer_lengths(directory: &Path) -> Result<(usize, usize), ReadBufferLengthsError> {
+    let buffer_lengths = std::fs::read_to_string(directory.join("buffer_lengths.txt"))?;
+    let mut nums = buffer_lengths.split(',').filter_map(|s| s.parse().ok());
+    let selfplay: usize = nums
+        .next()
+        .ok_or(ReadBufferLengthsError::MissingComponent)?;
+    let reanalyze: usize = nums
+        .next()
+        .ok_or(ReadBufferLengthsError::MissingComponent)?;
+    let checksum: usize = nums
+        .next()
+        .ok_or(ReadBufferLengthsError::MissingComponent)?;
+    if selfplay + reanalyze != checksum {
+        return Err(ReadBufferLengthsError::WrongCheckSum);
+    }
+    Ok((selfplay, reanalyze))
 }
