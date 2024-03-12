@@ -69,6 +69,8 @@ fn main() {
     let mut policy_targets: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());
     let mut targets = Vec::new();
     let mut complete_replays = Vec::new();
+    #[cfg(feature = "exploration")]
+    let mut exploration_replays = Vec::new();
 
     let mut batched_mcts = BatchedMCTS::new(&mut rng);
     let betas: [f32; BATCH_SIZE] = std::array::from_fn(|i| {
@@ -164,6 +166,8 @@ fn main() {
             &mut policy_targets,
             &mut targets,
             &mut complete_replays,
+            #[cfg(feature = "exploration")]
+            &mut exploration_replays,
             &mut rng,
             &betas,
         );
@@ -172,7 +176,15 @@ fn main() {
             save_targets_to_file(&mut targets, &args.directory);
         }
         if !complete_replays.is_empty() {
-            save_replays_to_file(&mut complete_replays, &args.directory);
+            save_replays_to_file(&mut complete_replays, &args.directory, "replays.txt");
+            #[cfg(feature = "exploration")]
+            {
+                save_replays_to_file(
+                    &mut exploration_replays,
+                    &args.directory,
+                    "replays-exploration.txt",
+                );
+            }
         }
     }
 }
@@ -234,6 +246,7 @@ fn restart_envs_and_complete_targets(
     policy_targets: &mut [Vec<IncompleteTarget>],
     targets: &mut Vec<Target<Env>>,
     finished_replays: &mut Vec<Replay<Env>>,
+    #[cfg(feature = "exploration")] exploration_replays: &mut Vec<Replay<Env>>,
     rng: &mut impl Rng,
     betas: &[f32],
 ) {
@@ -244,7 +257,20 @@ fn restart_envs_and_complete_targets(
         .zip(betas)
         .for_each(|((terminal_and_replay, policy_targets), beta)| {
             if let Some((terminal, replay)) = terminal_and_replay {
+                #[cfg(feature = "exploration")]
+                if *beta > 0.0 {
+                    exploration_replays.push(Replay {
+                        env: replay.env.clone(),
+                        actions: replay
+                            .actions
+                            .iter()
+                            .copied()
+                            .take(WEIGHTED_RANDOM_PLIES as usize)
+                            .collect(),
+                    });
+                }
                 finished_replays.push(replay);
+
                 // Create targets.
                 let mut value = Eval::from(terminal);
                 let mut ube_window = VecDeque::with_capacity(UBE_TARGET_WINDOW);
@@ -302,12 +328,12 @@ fn save_targets_to_file(targets: &mut Vec<Target<Env>>, directory: &Path) {
 }
 
 /// Save replays to a file. Drains the replays Vec.
-fn save_replays_to_file(replays: &mut Vec<Replay<Env>>, directory: &Path) {
+fn save_replays_to_file(replays: &mut Vec<Replay<Env>>, directory: &Path, name: &str) {
     let contents: String = replays.drain(..).map(|target| target.to_string()).collect();
     if let Err(err) = OpenOptions::new()
         .append(true)
         .create(true)
-        .open(directory.join("replays.txt"))
+        .open(directory.join(name))
         .map(|mut file| file.write_all(contents.as_bytes()))
     {
         log::error!(

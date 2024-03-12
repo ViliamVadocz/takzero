@@ -38,11 +38,15 @@ const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const MIN_POSITIONS: usize = 4000 * 128 / 4; // steps before reanalyze * batch size / forced uses
 const _: () = assert!(MIN_POSITIONS > BATCH_SIZE);
 const MAX_REANALYZE_BUFFER_LEN: usize = 32_000;
-const MAX_RECENT_BUFFER_SIZE: usize = 10_000;
-const RECENT_POSITIONS_IN_BATCH: usize = 64;
-const _: () = assert!(RECENT_POSITIONS_IN_BATCH <= BATCH_SIZE);
 
-const UBE_TARGET_BETA: f32 = 0.2;
+#[cfg(feature = "exploration")]
+const MAX_EXPLORATION_BUFFER_SIZE: usize = 10_000;
+#[cfg(feature = "exploration")]
+const EXPLORATION_POSITIONS_IN_BATCH: usize = 16;
+#[cfg(feature = "exploration")]
+const _: () = assert!(EXPLORATION_POSITIONS_IN_BATCH <= BATCH_SIZE);
+
+const UBE_TARGET_BETA: f32 = 0.5;
 const UBE_TARGET_TOP_K: usize = 4;
 
 #[derive(Parser, Debug)]
@@ -65,8 +69,11 @@ fn main() {
     let mut net;
     let mut batched_mcts = BatchedMCTS::<BATCH_SIZE, _>::new(&mut rng);
     let mut position_buffer = Vec::new();
-    let mut recent_buffer = Vec::new();
     let mut replays_seek = 0;
+    #[cfg(feature = "exploration")]
+    let mut exploration_buffer = Vec::new();
+    #[cfg(feature = "exploration")]
+    let mut exploration_replays_seek = 0;
 
     loop {
         loop {
@@ -100,7 +107,6 @@ fn main() {
         }
 
         // Fill the position buffer.
-        let before = position_buffer.len();
         if let Err(err) = fill_buffer_with_positions_from_replays(
             &mut position_buffer,
             &mut replays_seek,
@@ -109,11 +115,21 @@ fn main() {
             log::error!("Cannot fill position buffer: {err}");
         };
 
-        // Update recent buffer.
-        recent_buffer.extend(position_buffer[before..].iter().cloned());
-        recent_buffer.shuffle(&mut rng);
-        while recent_buffer.len() > MAX_RECENT_BUFFER_SIZE {
-            recent_buffer.truncate(MAX_RECENT_BUFFER_SIZE);
+        // Update exploration buffer.
+        #[cfg(feature = "exploration")]
+        {
+            if let Err(err) = fill_buffer_with_positions_from_replays(
+                &mut exploration_buffer,
+                &mut exploration_replays_seek,
+                &args.directory.join("replays-exploration.txt"),
+            ) {
+                log::error!("Cannot fill recent buffer: {err}");
+            };
+            if exploration_buffer.len() > MAX_EXPLORATION_BUFFER_SIZE {
+                exploration_buffer
+                    .drain(..exploration_buffer.len() - MAX_EXPLORATION_BUFFER_SIZE)
+                    .for_each(drop);
+            }
         }
 
         if position_buffer.len() < MIN_POSITIONS {
@@ -128,7 +144,13 @@ fn main() {
         log::debug!("Number of positions: {}", position_buffer.len());
 
         // Sample a batch.
-        let mut batch = recent_buffer.split_off(recent_buffer.len() - RECENT_POSITIONS_IN_BATCH);
+        let mut batch = Vec::new();
+        #[cfg(feature = "exploration")]
+        batch.extend(
+            exploration_buffer
+                .choose_multiple(&mut rng, EXPLORATION_POSITIONS_IN_BATCH)
+                .cloned(),
+        );
         batch.extend(
             position_buffer
                 .choose_multiple(&mut rng, BATCH_SIZE - batch.len())
