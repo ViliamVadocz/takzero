@@ -41,7 +41,6 @@ const VISITS: u32 = 800;
 const WEIGHTED_RANDOM_PLIES: u16 = 10;
 const NOISE_ALPHA: f32 = 0.05;
 const NOISE_RATIO: f32 = 0.1;
-const NOISE_PLIES: u16 = 60;
 const UBE_TARGET_BETA: f32 = 0.2;
 const UBE_TARGET_TOP_K: usize = 4;
 const UBE_TARGET_WINDOW: usize = 20;
@@ -127,7 +126,7 @@ fn main() {
         batched_mcts.simulate_with_exploration(&net, &betas, WEIGHTED_RANDOM_PLIES);
 
         // Apply noise.
-        batched_mcts.apply_noise(&mut rng, NOISE_PLIES, NOISE_ALPHA, NOISE_RATIO);
+        batched_mcts.apply_noise(&mut rng, NOISE_ALPHA, NOISE_RATIO);
 
         // Search.
         for _ in 0..VISITS {

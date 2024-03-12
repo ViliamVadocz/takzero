@@ -164,17 +164,10 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
             });
     }
 
-    pub fn apply_noise(
-        &mut self,
-        rng: &mut impl Rng,
-        noise_steps: u16,
-        noise_alpha: f32,
-        noise_ratio: f32,
-    ) {
+    pub fn apply_noise(&mut self, rng: &mut impl Rng, noise_alpha: f32, noise_ratio: f32) {
         self.nodes
             .iter_mut()
             .zip(&self.envs)
-            .filter(|(_, env)| env.steps() < noise_steps)
             .for_each(|(node, _)| node.apply_dirichlet(rng, noise_alpha, noise_ratio));
     }
 
