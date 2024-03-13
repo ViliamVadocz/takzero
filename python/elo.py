@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from pathlib import Path
 from subprocess import Popen, PIPE
+import sys
 import matplotlib.pyplot as plt
 import re
 
@@ -79,14 +81,7 @@ proc = Popen(
 assert proc.stdin is not None
 proc.stdin.write("prompt off\n")
 
-match_results = read_results(
-    # "match_results_exploration.csv",
-    # "match_results_baseline.csv",
-    # "match_results_no_explore.csv",
-    # "match_results_big_baseline.csv",
-    "match_results.csv",
-    "match_results_tournament.csv",
-)
+match_results = read_results(*Path("match_results").glob("*.csv"))
 print("read results")
 
 player_set = {m.white_name() for m in match_results}
@@ -111,7 +106,7 @@ print(out)
 
 elo = {m[1]: int(m[2]) for m in re.finditer(re.compile(r"([\w_-]+\d+)\s+(-?\d+)"), out)}
 
-models = {m.white for m in match_results} | {m.black for m in match_results}
+models = sorted({m.white for m in match_results} | {m.black for m in match_results})
 model_steps = {
     model: {m.white_steps for m in match_results if m.white == model}
     | {m.black_steps for m in match_results if m.black == model}
@@ -124,6 +119,7 @@ for model, steps in model_steps.items():
     plt.plot(steps_sorted, model_elo, label=model)
 
 plt.legend()
+plt.grid()
 plt.xlabel("training steps")
 plt.ylabel("relative bayes elo")
 plt.show()
