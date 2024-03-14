@@ -19,9 +19,7 @@ fn main() {
     let chart = Chart::new()
         .title(
             Title::new()
-                .text(
-                    "Ratio of Unique Positions to All Positions Seen During Training (10k Chunks)",
-                )
+                .text("Ratio of Unique Positions to All Positions Seen During Training")
                 .subtext("Accounting for Symmetries")
                 .left("center")
                 .top(0),
@@ -31,26 +29,20 @@ fn main() {
         .grid(Grid::new())
         .legend(
             Legend::new()
-                .data(vec!["Baseline", "Exploration", "No-exploration"])
+                .data(vec!["undirected-random", "directed-random"])
                 .bottom(10)
                 .left(10),
         )
         .series(
             Line::new()
-                .data(get_unique_positions("baseline-replays.txt"))
-                .name("Baseline")
+                .data(get_unique_positions("baseline.txt"))
+                .name("undirected-random")
                 .symbol(Symbol::None),
         )
         .series(
             Line::new()
-                .data(get_unique_positions("exploration-replays.txt"))
-                .name("Exploration")
-                .symbol(Symbol::None),
-        )
-        .series(
-            Line::new()
-                .data(get_unique_positions("replays.txt"))
-                .name("No-exploration")
+                .data(get_unique_positions("exploration.txt"))
+                .name("directed-random")
                 .symbol(Symbol::None),
         );
 
@@ -72,7 +64,7 @@ fn get_unique_positions(path: impl AsRef<Path>) -> Vec<Vec<f64>> {
                     positions.keys().len() as f64 / positions.values().sum::<u64>() as f64
                 },
             ]);
-            positions.clear();
+            // positions.clear();
         }
         let Ok(replay): Result<Replay<Env>, _> = line.unwrap().parse() else {
             println!("skipping line {i}");
