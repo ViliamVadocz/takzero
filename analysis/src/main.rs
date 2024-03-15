@@ -10,7 +10,7 @@ use takzero::{
         net4_big::{Env, Net},
         Network,
     },
-    search::node::Node,
+    search::{env::Environment, node::Node},
 };
 use tch::Device;
 
@@ -22,6 +22,9 @@ struct Args {
     /// Path to model to load.
     #[arg(long)]
     model_path: PathBuf,
+    /// Run an example game with this many visits per step.
+    #[arg(long)]
+    example_visits: Option<usize>,
 }
 
 fn main() {
@@ -30,6 +33,20 @@ fn main() {
     let agent = Net::load(args.model_path, DEVICE).unwrap();
     let mut env = Env::default();
     let mut node = Node::default();
+
+    if let Some(visits) = args.example_visits {
+        while env.terminal().is_none() {
+            for _ in 0..visits {
+                node.simulate_simple(&agent, env.clone(), BETA);
+            }
+            println!("{node}");
+            let action = node.select_best_action();
+            println!(">>> {action}");
+            node.descend(&action);
+            env.step(action);
+        }
+        return;
+    }
 
     let mut input = String::new();
     loop {
