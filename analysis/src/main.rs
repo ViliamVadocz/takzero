@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::Parser;
-use fast_tak::takparse::Move;
+use fast_tak::takparse::{Move, Tps};
 use takzero::{
     network::{
         net4_big::{Env, Net},
@@ -25,17 +25,21 @@ struct Args {
     /// Run an example game with this many visits per step.
     #[arg(long)]
     example_visits: Option<usize>,
+    /// Starting position written as TPS
+    #[arg(long)]
+    tps: Option<Tps>,
 }
 
 fn main() {
     let args = Args::parse();
 
     let agent = Net::load(args.model_path, DEVICE).unwrap();
-    let mut env = Env::default();
+    let mut env = args.tps.map(Env::from).unwrap_or_default();
     let mut node = Node::default();
 
     if let Some(visits) = args.example_visits {
         while env.terminal().is_none() {
+            println!("tps: {}", Tps::from(env.clone()));
             for _ in 0..visits {
                 node.simulate_simple(&agent, env.clone(), BETA);
             }
@@ -51,6 +55,7 @@ fn main() {
     let mut input = String::new();
     loop {
         input.clear();
+        println!("tps: {}", Tps::from(env.clone()));
         print!(">>> ");
         std::io::stdout().flush().unwrap();
         std::io::stdin().lock().read_line(&mut input).unwrap();
