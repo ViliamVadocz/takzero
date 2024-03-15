@@ -43,7 +43,7 @@ const _: () = assert_net::<Net>();
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
 const STEPS_PER_SAVE: usize = 10;
-const STEPS_PER_CHECKPOINT: usize = 1000;
+const STEPS_PER_CHECKPOINT: usize = 25000;
 const LEARNING_RATE: f64 = 1e-4;
 
 // Pre-training
@@ -117,7 +117,7 @@ fn main() {
     } else {
         log::info!("Creating new model");
         let net = Net::new(DEVICE, Some(rng.gen()));
-        net.save(args.directory.join("model_000000.ot")).unwrap();
+        net.save(args.directory.join("model_0000000.ot")).unwrap();
         (net, 0)
     };
 
@@ -138,7 +138,7 @@ fn main() {
         starting_steps += PRE_TRAINING_STEPS;
         net.save(
             args.directory
-                .join(format!("model_{starting_steps:0>6}.ot")),
+                .join(format!("model_{starting_steps:0>7}.ot")),
         )
         .unwrap();
     }
@@ -240,7 +240,7 @@ fn main() {
 
         // Save checkpoint.
         if model_steps % STEPS_PER_CHECKPOINT == 0 {
-            net.save(args.directory.join(format!("model_{model_steps:0>6}.ot")))
+            net.save(args.directory.join(format!("model_{model_steps:0>7}.ot")))
                 .unwrap();
             // I don't know if this helps or hurts or does nothing.
             opt.zero_grad();
