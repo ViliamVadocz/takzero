@@ -104,7 +104,10 @@ out = proc.communicate(input="x\n")[0]  # close application
 
 print(out)
 
-elo = {m[1]: int(m[2]) for m in re.finditer(re.compile(r"([\w_-]+\d+)\s+(-?\d+)"), out)}
+elo = {
+    m[1]: (int(m[2]), int(m[3]), int(m[4]))
+    for m in re.finditer(re.compile(r"([\w_-]+\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)"), out)
+}
 
 models = sorted({m.white for m in match_results} | {m.black for m in match_results})
 model_steps = {
@@ -115,7 +118,11 @@ model_steps = {
 
 for model, steps in model_steps.items():
     steps_sorted = sorted(steps)
-    model_elo = [elo[name(model, step)] for step in steps_sorted]
+    model_elo_and_bounds = [elo[name(model, step)] for step in steps_sorted]
+    model_elo = [x[0] for x in model_elo_and_bounds]
+    lower_bound = [x[0] - x[1] for x in model_elo_and_bounds]
+    upper_bound = [x[0] + x[1] for x in model_elo_and_bounds]
+    plt.fill_between(steps_sorted, lower_bound, upper_bound, alpha=0.2)
     plt.plot(steps_sorted, model_elo, label=model)
 
 plt.legend()
