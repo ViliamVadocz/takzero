@@ -47,7 +47,6 @@ const EXPLORATION_POSITIONS_IN_BATCH: usize = 16;
 const _: () = assert!(EXPLORATION_POSITIONS_IN_BATCH <= BATCH_SIZE);
 
 const UBE_TARGET_BETA: f32 = 0.5;
-const UBE_TARGET_TOP_K: usize = 4;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -186,9 +185,7 @@ fn main() {
                 }
                 .into();
                 let policy = policy_target_from_proportional_visits(node);
-                let ube = node
-                    .ube_target(UBE_TARGET_BETA, UBE_TARGET_TOP_K)
-                    .into_inner();
+                let ube = node.ube_target(UBE_TARGET_BETA).into_inner();
 
                 // Log UBE statistics.
                 let root = node.std_dev;

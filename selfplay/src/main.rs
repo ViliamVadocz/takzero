@@ -41,8 +41,7 @@ const VISITS: u32 = 800;
 const WEIGHTED_RANDOM_PLIES: u16 = 10;
 const NOISE_ALPHA: f32 = 0.05;
 const NOISE_RATIO: f32 = 0.1;
-const UBE_TARGET_BETA: f32 = 0.2;
-const UBE_TARGET_TOP_K: usize = 4;
+const UBE_TARGET_BETA: f32 = 0.5;
 const UBE_TARGET_WINDOW: usize = 20;
 const MAX_SELFPLAY_BUFFER_LEN: usize = 32_000;
 
@@ -232,7 +231,7 @@ fn take_a_step(
             policy_targets.push(IncompleteTarget {
                 env: env.clone(),
                 policy: policy_target_from_proportional_visits(node),
-                root_ube_metric: node.ube_target(UBE_TARGET_BETA, UBE_TARGET_TOP_K),
+                root_ube_metric: node.ube_target(UBE_TARGET_BETA),
             });
         });
     batched_mcts.step(selected_actions);
@@ -298,6 +297,7 @@ fn restart_envs_and_complete_targets(
                         .for_each(|ube| *ube *= DISCOUNT_FACTOR * DISCOUNT_FACTOR);
 
                     value = value.negate();
+                    // The ply check is there because lower plies do exploration.
                     if *beta == 0.0 || env.ply >= WEIGHTED_RANDOM_PLIES {
                         targets.push(Target {
                             env,
