@@ -4,7 +4,7 @@ from pathlib import Path
 
 PATTERN = re.compile(
     # r"model_(\d\d\d\d\d\d)\.ot vs\. model_(\d\d\d\d\d\d)\.ot: Evaluation { wins: (\d*), losses: (\d*), draws: (\d*) }"
-    r"([\w_-]+)_(\d\d\d\d\d\d)\.ot vs\. ([\w_-]+)_(\d\d\d\d\d\d)\.ot: Evaluation { wins: (\d*), losses: (\d*), draws: (\d*) }"
+    r"([\w_-]+)_(\d+)\.ot vs\. ([\w_-]+)_(\d+)\.ot: Evaluation { wins: (\d*), losses: (\d*), draws: (\d*) }"
     # r"(\w*) vs. (\w*): Evaluation { wins: (\d*), losses: (\d*), draws: (\d*) }"
 )
 
