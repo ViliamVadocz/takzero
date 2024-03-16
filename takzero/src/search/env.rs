@@ -1,6 +1,11 @@
 use std::fmt;
 
-use fast_tak::{takparse::Move, Game, Reserves};
+use fast_tak::{
+    takparse::{Move, MoveKind, Piece, Square},
+    Game,
+    Reserves,
+    Symmetry,
+};
 use rand::{seq::IteratorRandom, Rng};
 
 pub trait Environment: Send + Sync + Clone + Default {
@@ -52,12 +57,19 @@ where
         self.ply
     }
 
-    fn new_opening(rng: &mut impl Rng, actions: &mut Vec<Move>) -> Self {
+    fn new_opening(rng: &mut impl Rng, _actions: &mut Vec<Move>) -> Self {
         let mut env = Self::default();
-        env.populate_actions(actions);
-        env.step(actions.drain(..).choose(rng).unwrap());
-        env.populate_actions(actions);
-        env.step(actions.drain(..).choose(rng).unwrap());
+        // Pick random symmetry.
+        let symmetry = (0..8).choose(rng).unwrap();
+        // Choose between opposite or adjacent corners.
+        let a1 = Square::new(0, 0);
+        let an = Square::new(0, N as u8 - 1);
+        let xn = Square::new(N as u8 - 1, N as u8 - 1);
+        let opening = [[a1, an], [a1, xn]].into_iter().choose(rng).unwrap();
+        for square in opening {
+            let sym_square = Symmetry::<N>::symmetries(&square)[symmetry];
+            env.step(Move::new(sym_square, MoveKind::Place(Piece::Flat)));
+        }
         env
     }
 }
