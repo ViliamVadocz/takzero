@@ -188,13 +188,14 @@ fn main() {
                 let ube = node.ube_target(UBE_TARGET_BETA).into_inner();
 
                 // Log UBE statistics.
-                let root = node.std_dev;
-                let max = node
+                let root = node.std_dev * node.std_dev;
+                let max_std_dev = node
                     .children
                     .iter()
                     .map(|(_, child)| child.std_dev)
                     .max()
                     .unwrap_or_default();
+                let max = max_std_dev * max_std_dev;
                 log::debug!(
                     "[UBE STATS] ply: {}, bf: {}, root: {root:.5}, max: {max:.5}, target: {ube:.5}",
                     env.ply,
