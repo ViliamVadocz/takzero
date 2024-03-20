@@ -49,27 +49,6 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
         self.nodes.iter_mut().zip(&mut self.envs)
     }
 
-    pub fn simulate_with_exploration<A: Agent<E>>(
-        &mut self,
-        agent: &A,
-        betas: &[f32],
-        exploration_steps: u16,
-    ) {
-        // Use beta only for the early game.
-        let betas: Vec<_> = betas
-            .iter()
-            .zip(&self.envs)
-            .map(|(beta, env)| {
-                if env.steps() < exploration_steps {
-                    *beta
-                } else {
-                    0.0
-                }
-            })
-            .collect();
-        self.simulate(agent, &betas);
-    }
-
     /// Do a single batched simulation step.
     ///
     /// # Panics
@@ -186,12 +165,14 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
     pub fn select_actions_in_selfplay(
         &self,
         rng: &mut impl Rng,
-        exploration_steps: u16,
+        weighted_random_steps: u16,
     ) -> [E::Action; BATCH_SIZE] {
         self.nodes
             .iter()
             .zip(&self.envs)
-            .map(|(node, env)| node.select_selfplay_action(env.steps() < exploration_steps, rng))
+            .map(|(node, env)| {
+                node.select_selfplay_action(env.steps() < weighted_random_steps, rng)
+            })
             .collect::<Vec<_>>()
             .try_into()
             .expect("the number of nodes and envs should be equal to BATCH_SIZE")

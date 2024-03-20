@@ -73,12 +73,8 @@ fn main() {
 
     let mut batched_mcts = BatchedMCTS::new(&mut rng);
     let betas: [f32; BATCH_SIZE] = std::array::from_fn(|i| {
-        if cfg!(feature = "exploration") {
-            if i < BATCH_SIZE / 2 {
-                0.5
-            } else {
-                0.0
-            }
+        if cfg!(feature = "exploration") && i < BATCH_SIZE / 2 {
+            0.5
         } else {
             0.0
         }
@@ -122,14 +118,14 @@ fn main() {
         );
 
         // One simulation batch to initialize root policy if it has not been done yet.
-        batched_mcts.simulate_with_exploration(&net, &betas, WEIGHTED_RANDOM_PLIES);
+        batched_mcts.simulate(&net, &betas);
 
         // Apply noise.
         batched_mcts.apply_noise(&mut rng, NOISE_ALPHA, NOISE_RATIO);
 
         // Search.
         for _ in 0..VISITS {
-            batched_mcts.simulate_with_exploration(&net, &betas, WEIGHTED_RANDOM_PLIES);
+            batched_mcts.simulate(&net, &betas);
         }
 
         let selected_actions =
@@ -254,23 +250,14 @@ fn restart_envs_and_complete_targets(
         .zip(betas)
         .for_each(|((terminal_and_replay, policy_targets), beta)| {
             if let Some((terminal, replay)) = terminal_and_replay {
-                #[cfg(feature = "exploration")]
-                if *beta > 0.0 {
-                    exploration_replays.push(Replay {
-                        env: replay.env.clone(),
-                        actions: replay
-                            .actions
-                            .iter()
-                            .copied()
-                            .take(WEIGHTED_RANDOM_PLIES as usize)
-                            .collect(),
-                    });
+                if cfg!(feature = "exploration") && *beta > 0.0 {
+                    exploration_replays.push(replay.clone());
                 }
                 finished_replays.push(replay);
 
                 // Create targets.
                 let mut value = Eval::from(terminal);
-                let mut ube_window = VecDeque::with_capacity(UBE_TARGET_WINDOW);
+                let mut ube_window = VecDeque::from([NotNan::default(); UBE_TARGET_WINDOW]);
                 for IncompleteTarget {
                     env,
                     policy,
@@ -283,20 +270,14 @@ fn restart_envs_and_complete_targets(
                     }
                     ube_window.push_front(root_ube_metric);
 
-                    // Take average of window. (TODO: When adding back, make sure to only add
-                    // non-zero UBE to window.)
-                    // let average_std_dev =
-                    // ube_window.iter().map(|ube| ube.sqrt()).sum::<f32>()
-                    //     / (ube_window.len() + 1) as f32;
-
                     // Apply discount.
                     ube_window
                         .iter_mut()
                         .for_each(|ube| *ube *= DISCOUNT_FACTOR * DISCOUNT_FACTOR);
 
                     value = value.negate();
-                    // The ply check is there because lower plies do exploration.
-                    if *beta == 0.0 || env.ply >= WEIGHTED_RANDOM_PLIES {
+                    // Only generate targets from non-exploratory episodes.
+                    if *beta == 0.0 {
                         targets.push(Target {
                             env,
                             value: f32::from(value),

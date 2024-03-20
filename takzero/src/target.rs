@@ -138,7 +138,7 @@ pub fn policy_target_from_proportional_visits<E: Environment>(
         .collect()
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Replay<E: Environment> {
     pub env: E,
     pub actions: VecDeque<E::Action>,
