@@ -250,7 +250,8 @@ fn restart_envs_and_complete_targets(
         .zip(betas)
         .for_each(|((terminal_and_replay, policy_targets), beta)| {
             if let Some((terminal, replay)) = terminal_and_replay {
-                if cfg!(feature = "exploration") && *beta > 0.0 {
+                #[cfg(feature = "exploration")]
+                if *beta > 0.0 {
                     exploration_replays.push(replay.clone());
                 }
                 finished_replays.push(replay);
