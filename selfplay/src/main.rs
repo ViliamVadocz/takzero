@@ -74,10 +74,8 @@ fn main() {
     let mut batched_mcts = BatchedMCTS::new(&mut rng);
     let betas: [f32; BATCH_SIZE] = std::array::from_fn(|i| {
         if cfg!(feature = "exploration") {
-            if i < BATCH_SIZE / 4 {
+            if i < BATCH_SIZE / 2 {
                 0.5
-            } else if i < BATCH_SIZE / 2 {
-                0.05
             } else {
                 0.0
             }
