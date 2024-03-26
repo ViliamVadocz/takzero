@@ -40,12 +40,14 @@ impl<E: Environment> Default for Node<E> {
 
 impl<E: Environment> Node<E> {
     #[must_use]
-    pub fn from_logit_and_probability_and_parent_std_dev(
+    pub fn from_logit_and_probability_and_parent_value_and_std_dev(
         logit: NotNan<f32>,
         probability: NotNan<f32>,
+        evaluation: Eval,
         std_dev: NotNan<f32>,
     ) -> Self {
         Self {
+            evaluation,
             logit,
             probability,
             std_dev,

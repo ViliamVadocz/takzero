@@ -207,9 +207,10 @@ impl<E: Environment> Node<E> {
                      }| {
                         (
                             action,
-                            Self::from_logit_and_probability_and_parent_std_dev(
+                            Self::from_logit_and_probability_and_parent_value_and_std_dev(
                                 logit,
                                 probability,
+                                self.evaluation,
                                 self.std_dev,
                             ),
                         )
