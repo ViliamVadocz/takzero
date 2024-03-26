@@ -17,6 +17,11 @@ pub trait Environment: Send + Sync + Clone + Default {
     fn steps(&self) -> u16;
 
     fn new_opening(rng: &mut impl Rng, actions: &mut Vec<Self::Action>) -> Self;
+    fn new_opening_with_random_steps(
+        rng: &mut impl Rng,
+        actions: &mut Vec<Move>,
+        steps: usize,
+    ) -> Self;
 }
 
 pub enum Terminal {
@@ -71,6 +76,19 @@ where
             env.step(Move::new(sym_square, MoveKind::Place(Piece::Flat)));
         }
         env
+    }
+
+    fn new_opening_with_random_steps(
+        rng: &mut impl Rng,
+        actions: &mut Vec<Move>,
+        steps: usize,
+    ) -> Self {
+        let mut game = Self::new_opening(rng, actions);
+        for _ in 0..steps {
+            game.populate_actions(actions);
+            game.step(actions.drain(..).choose(rng).unwrap());
+        }
+        game
     }
 }
 
@@ -152,6 +170,14 @@ pub mod safecrack {
         }
 
         fn new_opening(_rng: &mut impl rand::prelude::Rng, _actions: &mut Vec<Option<u8>>) -> Self {
+            unimplemented!("not necessary for the test");
+        }
+
+        fn new_opening_with_random_steps(
+            _rng: &mut impl rand::prelude::Rng,
+            _actions: &mut Vec<fast_tak::takparse::Move>,
+            _steps: usize,
+        ) -> Self {
             unimplemented!("not necessary for the test");
         }
     }

@@ -100,7 +100,10 @@ fn real_main() {
         let name_b = path_b.file_name().unwrap().to_string_lossy().to_string();
 
         let mut actions = Vec::new();
-        let games: [Env; BATCH_SIZE] = array::from_fn(|_| Env::new_opening(&mut rng, &mut actions));
+        let games: [Env; BATCH_SIZE] = array::from_fn(|_| {
+            let steps = rng.gen_range(2..=3);
+            Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
+        });
 
         let a_as_white = compete(&a, &b, &games);
         log::info!(
