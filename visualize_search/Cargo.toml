@@ -1,0 +1,14 @@
+[package]
+name = "visualize_search"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tch.workspace = true
+takzero.workspace = true
+fast-tak.workspace = true
+rand.workspace = true
+macroquad = "0.4.5"
+
+[lints]
+workspace = true
