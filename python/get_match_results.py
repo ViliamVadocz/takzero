@@ -22,7 +22,7 @@ for path in files:
     with open(SAVE_FILE, "a") as file:
         file.writelines(
             # f"{int(x[1])}, {int(x[2])}, {x[3]}, {x[4]}, {x[5]}\n"
-            f"{x[1]}_{int(x[2])}, {x[3]}_{int(x[4])}, {x[5]}, {x[6]}, {x[7]}\n"
+            f"{x[1]}, {int(x[2])}, {x[3]}, {int(x[4])}, {x[5]}, {x[6]}, {x[7]}\n"
             # f"{x[1]}, {x[2]}, {x[3]}, {x[4]}, {x[5]}\n"
             for x in re.finditer(PATTERN, contents)
         )
