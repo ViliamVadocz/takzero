@@ -110,7 +110,7 @@ pub const C_SCALE: f32 = 0.1; // Paper used 1, but 0.1 solves tests
 #[must_use]
 #[allow(clippy::suboptimal_flops)]
 pub fn sigma(q: NotNan<f32>, variance: NotNan<f32>, beta: f32, visit_count: f32) -> NotNan<f32> {
-    (q + variance.sqrt() * beta) * (C_VISIT + visit_count) * C_SCALE
+    (q + variance.sqrt() * beta) * (C_VISIT + (visit_count + 1.0).log2()) * C_SCALE
 }
 
 const EXPLORATION_BASE: f32 = 500.0;
