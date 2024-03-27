@@ -43,11 +43,11 @@ impl<E: Environment> Node<E> {
     pub fn from_logit_and_probability_and_parent_value_and_std_dev(
         logit: NotNan<f32>,
         probability: NotNan<f32>,
-        evaluation: Eval,
+        evaluation: NotNan<f32>,
         std_dev: NotNan<f32>,
     ) -> Self {
         Self {
-            evaluation,
+            evaluation: Eval::new_not_nan_value(-evaluation),
             logit,
             probability,
             std_dev,
