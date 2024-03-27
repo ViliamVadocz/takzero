@@ -33,7 +33,7 @@ struct Args {
     tps: Option<Tps>,
 }
 
-use rand::prelude::*;
+// use rand::prelude::*;
 
 fn main() {
     let args = Args::parse();

@@ -6,7 +6,7 @@ use clap::Parser;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
-        net4_big::{Env, Net},
+        net5::{Env, Net},
         Network,
     },
     search::{

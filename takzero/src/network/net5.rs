@@ -12,10 +12,7 @@ use super::{
     Network,
     RndNetwork,
 };
-use crate::{
-    network::repr::output_size,
-    search::{agent::Agent, SERIES_DISCOUNT},
-};
+use crate::{network::repr::output_size, search::agent::Agent};
 
 pub const N: usize = 5;
 pub const HALF_KOMI: i8 = 4;
@@ -28,6 +25,7 @@ pub const MAXIMUM_VARIANCE: f64 = 4.0;
 #[derive(Debug)]
 pub struct Net {
     vs: nn::VarStore,
+    core: nn::SequentialT,
     policy_net: nn::SequentialT,
     value_net: nn::SequentialT,
     ube_net: nn::SequentialT,
@@ -44,7 +42,7 @@ struct Rnd {
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
-    const CORE_RES_BLOCKS: u32 = 10;
+    const CORE_RES_BLOCKS: u32 = 20;
     let mut core = nn::seq_t()
         .add(nn::conv2d(
             path / "input_conv2d",
@@ -75,7 +73,7 @@ fn core(path: &nn::Path) -> nn::SequentialT {
 }
 
 fn policy_net(path: &nn::Path) -> nn::SequentialT {
-    core(&(path / "core")).add(nn::conv2d(
+    nn::seq_t().add(nn::conv2d(
         path / "conv2d",
         FILTERS,
         output_channels::<N>() as i64,
@@ -89,7 +87,7 @@ fn policy_net(path: &nn::Path) -> nn::SequentialT {
 }
 
 fn value_net(path: &nn::Path) -> nn::SequentialT {
-    core(&(path / "core"))
+    nn::seq_t()
         .add(nn::conv2d(path / "conv2d", FILTERS, 1, 1, nn::ConvConfig {
             stride: 1,
             ..Default::default()
@@ -106,7 +104,7 @@ fn value_net(path: &nn::Path) -> nn::SequentialT {
 }
 
 fn ube_net(path: &nn::Path) -> nn::SequentialT {
-    core(&(path / "core"))
+    nn::seq_t()
         .add(nn::conv2d(path / "conv2d", FILTERS, 1, 1, nn::ConvConfig {
             stride: 1,
             ..Default::default()
@@ -119,16 +117,14 @@ fn ube_net(path: &nn::Path) -> nn::SequentialT {
             1,
             nn::LinearConfig::default(),
         ))
-        .add_fn(Tensor::exp)
 }
 
 fn rnd(path: &nn::Path) -> nn::SequentialT {
     const HIDDEN_LAYER: i64 = 1024;
     const OUTPUT: i64 = 512;
-    const RND_INPUT_SCALE: f64 = 50.0;
     nn::seq_t()
         .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
-        .add_fn(|x| RND_INPUT_SCALE * x / x.square().sum_dim_intlist(1, true, None))
+        .add_fn(|x| x / x.square().sum_dim_intlist(1, true, None))
         .add(nn::linear(
             path / "input_linear",
             input_size::<N>() as i64,
@@ -160,6 +156,7 @@ impl Network for Net {
         let vs = nn::VarStore::new(device);
         let root = vs.root();
         Self {
+            core: core(&(&root / "core")),
             policy_net: policy_net(&(&root / "policy")),
             value_net: value_net(&(&root / "value")),
             ube_net: ube_net(&(&root / "ube")),
@@ -185,9 +182,11 @@ impl Network for Net {
 
 impl RndNetwork for Net {
     fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor, Tensor) {
-        let policy = self.policy_net.forward_t(xs, train);
-        let value = self.value_net.forward_t(xs, train);
-        let ube = self.ube_net.forward_t(xs, train);
+        let core = self.core.forward_t(xs, train);
+        let policy = self.policy_net.forward_t(&core, train);
+        let value = self.value_net.forward_t(&core, train);
+        // Detached UBE so it does not mess with baseline
+        let ube = self.ube_net.forward_t(&core.detach(), train);
         (policy, value, ube)
     }
 
@@ -271,7 +270,8 @@ impl Agent<Env> for Net {
         // Uncertainty.
         let rnd_uncertainties = self.normalized_rnd(&xs);
         let uncertainties: Vec<_> = ube_uncertainties
-            .maximum(&(SERIES_DISCOUNT * rnd_uncertainties))
+            .exp() // Exponent because UBE prediction is log(variance)
+            .maximum(&rnd_uncertainties)
             .clamp(0.0, MAXIMUM_VARIANCE)
             .view([-1])
             .try_into()
