@@ -26,7 +26,7 @@ async fn main() {
         .unwrap()
         .into();
     // let net = Net::new(tch::Device::Cuda(0), Some(rng.gen()));
-    let net = Net::load("model_0650000.ot", tch::Device::Cuda(0)).unwrap();
+    let net = Net::load("directed-random-01.ot", tch::Device::Cuda(0)).unwrap();
     let mut node = Node::default();
 
     for _ in 0..VISITS {

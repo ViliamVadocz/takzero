@@ -1,4 +1,6 @@
 use std::{
+    // fs::OpenOptions,
+    // io::BufReader,
     io::{BufRead, Write},
     path::PathBuf,
 };
@@ -11,6 +13,7 @@ use takzero::{
         Network,
     },
     search::{env::Environment, node::Node},
+    // target::Replay,
 };
 use tch::Device;
 
@@ -30,13 +33,42 @@ struct Args {
     tps: Option<Tps>,
 }
 
+use rand::prelude::*;
+
 fn main() {
     let args = Args::parse();
 
     let agent = Net::load(args.model_path, DEVICE).unwrap();
+
+    // let mut rng = StdRng::seed_from_u64(123);
+    // let file = OpenOptions::new()
+    //     .read(true)
+    //     .open("directed-random-01-replays.txt")
+    //     .unwrap();
+    // let replays = BufReader::new(file)
+    //     .lines()
+    //     .filter_map(|line| line.ok()?.parse::<Replay<Env>>().ok())
+    //     .choose_multiple(&mut rng, 1000);
+
+    // for mut replay in replays {
+    //     replay.advance(rng.gen_range(0..replay.len()));
+    //     let env = replay.env;
+    //     let mut node = Node::default();
+    //     for _ in 0..100 {
+    //         node.simulate_simple(&agent, env.clone(), BETA);
+    //     }
+    //     println!(
+    //         "{}",
+    //         node.children
+    //             .iter()
+    //             .map(|(a, child)| format!("{a}:{},", child.visit_count))
+    //             .collect::<String>()
+    //     );
+    // }
+    // return;
+
     let mut env = args.tps.map(Env::from).unwrap_or_default();
     let mut node = Node::default();
-
     if let Some(visits) = args.example_visits {
         while env.terminal().is_none() {
             println!("tps: {}", Tps::from(env.clone()));
