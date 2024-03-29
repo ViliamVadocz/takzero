@@ -8,7 +8,7 @@ tch.workspace = true
 takzero.workspace = true
 fast-tak.workspace = true
 rand.workspace = true
-macroquad = "0.4.5"
+svg = "0.16.0"
 
 [lints]
 workspace = true
