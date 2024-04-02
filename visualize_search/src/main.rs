@@ -11,7 +11,7 @@ use takzero::{
         net4_big::{Env, Net},
         Network,
     },
-    search::node::Node,
+    search::{env::Environment, node::Node},
 };
 
 const BETA: f32 = 0.0;
@@ -24,7 +24,7 @@ fn main() {
     let mut rng = StdRng::seed_from_u64(123);
     // let mut actions = vec![];
     // let game = Env::new_opening(&mut rng, &mut actions);
-    let game: Env = "1,x,2,112S/x,12,1,1/2,x,1,x/2,x3 1 9"
+    let env: Env = "1,x,2,112S/x,12,1,1/2,x,1,x/2,x3 1 9"
         .parse::<Tps>()
         .unwrap()
         .into();
@@ -33,14 +33,14 @@ fn main() {
     let mut node = Node::default();
 
     for _ in 0..VISITS {
-        node.simulate_simple(&net, game.clone(), BETA);
+        node.simulate_simple(&net, env.clone(), BETA);
     }
 
     let mut document = Document::new()
         .set("viewBox", (-500, -500, 1000, 1000))
         .set("style", "background:black");
 
-    document = draw_tree(document, &node, 0.0, 0.0, 0.0, 2.0 * PI);
+    document = draw_tree(document, &node, &env, 0.0, 0.0, 0.0, 2.0 * PI);
 
     svg::save("tree.svg", &document).unwrap();
 }
@@ -53,6 +53,7 @@ fn opacity(visits: u32) -> f32 {
 fn draw_tree(
     mut document: Document,
     node: &Node<Env>,
+    env: &Env,
     x: f32,
     y: f32,
     min_angle: f32,
@@ -64,11 +65,12 @@ fn draw_tree(
             .set("cy", y)
             .set("r", CIRCLE_RADIUS)
             .set("fill", COLOR)
-            .set("opacity", opacity(node.visit_count())),
+            .set("opacity", opacity(node.visit_count()))
+            .set("tps", Tps::from(env.clone()).to_string()),
     );
 
     let angle_step = (max_angle - min_angle) / node.children.len() as f32;
-    for (i, (_, child)) in node.children.iter().enumerate() {
+    for (i, (action, child)) in node.children.iter().enumerate() {
         if child.visit_count() < 1 {
             continue;
         }
@@ -83,9 +85,20 @@ fn draw_tree(
                 .set("x2", x2)
                 .set("y2", y2)
                 .set("stroke", COLOR)
-                .set("opacity", opacity(child.visit_count())),
+                .set("opacity", opacity(child.visit_count()))
+                .set("action", action.to_string()),
         );
-        document = draw_tree(document, child, x2, y2, angle - PI / 4.0, angle + PI / 4.0);
+        let mut clone = env.clone();
+        clone.step(*action);
+        document = draw_tree(
+            document,
+            child,
+            &clone,
+            x2,
+            y2,
+            angle - PI / 4.0,
+            angle + PI / 4.0,
+        );
     }
     document
 }
