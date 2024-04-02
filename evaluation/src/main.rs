@@ -22,7 +22,7 @@ const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 64;
 const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const VISITS: usize = 400;
-const MAX_MOVES: usize = 80;
+const MAX_MOVES: usize = 200;
 
 #[derive(Parser, Debug)]
 struct Args {
