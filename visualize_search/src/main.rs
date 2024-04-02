@@ -3,7 +3,7 @@ use std::f32::consts::PI;
 use fast_tak::takparse::Tps;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use svg::{
-    node::element::{Circle, Line},
+    node::element::{Circle, Line, Script},
     Document,
 };
 use takzero::{
@@ -16,8 +16,8 @@ use takzero::{
 
 const BETA: f32 = 0.0;
 const VISITS: u32 = 1000;
-const ARM_LENGTH: f32 = 30.0;
-const CIRCLE_RADIUS: f32 = 2.5;
+const ARM_LENGTH: f32 = 40.0;
+const CIRCLE_RADIUS: f32 = 6.0;
 const COLOR: &str = "#8142f5";
 
 fn main() {
@@ -41,6 +41,10 @@ fn main() {
         .set("style", "background:black");
 
     document = draw_tree(document, &node, &env, 0.0, 0.0, 0.0, 2.0 * PI);
+    document = document.add(Script::new(r#"// <![CDATA[
+(()=>{const t={size:"sm",theme:"discord"},e=document.firstChild,s=+e.attributes.viewBox.value.split(" ")[1];let l;for(let n of e.children)if("circle"===n.nodeName){const r=n.attributes.tps.value,i=new URL("https://tps.ptn.ninja/png");for(let e in t)i.searchParams.append(e,t[e]);i.searchParams.append("tps",r),l&&i.searchParams.append("hl",l);const u=i.href,a=document.createElementNS("http://www.w3.org/2000/svg","image"),o=n.attributes.cx.value-125;let d=+n.attributes.cy.value;d<s+200?d+=+n.attributes.r.value:d-=+n.attributes.r.value+200,a.setAttributeNS(null,"width",250),a.setAttributeNS(null,"height",200),a.setAttributeNS(null,"x",o),a.setAttributeNS(null,"y",d),a.setAttributeNS(null,"style","pointer-events: none");let p=null;n.addEventListener("mouseover",(()=>{p&&clearTimeout(p),a.attributes.href||a.setAttributeNS(null,"href",u),e.appendChild(a)})),n.addEventListener("mouseout",(()=>{p=setTimeout((()=>{e.removeChild(a),p=null}),300)}))}else"line"===n.nodeName&&(l=n.attributes.action.value,n.setAttributeNS(null,"style","pointer-events: none"))})();
+// ]]>"#
+    ));
 
     svg::save("tree.svg", &document).unwrap();
 }
