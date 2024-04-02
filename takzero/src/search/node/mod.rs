@@ -115,20 +115,21 @@ impl<E: Environment> Node<E> {
     /// Panics if there are no children.
     #[must_use]
     pub fn select_best_action(&self) -> E::Action {
-        if self.evaluation.is_known() {
-            // The node is solved, pick the best action.
-            self.children
-                .iter()
-                .min_by_key(|(_, child)| child.evaluation)
-        } else {
+        let best_eval = self
+            .children
+            .iter()
+            .map(|(_, child)| child.evaluation)
+            .min()
+            .expect("there should be at least one child");
+        self.children
+            .iter()
+            // If the node is solved, filter for optimal actions.
+            .filter(|(_, child)| !self.evaluation.is_known() || child.evaluation == best_eval)
             // Select the action with the most visits.
-            self.children
-                .iter()
-                .max_by_key(|(_, child)| child.visit_count)
-        }
-        .expect("there should be at least one child")
-        .0
-        .clone()
+            .max_by_key(|(_, child)| child.visit_count)
+            .expect("there should be at least one child")
+            .0
+            .clone()
     }
 
     /// Return an action to use in selfplay.
@@ -143,12 +144,7 @@ impl<E: Environment> Node<E> {
     ) -> E::Action {
         if self.evaluation.is_known() {
             // The node is solved, pick the best action.
-            self.children
-                .iter()
-                .min_by_key(|(_, child)| child.evaluation)
-                .expect("there should be at least one child")
-                .0
-                .clone()
+            self.select_best_action()
         } else if proportional_sample {
             // Select an action randomly, proportional to visits.
             let weighted_index =
