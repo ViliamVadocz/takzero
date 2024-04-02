@@ -13,7 +13,7 @@ use charming::{
     Chart,
     HtmlRenderer,
 };
-use takzero::{network::net4::Env, search::env::Environment, target::Replay};
+use takzero::{network::net5::Env, search::env::Environment, target::Replay};
 
 fn main() {
     let chart = Chart::new()
@@ -29,30 +29,20 @@ fn main() {
         .grid(Grid::new())
         .legend(
             Legend::new()
-                .data(vec![
-                    "undirected-random",
-                    "directed-random",
-                    "directed-random-new",
-                ])
+                .data(vec!["undirected-random", "directed-random"])
                 .bottom(10)
                 .left(10),
         )
         .series(
             Line::new()
-                .data(get_unique_positions("baseline.txt"))
+                .data(get_unique_positions("undirected.txt"))
                 .name("undirected-random")
                 .symbol(Symbol::None),
         )
         .series(
             Line::new()
-                .data(get_unique_positions("exploration.txt"))
+                .data(get_unique_positions("directed.txt"))
                 .name("directed-random")
-                .symbol(Symbol::None),
-        )
-        .series(
-            Line::new()
-                .data(get_unique_positions("new-beta.txt"))
-                .name("directed-random-new")
                 .symbol(Symbol::None),
         );
 
