@@ -86,9 +86,12 @@ fn main() {
     };
 
     // Load engine / model.
-    let Ok(net) = Net::load(model_path, tch::Device::Cuda(0)) else {
-        log::error!("model path should be valid and contain the correct model weights");
-        return;
+    let net = match Net::load(model_path, tch::Device::Cuda(0)) {
+        Ok(net) => net,
+        Err(err) => {
+            log::error!("failed to load model: {}", err);
+            return;
+        }
     };
     println!("{}", Output::ReadyOk);
 
