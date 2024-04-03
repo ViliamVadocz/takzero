@@ -48,4 +48,4 @@ Worked:
 - Stable (2.1.2), CUDA 11.8, Pre-cxx11 ABI
 
 Did **not** work:
-- TODO
+- Stable (2.2.2), CUDA 11.8, Pre-cxx11 ABI
