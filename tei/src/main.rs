@@ -189,11 +189,15 @@ fn go(net: &Net, env: &Env, node: &mut Node<Env>, go_options: Vec<GoOption>) {
         let elapsed = start.elapsed();
 
         if visits % NODES_PER_INFO == 0 {
-            println!("{}", Output::Info {
-                time: elapsed,
-                nodes: visits,
-                score: node.evaluation,
-            });
+            println!(
+                "{}",
+                Output::Info {
+                    time: elapsed,
+                    nodes: visits,
+                    score: node.evaluation,
+                    principal_variation: node.principal_variation().collect(),
+                }
+            );
         }
 
         if nodes.is_some_and(|amount| visits >= amount)

@@ -175,6 +175,7 @@ pub enum Output {
         time: Duration,
         nodes: usize,
         score: Eval,
+        principal_variation: Vec<Move>,
     },
 }
 
@@ -235,15 +236,27 @@ impl fmt::Display for Output {
             Self::Ok => write!(f, "teiok"),
             Self::ReadyOk => write!(f, "readyok"),
             Self::BestMove(the_move) => write!(f, "bestmove {the_move}"),
-            Self::Info { time, nodes, score } => {
+            Self::Info {
+                time,
+                nodes,
+                score,
+                principal_variation,
+            } => {
                 let centipawns = (f32::from(*score) * 100.0) as i32;
                 write!(
                     f,
-                    "info time {} nodes {nodes} score {centipawns}",
-                    time.as_millis()
+                    "info time {} nodes {nodes} nps {}",
+                    time.as_millis(),
+                    1000 * nodes / time.as_millis() as usize,
                 )?;
                 if let Some(ply) = score.ply() {
-                    write!(f, " mate {ply}")?;
+                    write!(f, " score mate {ply}")?;
+                } else {
+                    write!(f, " score cp {centipawns}")?;
+                }
+                write!(f, " pv")?;
+                for mv in principal_variation {
+                    write!(f, " {mv}")?;
                 }
                 Ok(())
             }

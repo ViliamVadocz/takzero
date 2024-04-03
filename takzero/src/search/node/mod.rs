@@ -38,6 +38,30 @@ impl<E: Environment> Default for Node<E> {
     }
 }
 
+struct PrincipalVariation<'a, E: Environment> {
+    node: &'a Node<E>,
+}
+
+impl<'a, E: Environment> Iterator for PrincipalVariation<'a, E> {
+    type Item = E::Action;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.node.needs_initialization() {
+            return None;
+        }
+        let best_action = self.node.select_best_action();
+        let (_, best_child) = self
+            .node
+            .children
+            .iter()
+            .find(|(action, _)| *action == best_action)
+            .expect("Best action not found among node's children");
+
+        self.node = best_child;
+        Some(best_action.clone())
+    }
+}
+
 impl<E: Environment> Node<E> {
     #[must_use]
     pub fn from_logit_and_probability_and_parent_value_and_std_dev(
@@ -59,6 +83,12 @@ impl<E: Environment> Node<E> {
     #[must_use]
     pub const fn needs_initialization(&self) -> bool {
         self.children.is_empty()
+    }
+
+    /// Returns an iterator over the Principal Variation of the search tree
+    #[must_use]
+    pub fn principal_variation<'a>(&'a self) -> impl Iterator<Item = E::Action> + 'a {
+        PrincipalVariation { node: self }
     }
 
     /// Descend in the tree, replacing the root the sub-tree for a given action.
