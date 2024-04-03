@@ -35,7 +35,7 @@ def highest_value_plus_uncertainty(xs):
 def choice_with_highest_value_plus_uncertainty(xs):
     return max(
         [x for x in xs if int(x[1]) > 0],
-        key=lambda x: to_value(x[2]) + BETA * float(x[3]),
+        key=lambda x: -to_value(x[2]) + BETA * float(x[3]),
     )[0]
 
 
