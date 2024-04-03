@@ -4,7 +4,7 @@ use ordered_float::NotNan;
 
 use super::{
     super::{env::Environment, eval::Eval},
-    policy::upper_confidence_bound,
+    policy::upper_confidence_bound_with_predictor,
     Node,
 };
 
@@ -48,7 +48,7 @@ impl<E: Environment> Node<E> {
                 logit: child.logit,
                 probability: child.probability,
                 improved_policy,
-                puct: upper_confidence_bound(
+                puct: upper_confidence_bound_with_predictor(
                     self.visit_count as f32,
                     child.visit_count as f32,
                     child.probability.into_inner(),

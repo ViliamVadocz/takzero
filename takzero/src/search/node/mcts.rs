@@ -24,6 +24,7 @@ use super::{
     policy::softmax,
     Node,
 };
+use crate::search::node::policy::upper_confidence_bound;
 
 /// Return value from [`Node::forward`] indicating if the evaluation is known
 /// or if it needs to be propagated.
@@ -110,6 +111,7 @@ impl<E: Environment> Node<E> {
         debug_assert!(trajectory.is_empty());
         let mut node = self;
 
+        let mut depth = 0;
         loop {
             node.visit_count += 1;
             #[cfg(feature = "virtual")]
@@ -131,11 +133,38 @@ impl<E: Environment> Node<E> {
             }
 
             // TODO: replace with .select_with_improved_policy() later
-            let index = node.select_with_puct(beta);
+            let index = if depth > 0 {
+                node.select_with_puct(beta)
+            } else {
+                const SAMPLED_N: usize = 8;
+                // TEMPORARY HACK TO DO CONSTRAINED SEARCH ON TOP POLICY MOVES.
+                let mut probabilities: Vec<_> = node
+                    .children
+                    .iter()
+                    .map(|(a, child)| (child.probability, a))
+                    .collect();
+                probabilities.sort_by_key(|(p, _)| *p);
+                probabilities.drain(..probabilities.len().saturating_sub(SAMPLED_N));
+                let parent_visit_count = node.visit_count as f32;
+                // EUCT
+                node.children
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (a, _))| probabilities.iter().map(|(_, b)| b).any(|b| a == *b))
+                    .max_by_key(|(_, (_, child))| {
+                        let q = child.q_value();
+                        let uct =
+                            upper_confidence_bound(parent_visit_count, child.visit_count as f32);
+                        q + uct + child.std_dev * beta
+                    })
+                    .map(|(i, _)| i)
+                    .expect("there should always be a child to simulate")
+            };
             trajectory.push(index);
             let (action, child) = &mut node.children[index];
             env.step(action.clone());
             node = child;
+            depth += 1;
         }
     }
 
