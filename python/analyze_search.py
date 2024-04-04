@@ -55,29 +55,21 @@ print("beta_uniform", how_many_picked_highest_uncertainty(beta_uniform))
 print("top_5", how_many_picked_highest_uncertainty(top_5))
 print("top_8_no_uniform", how_many_picked_highest_uncertainty(top_8_no_uniform))
 
-plt.hist(
-    [highest_value_plus_uncertainty(xs) for xs in baseline],
+plt.plot(
+    sorted(highest_value_plus_uncertainty(xs) for xs in baseline),
     label="baseline",
-    bins=[i / 25 for i in range(50)],
-    alpha=0.8,
 )
-plt.hist(
-    [highest_value_plus_uncertainty(xs) for xs in beta_uniform],
+plt.plot(
+    sorted(highest_value_plus_uncertainty(xs) for xs in beta_uniform),
     label="beta-uniform",
-    bins=[i / 25 for i in range(50)],
-    alpha=0.8,
 )
-plt.hist(
-    [highest_value_plus_uncertainty(xs) for xs in top_5],
+plt.plot(
+    sorted(highest_value_plus_uncertainty(xs) for xs in top_5),
     label="top5",
-    bins=[i / 25 for i in range(50)],
-    alpha=0.8,
 )
-plt.hist(
-    [highest_value_plus_uncertainty(xs) for xs in top_8_no_uniform],
+plt.plot(
+    sorted(highest_value_plus_uncertainty(xs) for xs in top_8_no_uniform),
     label="top8-no-uniform",
-    bins=[i / 25 for i in range(50)],
-    alpha=0.8,
 )
 plt.legend()
 plt.grid()
@@ -91,11 +83,11 @@ for base, beta_uni, t5, t8_no_uni in zip(
 ):
     assert len(base) == len(beta_uni) == len(t5) == len(t8_no_uni)
 
-    for _ in range(100):
-        picks = [sampled(base), sampled(beta_uni), sampled(t5), sampled(t8_no_uni)]
-        for x, a in enumerate(picks):
-            for y, b in enumerate(picks):
-                if a == b:
-                    same[x][y] += 1
+    # for _ in range(100):
+    picks = [picked(base), picked(beta_uni), picked(t5), picked(t8_no_uni)]
+    for x, a in enumerate(picks):
+        for y, b in enumerate(picks):
+            if a == b:
+                same[x][y] += 1
 
 print(same)
