@@ -75,11 +75,6 @@ impl<E: Environment> Node<E> {
     ///
     /// Panics if there are no children.
     pub fn select_with_puct(&mut self, beta: f32) -> usize {
-        /// Uniform distribution is added to policy with this ratio
-        /// when beta is non-zero.
-        const UNIFORM_RATIO: f32 = 0.0;
-        let uniform = 1.0 / self.children.len() as f32;
-
         let parent_visit_count = self.visit_count as f32;
         self.children
             .iter()
@@ -87,15 +82,10 @@ impl<E: Environment> Node<E> {
             .filter(|(_, (_, child))| self.evaluation.is_loss() || !child.evaluation.is_win())
             .max_by_key(|(_, (_, child))| {
                 let q = child.q_value();
-                let probability = if beta > 0.0 {
-                    child.probability * (1.0 - UNIFORM_RATIO) + uniform * UNIFORM_RATIO
-                } else {
-                    child.probability
-                };
                 let puct = upper_confidence_bound_with_predictor(
                     parent_visit_count,
                     child.visit_count as f32,
-                    probability.into_inner(),
+                    child.probability.into_inner(),
                 );
                 q + puct + child.std_dev * beta
             })
