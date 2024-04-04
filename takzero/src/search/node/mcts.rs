@@ -111,6 +111,7 @@ impl<E: Environment> Node<E> {
         debug_assert!(trajectory.is_empty());
         let mut node = self;
 
+        let mut depth = 0;
         loop {
             node.visit_count += 1;
             #[cfg(feature = "virtual")]
@@ -131,8 +132,8 @@ impl<E: Environment> Node<E> {
                 break Forward::NeedsNetwork(env);
             }
 
-            let index = {
-                const SAMPLED_N: usize = 8;
+            let index = if beta > 0.0 && depth == 0 {
+                const SAMPLED_N: usize = 16;
                 // TEMPORARY HACK TO DO CONSTRAINED SEARCH ON TOP POLICY MOVES.
                 let mut probabilities: Vec<_> = node
                     .children
@@ -155,11 +156,14 @@ impl<E: Environment> Node<E> {
                     })
                     .map(|(i, _)| i)
                     .expect("there should always be a child to simulate")
+            } else {
+                node.select_with_puct(beta)
             };
             trajectory.push(index);
             let (action, child) = &mut node.children[index];
             env.step(action.clone());
             node = child;
+            depth += 1;
         }
     }
 
