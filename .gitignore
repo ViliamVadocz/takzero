@@ -8,7 +8,6 @@ target/
 *.db
 *.exe
 *.ot
-*.txt
 
 _data/
 out/
