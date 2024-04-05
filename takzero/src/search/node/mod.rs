@@ -86,8 +86,7 @@ impl<E: Environment> Node<E> {
     }
 
     /// Returns an iterator over the Principal Variation of the search tree
-    #[must_use]
-    pub fn principal_variation<'a>(&'a self) -> impl Iterator<Item = E::Action> + 'a {
+    pub fn principal_variation(&self) -> impl Iterator<Item = E::Action> + '_ {
         PrincipalVariation { node: self }
     }
 
