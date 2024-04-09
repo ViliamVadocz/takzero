@@ -348,15 +348,17 @@ def get_game_lengths(replay_path):
         ]
 
 
-def plot_all_game_lengths(replay_path):
-    plt.hist(get_game_lengths(replay_path), bins=[x for x in range(130)], density=True)
+def plot_all_game_lengths(replay_path, max_len=140):
+    plt.hist(
+        get_game_lengths(replay_path), bins=[x for x in range(max_len)], density=True
+    )
     plt.title("Histogram of Game Length")
     plt.xlabel("Game Plies (Half-Moves)")
     plt.ylabel("Density")
     plt.show()
 
 
-def plot_all_game_lengths_per_color(replay_path, max_len=130):
+def plot_all_game_lengths_per_color(replay_path, max_len=140):
     game_lengths = get_game_lengths(replay_path)
     plt.hist(
         [l for l in game_lengths if l % 2 == 1],
@@ -491,8 +493,8 @@ if __name__ == "__main__":
         case ["ube-bf", path]:
             plot_ube_vs_bf(path)
         case ["game-stats", path]:
-            plot_all_game_lengths(path)
-            plot_all_game_lengths_per_color(path, max_len=80)
+            plot_all_game_lengths(path, max_len=130)
+            plot_all_game_lengths_per_color(path, max_len=130)
             plot_win_rate(get_wins(path), 1000)
         case ["wins-split", path, ply]:
             max_ply = 100
