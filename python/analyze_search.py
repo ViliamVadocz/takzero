@@ -1,7 +1,8 @@
+import os
 from numpy.random import choice
 import matplotlib.pyplot as plt
 
-BETA = 0.5
+BETA = 0.0
 
 
 def load(path):
@@ -11,7 +12,7 @@ def load(path):
 
 
 def picked(xs):
-    return max(xs, key=lambda x: int(x[1]))[0]
+    return max(xs, key=lambda x: int(x[1]))
 
 
 def sampled(xs):
@@ -36,7 +37,12 @@ def choice_with_highest_value_plus_uncertainty(xs):
     return max(
         [x for x in xs if int(x[1]) > 0],
         key=lambda x: -to_value(x[2]) + BETA * float(x[3]),
-    )[0]
+    )
+
+
+def picked_value_plus_uncertainty(xs):
+    p = picked(xs)
+    return -to_value(p[2]) + BETA * float(p[3])
 
 
 def how_many_picked_highest_uncertainty(xss):
@@ -45,49 +51,40 @@ def how_many_picked_highest_uncertainty(xss):
     )
 
 
-baseline = load("runs/baseline.txt")
-beta_uniform = load("runs/beta_uniform.txt")
-top_5 = load("runs/constrained_top_5_with_beta.txt")
-top_8_no_uniform = load("runs/constrained_top_8_with_beta_no_uniform.txt")
+runs = [(f[:-4], load(os.path.join("runs", f))) for f in os.listdir("runs")]
 
-print("baseline", how_many_picked_highest_uncertainty(baseline))
-print("beta_uniform", how_many_picked_highest_uncertainty(beta_uniform))
-print("top_5", how_many_picked_highest_uncertainty(top_5))
-print("top_8_no_uniform", how_many_picked_highest_uncertainty(top_8_no_uniform))
+print("how often was the most visited action the one that maximizes value+beta*std_dev")
+for name, run in runs:
+    print("-", name, ":", how_many_picked_highest_uncertainty(run))
 
-plt.plot(
-    sorted(highest_value_plus_uncertainty(xs) for xs in baseline),
-    label="baseline",
-)
-plt.plot(
-    sorted(highest_value_plus_uncertainty(xs) for xs in beta_uniform),
-    label="beta-uniform",
-)
-plt.plot(
-    sorted(highest_value_plus_uncertainty(xs) for xs in top_5),
-    label="top5",
-)
-plt.plot(
-    sorted(highest_value_plus_uncertainty(xs) for xs in top_8_no_uniform),
-    label="top8-no-uniform",
-)
+for name, run in runs:
+    plt.plot(sorted(highest_value_plus_uncertainty(xs) for xs in run), label=name)
 plt.legend()
 plt.grid()
-plt.ylabel("value + beta * uncertainty")
+plt.title("sorted highest value")
 plt.show()
 
-same = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+for name, run in runs:
+    plt.plot(
+        sorted(picked_value_plus_uncertainty(xs) for xs in run),
+        label=name,
+    )
+plt.legend()
+plt.grid()
+plt.title("sorted picked value+beta*std_dev")
+plt.show()
 
-for base, beta_uni, t5, t8_no_uni in zip(
-    baseline, beta_uniform, top_5, top_8_no_uniform
-):
-    assert len(base) == len(beta_uni) == len(t5) == len(t8_no_uni)
+picked_val = [
+    (name, [picked_value_plus_uncertainty(xs) for xs in run]) for name, run in runs
+]
+for name, run in picked_val:
+    plt.plot(
+        [k for _, k in sorted(enumerate(run), key=lambda t: picked_val[7][1][t[0]])],
+        label=name,
+    )
+plt.legend()
+plt.grid()
+plt.title("sorted (according to baseline) picked value+beta*std_dev")
+plt.show()
 
-    # for _ in range(100):
-    picks = [picked(base), picked(beta_uni), picked(t5), picked(t8_no_uni)]
-    for x, a in enumerate(picks):
-        for y, b in enumerate(picks):
-            if a == b:
-                same[x][y] += 1
-
-print(same)
+[0]
