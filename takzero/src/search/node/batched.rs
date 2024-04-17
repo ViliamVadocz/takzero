@@ -1,4 +1,7 @@
+use std::cmp::Reverse;
+
 use rand::Rng;
+use rand_distr::{Distribution, Gumbel};
 
 use super::Node;
 use crate::{
@@ -7,7 +10,7 @@ use crate::{
         env::{Environment, Terminal},
         node::{
             mcts::{ActionPolicy, Forward},
-            policy::softmax,
+            policy::{sigma, softmax},
         },
     },
     target::Replay,
@@ -196,5 +199,96 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
                 }
                 terminal.map(|t| (t, std::mem::replace(replay, Replay::new(env.clone()))))
             })
+    }
+
+    #[allow(clippy::missing_panics_doc)]
+    pub fn gumbel_sequential_halving<A: Agent<E>>(
+        &mut self,
+        agent: &A,
+        betas: &[f32],
+        sampled_actions: usize,
+        search_budget: u32,
+        rng: &mut impl Rng,
+    ) -> [E::Action; BATCH_SIZE] {
+        assert!(sampled_actions > 0, "At least one action must be sampled");
+        assert!(
+            search_budget / sampled_actions.ilog2() / sampled_actions as u32 > 0,
+            "The search budget should be higher"
+        );
+
+        // Do a single batched step to make sure all roots are initialized.
+        self.simulate(agent, betas);
+
+        // Generate Gumbel noise.
+        let gumbel_distr = Gumbel::new(0.0, 1.0).unwrap();
+        let mut gumbel_noise = gumbel_distr.sample_iter(rng);
+
+        // Sample actions based on logits + Gumbel noise.
+        let mut selected_sets: Vec<Vec<_>> = self
+            .nodes
+            .iter_mut()
+            .map(|node| {
+                let mut selected_set: Vec<_> = node
+                    .children
+                    .iter_mut()
+                    .zip(gumbel_noise.by_ref())
+                    .map(|((a, child), gumbel_noise)| (child.logit + gumbel_noise, a, child))
+                    .collect();
+                selected_set.sort_by_key(|(x, ..)| Reverse(*x));
+                selected_set.truncate(sampled_actions);
+                selected_set
+            })
+            .collect();
+
+        let steps = sampled_actions.ilog2();
+        let visits_per_step = search_budget / steps;
+        let mut visits_to_parent = 0;
+        let mut remaining_actions = sampled_actions;
+
+        for _ in 0..steps {
+            let visits_per_action = visits_per_step / remaining_actions as u32;
+
+            for i in 0..remaining_actions {
+                for _ in 0..visits_per_action {
+                    // TODO: forward, backward; ith action from each set forms a batch.
+                    // TODO: Maybe create new function that takes an iterator over nodes and rewrite
+                    // this and simulate() to use it.
+                    todo!("{i}");
+                }
+            }
+
+            visits_to_parent += visits_per_step;
+            remaining_actions /= 2;
+
+            // Halve the number of actions.
+            for (selected_set, &beta) in selected_sets.iter_mut().zip(betas) {
+                selected_set.sort_by_key(|(logits_plus_gumbel, _, child)| {
+                    Reverse(
+                        logits_plus_gumbel
+                            + sigma(
+                                child.evaluation.negate().into(),
+                                child.std_dev,
+                                beta,
+                                visits_to_parent as f32,
+                            ),
+                    )
+                });
+                selected_set.truncate(remaining_actions);
+            }
+        }
+
+        selected_sets
+            .into_iter()
+            .map(|mut selected_set| {
+                assert_eq!(
+                    selected_set.len(),
+                    1,
+                    "After sequential halving, every set should have exactly 1 action left"
+                );
+                selected_set.pop().unwrap().1.clone()
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap()
     }
 }
