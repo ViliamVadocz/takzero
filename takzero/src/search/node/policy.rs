@@ -34,6 +34,7 @@ impl<E: Environment> Node<E> {
     ///
     /// Panics if the evaluation is NaN.
     pub fn improved_policy(&self) -> impl Iterator<Item = NotNan<f32>> + '_ {
+        let most_visited_count = self.most_visited_count();
         let p = self.children.iter().map(move |(_, node)| -> NotNan<f32> {
             let completed_value = if node.needs_initialization() {
                 self.evaluation
@@ -41,7 +42,7 @@ impl<E: Environment> Node<E> {
                 node.evaluation.negate()
             }
             .into();
-            sigma(completed_value, node.std_dev, 0.0, node.visit_count as f32) + node.logit
+            sigma(completed_value, node.std_dev, 0.0, most_visited_count) + node.logit
         });
 
         softmax(p)

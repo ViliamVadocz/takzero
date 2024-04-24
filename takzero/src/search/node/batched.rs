@@ -243,7 +243,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
 
         let steps = sampled_actions.ilog2();
         let visits_per_step = search_budget / steps;
-        let mut visits_to_parent = 0;
+        let mut visits_to_most_visited_action = 0;
         let mut remaining_actions = sampled_actions;
 
         for _ in 0..steps {
@@ -332,7 +332,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
                 }
             }
 
-            visits_to_parent += visits_per_step;
+            visits_to_most_visited_action += visits_per_step;
             remaining_actions /= 2;
 
             // Halve the number of actions.
@@ -344,7 +344,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
                                 child.evaluation.negate().into(),
                                 child.std_dev,
                                 beta,
-                                visits_to_parent as f32,
+                                visits_to_most_visited_action as f32,
                             ),
                     )
                 });
