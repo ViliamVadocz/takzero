@@ -201,6 +201,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
             })
     }
 
+    #[allow(clippy::too_many_lines)]
     #[allow(clippy::missing_panics_doc)]
     pub fn gumbel_sequential_halving<A: Agent<E>>(
         &mut self,
@@ -249,11 +250,85 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
             let visits_per_action = visits_per_step / remaining_actions as u32;
 
             for i in 0..remaining_actions {
+                let mut nodes_and_envs: Vec<_> = selected_sets
+                    .iter_mut()
+                    .zip(&self.envs)
+                    .map(|(set, env)| {
+                        let mut env = env.clone();
+                        env.step(set[i].1.clone());
+                        (&mut *set[i].2, env)
+                    })
+                    .collect();
                 for _ in 0..visits_per_action {
-                    // TODO: forward, backward; ith action from each set forms a batch.
-                    // TODO: Maybe create new function that takes an iterator over nodes and rewrite
-                    // this and simulate() to use it.
-                    todo!("{i}");
+                    // TODO: Refactor this and `simulate()` into one function.
+                    // =========================================================================================
+
+                    assert!(self.actions.iter().all(Vec::is_empty));
+                    assert!(self.trajectories.iter().all(Vec::is_empty));
+
+                    // Forward pass.
+                    let (batch, forward): (Vec<_>, Vec<_>) = nodes_and_envs
+                        .iter_mut()
+                        .zip(&mut self.actions)
+                        .zip(&mut self.trajectories)
+                        .zip(betas)
+                        .filter_map(|((((node, env), actions), trajectory), beta)| {
+                            match node.forward(trajectory, env.clone(), *beta) {
+                                Forward::Known(eval) => {
+                                    // If the result is known just propagate it now.
+                                    node.backward_known_eval(trajectory.drain(..), eval);
+                                    None
+                                }
+                                Forward::NeedsNetwork(env) => {
+                                    env.populate_actions(actions);
+                                    // We are taking the actions because we need owned Vecs.
+                                    Some((
+                                        (env, std::mem::take(actions)),
+                                        (node, trajectory, actions),
+                                    ))
+                                }
+                            }
+                        })
+                        .unzip();
+                    if batch.is_empty() {
+                        continue;
+                    }
+
+                    // Backward pass.
+                    let (env_batch, actions_batch): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
+                    let output = agent.policy_value_uncertainty(&env_batch, &actions_batch);
+                    forward
+                        .into_iter()
+                        .zip(
+                            #[allow(clippy::needless_collect)]
+                            output.collect::<Vec<_>>(),
+                        )
+                        .zip(actions_batch)
+                        .for_each(|((forward, output), mut moved_actions)| {
+                            let (node, trajectory, old_actions) = forward;
+                            let (policy, value, uncertainty) = output;
+
+                            // Calculate probabilities from logits.
+                            let probabilities = softmax(policy.clone().into_iter().map(|(_, p)| p));
+                            // Do backwards pass.
+                            node.backward_network_eval(
+                                trajectory.drain(..),
+                                policy.into_iter().zip(probabilities).map(
+                                    |((action, logit), probability)| ActionPolicy {
+                                        action,
+                                        logit,
+                                        probability,
+                                    },
+                                ),
+                                value,
+                                uncertainty,
+                            );
+                            // Restore old actions.
+                            moved_actions.clear();
+                            let _ = std::mem::replace(old_actions, moved_actions);
+                        });
+
+                    // =========================================================================================
                 }
             }
 
