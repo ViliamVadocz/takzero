@@ -80,6 +80,7 @@ fn main() {
                 Ok((_, reanalyze)) => reanalyze,
                 Err(err) => {
                     log::error!("Could not read buffer lengths: {err}");
+                    std::thread::sleep(std::time::Duration::from_secs(1));
                     continue;
                 }
             };
