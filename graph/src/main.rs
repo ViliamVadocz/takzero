@@ -29,7 +29,7 @@ fn main() {
         .grid(Grid::new())
         .legend(
             Legend::new()
-                .data(vec!["undirected-random", "directed-random"])
+                .data(vec!["undirected-random", "directed-random", "directed-random-top8"])
                 .bottom(10)
                 .left(10),
         )
@@ -43,6 +43,12 @@ fn main() {
             Line::new()
                 .data(get_unique_positions("directed.txt"))
                 .name("directed-random")
+                .symbol(Symbol::None),
+        )
+        .series(
+            Line::new()
+                .data(get_unique_positions("directed-top.txt"))
+                .name("directed-random-top8")
                 .symbol(Symbol::None),
         );
 
