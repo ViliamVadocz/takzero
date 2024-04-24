@@ -22,7 +22,7 @@ use takzero::{
         node::batched::BatchedMCTS,
         DISCOUNT_FACTOR,
     },
-    target::{policy_target_from_proportional_visits, Augment, Replay, Target},
+    target::{Augment, Replay, Target},
 };
 use tch::{Device, TchError};
 use thiserror::Error;
@@ -37,13 +37,15 @@ const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
-const VISITS: u32 = 800;
-const WEIGHTED_RANDOM_PLIES: u16 = 10;
-const NOISE_ALPHA: f32 = 0.05;
-const NOISE_RATIO: f32 = 0.2;
+// const WEIGHTED_RANDOM_PLIES: u16 = 10;
+// const NOISE_ALPHA: f32 = 0.05;
+// const NOISE_RATIO: f32 = 0.2;
 const UBE_TARGET_BETA: f32 = 0.5;
 const UBE_TARGET_WINDOW: usize = 20;
 const MAX_SELFPLAY_BUFFER_LEN: usize = 32_000;
+
+const SAMPLED_ACTIONS: usize = 16;
+const SEARCH_BUDGET: u32 = 640;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -118,19 +120,28 @@ fn main() {
             start.elapsed()
         );
 
-        // One simulation batch to initialize root policy if it has not been done yet.
-        batched_mcts.simulate(&net, &betas);
+        // // One simulation batch to initialize root policy if it has not been done
+        // yet. batched_mcts.simulate(&net, &betas);
 
-        // Apply noise.
-        batched_mcts.apply_noise(&mut rng, NOISE_ALPHA, NOISE_RATIO);
+        // // Apply noise.
+        // batched_mcts.apply_noise(&mut rng, NOISE_ALPHA, NOISE_RATIO);
 
-        // Search.
-        for _ in 0..VISITS {
-            batched_mcts.simulate(&net, &betas);
-        }
+        // // Search.
+        // for _ in 0..VISITS {
+        //     batched_mcts.simulate(&net, &betas);
+        // }
 
-        let selected_actions =
-            batched_mcts.select_actions_in_selfplay(&mut rng, WEIGHTED_RANDOM_PLIES);
+        // let selected_actions =
+        //     batched_mcts.select_actions_in_selfplay(&mut rng, WEIGHTED_RANDOM_PLIES);
+
+        let selected_actions = batched_mcts.gumbel_sequential_halving(
+            &net,
+            &betas,
+            SAMPLED_ACTIONS,
+            SEARCH_BUDGET,
+            &mut rng,
+        );
+
         // Log UBE statistics.
         batched_mcts
             .nodes_and_envs()
@@ -225,7 +236,11 @@ fn take_a_step(
         .for_each(|((node, env), policy_targets)| {
             policy_targets.push(IncompleteTarget {
                 env: env.clone(),
-                policy: policy_target_from_proportional_visits(node),
+                policy: node
+                    .improved_policy()
+                    .zip(node.children.iter())
+                    .map(|(p, (a, _))| (*a, p))
+                    .collect(), // policy_target_from_proportional_visits(node),
                 root_ube_metric: node.ube_target(UBE_TARGET_BETA),
             });
         });
