@@ -118,11 +118,17 @@ fn main() {
             }
             node.descend(&mov);
         } else {
-            let visits: u32 = trim.parse().unwrap_or(1);
-            println!("simulating {visits} visits");
-            for _ in 0..visits {
-                node.simulate_simple(&agent, env.clone(), BETA);
-            }
+            // let visits: u32 = trim.parse().unwrap_or(1);
+            // println!("simulating {visits} visits");
+            // for _ in 0..visits {
+            //     node.simulate_simple(&agent, env.clone(), BETA);
+            // }
+            let mut batched_mcts = BatchedMCTS::from_envs([env.clone()]);
+            let (bm_node, _) = batched_mcts.nodes_and_envs_mut().next().unwrap();
+            std::mem::swap(bm_node, &mut node);
+            batched_mcts.gumbel_sequential_halving(&agent, &[BETA], 32, 680, &mut rng);
+            let (bm_node, _) = batched_mcts.nodes_and_envs_mut().next().unwrap();
+            std::mem::swap(bm_node, &mut node);
         }
         println!("{node}");
     }
