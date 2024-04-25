@@ -212,9 +212,10 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
         rng: &mut impl Rng,
     ) -> [E::Action; BATCH_SIZE] {
         assert!(sampled_actions > 0, "At least one action must be sampled");
-        assert!(
-            search_budget / sampled_actions.ilog2() / sampled_actions as u32 > 0,
-            "The search budget should be higher"
+        assert_eq!(
+            search_budget % (sampled_actions.ilog2() * sampled_actions as u32),
+            0,
+            "The search budget should be a multiple of k*log2(k) for clean visits"
         );
 
         // Do a single batched step to make sure all roots are initialized.
@@ -255,6 +256,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
                     .zip(&self.envs)
                     .map(|(set, env)| {
                         let mut env = env.clone();
+                        let i: usize = i % set.len();
                         env.step(set[i].1.clone());
                         (&mut *set[i].2, env)
                     })
@@ -332,7 +334,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
                 }
             }
 
-            visits_to_most_visited_action += visits_per_step;
+            visits_to_most_visited_action += visits_per_action;
             remaining_actions /= 2;
 
             // Halve the number of actions.
