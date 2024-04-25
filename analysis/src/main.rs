@@ -24,7 +24,7 @@ use takzero::{
 use tch::Device;
 
 const DEVICE: Device = Device::Cuda(0);
-const BETA: f32 = 0.5;
+const BETA: f32 = 0.0;
 const BATCH_SIZE: usize = 128;
 
 #[derive(Parser, Debug)]
@@ -47,25 +47,26 @@ fn main() {
 
     let mut rng = StdRng::seed_from_u64(123);
     let file = OpenOptions::new().read(true).open("replays.txt").unwrap();
-    let replays = BufReader::new(file)
+    let env_batches = BufReader::new(file)
         .lines()
         .filter_map(|line| line.ok()?.parse::<Replay<Env>>().ok())
-        .choose_multiple(&mut rng, 1024);
-
-    let mut line = String::new();
-    for envs in replays
+        .choose_multiple(&mut rng, 1024)
         .into_iter()
         .map(|mut replay| {
             replay.advance(rng.gen_range(0..replay.len()));
             replay.env
         })
         .array_chunks::<BATCH_SIZE>()
-    {
+        .collect::<Vec<_>>();
+
+    let mut line = String::new();
+    for envs in env_batches {
         let mut batched_mcts = BatchedMCTS::from_envs(envs);
 
-        for _ in 0..800 {
-            batched_mcts.simulate(&agent, &[BETA; 128]);
-        }
+        // for _ in 0..800 {
+        //     batched_mcts.simulate(&agent, &[BETA; 128]);
+        // }
+        batched_mcts.gumbel_sequential_halving(&agent, &[BETA; 128], 64, 768, &mut rng);
 
         for (node, _) in batched_mcts.nodes_and_envs() {
             line.clear();
