@@ -115,10 +115,11 @@ impl<E: Environment> Node<E> {
     }
 }
 
+const SIGMA_SCALE: f32 = 0.5;
+
 #[must_use]
-#[allow(clippy::suboptimal_flops)]
 pub fn sigma(q: NotNan<f32>, std_dev: NotNan<f32>, beta: f32, visit_count: f32) -> NotNan<f32> {
-    (q + std_dev * beta) * visit_count.sqrt() // TODO
+    (q + std_dev * beta) * visit_count.sqrt() * SIGMA_SCALE
 }
 
 const EXPLORATION_BASE: f32 = 500.0;
