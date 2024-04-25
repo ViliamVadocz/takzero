@@ -7,12 +7,9 @@ BETA = 0.5
 
 
 def load(path):
-    try:
-        with open(path) as file:
-            lines = file.readlines()
-        return [[m.split(":") for m in line.split(",")[:-1]] for line in lines]
-    except:
-        return []
+    with open(path) as file:
+        lines = file.readlines()
+    return [[m.split(":") for m in line.split(",")[:-1]] for line in lines]
 
 
 def moves(xs):
@@ -20,11 +17,16 @@ def moves(xs):
 
 
 def picked(xs):
-    return max(xs, key=lambda x: inf if to_value(x[2]) == -1 else int(x[1]))
+    return max(xs, key=lambda x: int(x[1]))
+
+
+def with_highest_visits(xs):
+    max_visits = max(int(x[1]) for x in xs)
+    return [x for x in xs if int(x[1]) == max_visits]
 
 
 def sampled(xs):
-    return choice(moves(xs), 1, [int(x[1]) for x in xs])
+    return choice(moves(xs), 1, [int(x[1]) for x in xs])[0]
 
 
 def to_value(s: str):
@@ -38,11 +40,11 @@ def to_value(s: str):
 
 
 def highest_value(xs):
-    return max(to_value(x[2]) for x in xs)
+    return max(-to_value(x[2]) for x in xs if int(x[1]) > 0)
 
 
 def highest_value_plus_uncertainty(xs):
-    return max(to_value(x[2]) + BETA * float(x[3]) for x in xs)
+    return max(-to_value(x[2]) + BETA * float(x[3]) for x in xs if int(x[1]) > 0)
 
 
 def choice_with_highest_value_plus_uncertainty(xs):
@@ -53,8 +55,8 @@ def choice_with_highest_value_plus_uncertainty(xs):
 
 
 def picked_value(xs):
-    p = picked(xs)
-    return -to_value(p[2])
+    ps = with_highest_visits(xs)
+    return max(-to_value(p[2]) for p in ps)
 
 
 def picked_value_plus_uncertainty(xs):
@@ -64,22 +66,52 @@ def picked_value_plus_uncertainty(xs):
 
 def how_many_picked_highest_uncertainty(xss):
     return sum(
-        choice_with_highest_value_plus_uncertainty(xs) == picked(xs) for xs in xss
+        choice_with_highest_value_plus_uncertainty(xs) in with_highest_visits(xs)
+        for xs in xss
     )
+
+
+def index_of_highest_value_plus_uncertainty(xs):
+    return sorted(
+        xs,
+        key=lambda x: int(x[1]),
+        reverse=True,
+    ).index(choice_with_highest_value_plus_uncertainty(xs))
 
 
 # === === ===
 
 runs = [(f[:-4], load(os.path.join("runs", f))) for f in os.listdir("runs")]
-# runs = [(name, run) for name, run in runs if name in ["puct", "seqhal_64_no_beta_puct"]]
+# runs = [
+#     (name, run)
+#     for name, run in runs
+#     if name
+#     in [
+#         "puct",
+#         "epuct",
+#         "euct",
+#         "seqhal_64_linear_euct",
+#         "seqhal_64_linear_puct",
+#         "seqhal_64_linear_epuct",
+#     ]
+# ]
 
-assert all(
-    [moves(xs) for xs in runs[0][1]] == [moves(xs) for xs in run] for _name, run in runs
-)
+m = [moves(xs) for xs in runs[0][1]]
+for _name, run in runs:
+    assert m == [moves(xs) for xs in run], run
 
 print("how often was the most visited action the one that maximizes value+beta*std_dev")
 for name, run in runs:
     print("-", name, ":", how_many_picked_highest_uncertainty(run))
+
+print("what is the average index of the action that maximizes value+beta*std_dev")
+for name, run in runs:
+    print(
+        "-",
+        name,
+        ":",
+        sum(index_of_highest_value_plus_uncertainty(xs) for xs in run) / len(run),
+    )
 
 for name, run in runs:
     plt.plot(sorted(picked_value(xs) for xs in run), label=name)
@@ -94,6 +126,22 @@ plt.legend()
 plt.grid()
 plt.title("sorted highest value")
 plt.show()
+
+# for name, run in runs:
+#     plt.plot(
+#         [
+#             t[1]
+#             for t in sorted(
+#                 enumerate(picked_value(xs) for xs in run),
+#                 key=lambda t: picked_value(runs[0][1][t[0]]),
+#             )
+#         ],
+#         label=name,
+#     )
+# plt.legend()
+# plt.grid()
+# plt.title("sorted picked value (sorted according to _)")
+# plt.show()
 
 for name, run in runs:
     plt.plot(
@@ -112,6 +160,7 @@ plt.grid()
 plt.title("sorted highest value+beta*std_dev")
 plt.show()
 
+# picked
 matrix = [[0] * len(runs) for _ in range(len(runs))]
 picked_moves = [[picked(xs)[0] for xs in run] for _name, run in runs]
 for i in range(len(picked_moves[0])):
@@ -126,10 +175,12 @@ print("," + ",".join(names))
 for name, line in zip(names, matrix):
     print(name + "," + ",".join(map(str, line)))
 
+
+# sampled
 matrix = [[0] * len(runs) for _ in range(len(runs))]
-for _ in range(100):
-    sampled_moves = [[sampled(xs) for xs in run] for _name, run in runs]
-    for i in range(len(sampled_moves[0])):
+for _ in range(200):
+    picked_moves = [[sampled(xs) for xs in run] for _name, run in runs]
+    for i in range(len(picked_moves[0])):
         ms = [ms[i] for ms in picked_moves]
         for x, m1 in enumerate(ms):
             for y, m2 in enumerate(ms):
