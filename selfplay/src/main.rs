@@ -44,8 +44,8 @@ const UBE_TARGET_BETA: f32 = 0.5;
 const UBE_TARGET_WINDOW: usize = 20;
 const MAX_SELFPLAY_BUFFER_LEN: usize = 32_000;
 
-const SAMPLED_ACTIONS: usize = 16;
-const SEARCH_BUDGET: u32 = 640;
+const SAMPLED_ACTIONS: usize = 64;
+const SEARCH_BUDGET: u32 = 768;
 
 #[derive(Parser, Debug)]
 struct Args {

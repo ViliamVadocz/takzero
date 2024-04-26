@@ -33,7 +33,8 @@ const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
-// const VISITS: u32 = 800;
+const SAMPLED_ACTIONS: usize = 64;
+const SEARCH_BUDGET: u32 = 768;
 const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const MIN_POSITIONS: usize = 4000 * 128 / 4; // steps before reanalyze * batch size / forced uses
 const _: () = assert!(MIN_POSITIONS > BATCH_SIZE);
@@ -168,7 +169,13 @@ fn main() {
         // for _ in 0..VISITS {
         //     batched_mcts.simulate(&net, &ZERO_BETA);
         // }
-        let selected = batched_mcts.gumbel_sequential_halving(&net, &ZERO_BETA, 64, 768, &mut rng);
+        let selected = batched_mcts.gumbel_sequential_halving(
+            &net,
+            &ZERO_BETA,
+            SAMPLED_ACTIONS,
+            SEARCH_BUDGET,
+            &mut rng,
+        );
 
         // Create targets.
         let contents: String = batched_mcts
