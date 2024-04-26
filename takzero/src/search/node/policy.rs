@@ -115,12 +115,9 @@ impl<E: Environment> Node<E> {
     }
 }
 
-const C_VISIT: f32 = 50.0;
-const C_SCALE: f32 = 1.0;
-
 #[must_use]
 pub fn sigma(q: NotNan<f32>, std_dev: NotNan<f32>, beta: f32, visit_count: f32) -> NotNan<f32> {
-    (q + std_dev * beta) * (visit_count + C_VISIT) * C_SCALE
+    (q + std_dev * beta) * visit_count.sqrt()
 }
 
 const EXPLORATION_BASE: f32 = 500.0;
