@@ -9,7 +9,7 @@ use crate::{
     search::{
         agent::Agent, env::{Environment, Terminal}, eval::Eval, node::{
             mcts::{ActionPolicy, Forward},
-            policy::{sigma, softmax},
+            policy::{sigma_select, softmax},
         }
     },
     target::Replay,
@@ -341,7 +341,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
                 selected_set.sort_by_key(|(logits_plus_gumbel, _, child)| {
                     Reverse(
                         logits_plus_gumbel
-                            + sigma(
+                            + sigma_select(
                                 child.evaluation.negate().into(),
                                 child.std_dev,
                                 beta,

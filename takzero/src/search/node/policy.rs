@@ -42,7 +42,7 @@ impl<E: Environment> Node<E> {
                 node.evaluation.negate()
             }
             .into();
-            sigma(completed_value, node.std_dev, 0.0, most_visited_count) + node.logit
+            sigma_improve(completed_value, node.std_dev, 0.0, most_visited_count) + node.logit
         });
 
         softmax(p)
@@ -116,7 +116,22 @@ impl<E: Environment> Node<E> {
 }
 
 #[must_use]
-pub fn sigma(q: NotNan<f32>, std_dev: NotNan<f32>, beta: f32, visit_count: f32) -> NotNan<f32> {
+pub fn sigma_select(
+    q: NotNan<f32>,
+    std_dev: NotNan<f32>,
+    beta: f32,
+    visit_count: f32,
+) -> NotNan<f32> {
+    (q + std_dev * beta) * (50.0 + visit_count)
+}
+
+#[must_use]
+pub fn sigma_improve(
+    q: NotNan<f32>,
+    std_dev: NotNan<f32>,
+    beta: f32,
+    visit_count: f32,
+) -> NotNan<f32> {
     (q + std_dev * beta) * visit_count.sqrt()
 }
 
