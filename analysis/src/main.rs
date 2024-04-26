@@ -73,8 +73,8 @@ fn main() {
             node.children.iter().for_each(|(a, child)| {
                 write!(
                     &mut line,
-                    "{a}:{}:{}:{},",
-                    child.visit_count, child.evaluation, child.std_dev
+                    "{a}:{}:{}:{}:{},",
+                    child.visit_count, child.evaluation, child.std_dev, child.logit
                 )
                 .unwrap();
             });
