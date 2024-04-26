@@ -1,17 +1,16 @@
 use std::cmp::Reverse;
 
+use ordered_float::NotNan;
 use rand::Rng;
 use rand_distr::{Distribution, Gumbel};
 
 use super::Node;
 use crate::{
     search::{
-        agent::Agent,
-        env::{Environment, Terminal},
-        node::{
+        agent::Agent, env::{Environment, Terminal}, eval::Eval, node::{
             mcts::{ActionPolicy, Forward},
             policy::{sigma, softmax},
-        },
+        }
     },
     target::Replay,
 };
@@ -354,7 +353,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
             }
         }
 
-        selected_sets
+        let selected = selected_sets
             .into_iter()
             .map(|mut selected_set| {
                 assert_eq!(
@@ -366,6 +365,42 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
             })
             .collect::<Vec<_>>()
             .try_into()
-            .unwrap()
+            .unwrap();
+
+        // Recompute root statistics.
+        self.nodes.iter_mut().for_each(|node| {
+            node.visit_count = node
+                .children
+                .iter()
+                .map(|(_, child)| child.visit_count)
+                .sum::<u32>()
+                + 1;
+
+            let evaluations = node.children.iter().map(|(_, child)| &child.evaluation);
+            if evaluations.clone().any(Eval::is_loss) || evaluations.clone().all(Eval::is_known) {
+                // Node is solved.
+                node.evaluation = evaluations.min().unwrap().negate();
+                node.std_dev = NotNan::default();
+            } else {
+                // Slightly different formula than in the Gumbel MuZero paper.
+                // Here we are ignoring the original network eval because we no longer have
+                // access to it.
+                let visited_children = node
+                    .children
+                    .iter()
+                    .map(|(_, child)| child)
+                    .filter(|child| child.visit_count > 0);
+                let sum_of_probabilities: NotNan<f32> =
+                    visited_children.clone().map(|child| child.probability).sum();
+                let weighted_q: NotNan<f32> = visited_children
+                    .map(|child| child.probability * f32::from(child.evaluation.negate()))
+                    .sum();
+                node.evaluation = Eval::new_not_nan_value(weighted_q / sum_of_probabilities);
+            }
+
+            // FIXME: std_dev is not recomputed
+        });
+
+        selected
     }
 }
