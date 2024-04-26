@@ -18,7 +18,7 @@ use takzero::{
         env::Environment,
         node::{batched::BatchedMCTS, Node},
     },
-    target::{policy_target_from_proportional_visits, Augment, Replay, Target},
+    target::{Augment, Replay, Target},
 };
 use tch::{Device, TchError};
 use thiserror::Error;
@@ -33,7 +33,7 @@ const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
-const VISITS: u32 = 800;
+// const VISITS: u32 = 800;
 const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const MIN_POSITIONS: usize = 4000 * 128 / 4; // steps before reanalyze * batch size / forced uses
 const _: () = assert!(MIN_POSITIONS > BATCH_SIZE);
@@ -165,43 +165,51 @@ fn main() {
             });
 
         // Perform search.
-        for _ in 0..VISITS {
-            batched_mcts.simulate(&net, &ZERO_BETA);
-        }
+        // for _ in 0..VISITS {
+        //     batched_mcts.simulate(&net, &ZERO_BETA);
+        // }
+        let selected = batched_mcts.gumbel_sequential_halving(&net, &ZERO_BETA, 64, 768, &mut rng);
 
         // Create targets.
         let contents: String = batched_mcts
             .nodes_and_envs()
-            .map(|(node, env)| {
+            .zip(selected)
+            .map(|((node, env), selected_action)| {
                 let value = if node.evaluation.is_known() {
                     node.evaluation
                 } else {
                     node.children
                         .iter()
-                        .max_by_key(|(_, child)| child.visit_count)
+                        .find(|(a, _)| *a == selected_action)
                         .expect("all non-terminal nodes should have at least one child")
                         .1
                         .evaluation
                         .negate()
                 }
                 .into();
-                let policy = policy_target_from_proportional_visits(node);
+                let policy = node
+                    .children
+                    .iter()
+                    .map(|(a, _)| a)
+                    .copied()
+                    .zip(node.improved_policy())
+                    .collect(); // policy_target_from_proportional_visits(node);
                 let ube = node.ube_target(UBE_TARGET_BETA).into_inner();
 
                 // Log UBE statistics.
-                let root = node.std_dev * node.std_dev;
-                let max_std_dev = node
-                    .children
-                    .iter()
-                    .map(|(_, child)| child.std_dev)
-                    .max()
-                    .unwrap_or_default();
-                let max = max_std_dev * max_std_dev;
-                log::debug!(
-                    "[UBE STATS] ply: {}, bf: {}, root: {root:.5}, max: {max:.5}, target: {ube:.5}",
-                    env.ply,
-                    policy.len()
-                );
+                // let root = node.std_dev * node.std_dev;
+                // let max_std_dev = node
+                //     .children
+                //     .iter()
+                //     .map(|(_, child)| child.std_dev)
+                //     .max()
+                //     .unwrap_or_default();
+                // let max = max_std_dev * max_std_dev;
+                // log::debug!(
+                //     "[UBE STATS] ply: {}, bf: {}, root: {root:.5}, max: {max:.5}, target:
+                // {ube:.5}",     env.ply,
+                //     policy.len()
+                // );
 
                 Target {
                     env: env.clone(),
