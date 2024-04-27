@@ -284,17 +284,16 @@ fn fill_buffer_with_positions_from_replays(
             .filter_map(|line| line.unwrap().parse().ok())
             .flat_map(|replay: Replay<Env>| {
                 let mut env = replay.env;
-                #[allow(clippy::needless_collect)] // not actually needless
-                once(env.clone()).chain(
-                    replay
-                        .actions
-                        .into_iter()
-                        .map(|a| {
-                            env.step(a);
-                            env.clone()
-                        })
-                        .collect::<Vec<_>>(),
-                )
+                replay
+                    .actions
+                    .into_iter()
+                    .map(|a| {
+                        let ret = env.clone();
+                        env.step(a);
+                        ret
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
             }),
     );
     *replays_seek = reader
