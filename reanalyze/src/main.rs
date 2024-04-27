@@ -2,7 +2,6 @@ use std::{
     fmt,
     fs::{read_dir, OpenOptions},
     io::{BufRead, BufReader, Read, Seek, Write},
-    iter::once,
     path::{Path, PathBuf},
 };
 
