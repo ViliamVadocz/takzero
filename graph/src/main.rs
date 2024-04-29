@@ -33,7 +33,8 @@ fn main() {
                     "undirected-random",
                     "directed-random",
                     "directed-random-top8",
-                    "undirected-seq-hal-16",
+                    "undirected-seq-hal-bugged",
+                    "undirected-seq-hal-fixed",
                 ])
                 .bottom(10)
                 .left(10),
@@ -58,8 +59,14 @@ fn main() {
         )
         .series(
             Line::new()
-                .data(get_unique_positions("undirected-seq-hal-16.txt"))
-                .name("undirected-seq-hal-16")
+                .data(get_unique_positions("undirected-seq-hal-bugged.txt"))
+                .name("undirected-seq-hal-bugged")
+                .symbol(Symbol::None),
+        )
+        .series(
+            Line::new()
+                .data(get_unique_positions("undirected-seq-hal-fixed.txt"))
+                .name("undirected-seq-hal-fixed")
                 .symbol(Symbol::None),
         );
 
