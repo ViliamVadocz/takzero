@@ -7,10 +7,13 @@ use rand_distr::{Distribution, Gumbel};
 use super::Node;
 use crate::{
     search::{
-        agent::Agent, env::{Environment, Terminal}, eval::Eval, node::{
+        agent::Agent,
+        env::{Environment, Terminal},
+        eval::Eval,
+        node::{
             mcts::{ActionPolicy, Forward},
             policy::{sigma_select, softmax},
-        }
+        },
     },
     target::Replay,
 };
@@ -262,7 +265,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
                     .collect();
                 for _ in 0..visits_per_action {
                     // TODO: Refactor this and `simulate()` into one function.
-                    // =========================================================================================
+                    // ============================================================================
 
                     assert!(self.actions.iter().all(Vec::is_empty));
                     assert!(self.trajectories.iter().all(Vec::is_empty));
@@ -329,7 +332,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
                             let _ = std::mem::replace(old_actions, moved_actions);
                         });
 
-                    // =========================================================================================
+                    // ============================================================================
                 }
             }
 
@@ -390,8 +393,10 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
                     .iter()
                     .map(|(_, child)| child)
                     .filter(|child| child.visit_count > 0);
-                let sum_of_probabilities: NotNan<f32> =
-                    visited_children.clone().map(|child| child.probability).sum();
+                let sum_of_probabilities: NotNan<f32> = visited_children
+                    .clone()
+                    .map(|child| child.probability)
+                    .sum();
                 let weighted_q: NotNan<f32> = visited_children
                     .map(|child| child.probability * f32::from(child.evaluation.negate()))
                     .sum();
