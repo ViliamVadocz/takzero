@@ -7,12 +7,15 @@ use tch::{
 };
 
 use super::{
-    repr::{game_to_tensor, input_channels, input_size, move_index, output_channels},
+    repr::{game_to_tensor, input_channels, move_index, output_channels},
     residual::ResidualBlock,
     Network,
     RndNetwork,
 };
-use crate::{network::repr::output_size, search::agent::Agent};
+use crate::{
+    network::repr::{input_size, output_size},
+    search::agent::Agent,
+};
 
 pub const N: usize = 4;
 pub const HALF_KOMI: i8 = 4;
@@ -37,12 +40,13 @@ struct Rnd {
     target: nn::SequentialT,
     learning: nn::SequentialT,
     // Normalization variables
+    // TODO: Replace by running mean and std_dev
     min: Tensor,
     max: Tensor,
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
-    const CORE_RES_BLOCKS: u32 = 20;
+    const CORE_RES_BLOCKS: u32 = 16;
     let mut core = nn::seq_t()
         .add(nn::conv2d(
             path / "input_conv2d",
@@ -120,8 +124,9 @@ fn ube_net(path: &nn::Path) -> nn::SequentialT {
 }
 
 fn rnd(path: &nn::Path) -> nn::SequentialT {
-    const HIDDEN_LAYER: i64 = 1024;
-    const OUTPUT: i64 = 512;
+    // TODO: Replace by convolution
+    const HIDDEN_LAYER: i64 = 128;
+    const OUTPUT: i64 = 128;
     nn::seq_t()
         .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
         .add_fn(|x| x / x.square().sum_dim_intlist(1, true, None))
@@ -163,8 +168,9 @@ impl Network for Net {
             rnd: Rnd {
                 learning: rnd(&(&root / "rnd_learning")),
                 target: rnd(&(&root / "rnd_target")),
+                // TODO: Try the normalization from the paper
+                // (subtract running mean and divide by running std_dev)
                 min: root.var("min", &[1], nn::Init::Const(0.0)),
-                // TODO: Think about a good default
                 max: root.var("max", &[1], nn::Init::Const(1.0)),
             },
             vs,
