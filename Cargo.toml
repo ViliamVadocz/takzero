@@ -9,7 +9,7 @@ members = [
     "learn",
     "reanalyze",
     "tei",
-    "ensemble_experiment",
+    "eee",
     "visualize_search",
 ]
 resolver = "2"

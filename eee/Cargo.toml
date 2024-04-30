@@ -1,5 +1,5 @@
 [package]
-name = "ensemble_experiment"
+name = "eee"      # Epistemic Estimator Experiment
 version = "0.1.0"
 edition = "2021"
 
