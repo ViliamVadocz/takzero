@@ -4,7 +4,7 @@ pub mod net4_ensemble;
 pub mod net4_neurips;
 pub mod net5;
 pub mod repr;
-mod residual;
+pub mod residual;
 
 pub trait Network: Sized {
     fn new(device: tch::Device, seed: Option<i64>) -> Self;

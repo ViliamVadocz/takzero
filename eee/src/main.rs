@@ -1,18 +1,11 @@
 use std::{
+    fmt::Write as FmtWrite,
     fs::OpenOptions,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write as IoWrite},
     path::Path,
 };
 
-use charming::{
-    component::{Axis, Grid, Legend, Title},
-    element::Symbol,
-    series::Line,
-    theme::Theme,
-    Chart,
-    HtmlRenderer,
-};
-use fast_tak::takparse::Move;
+use fast_tak::takparse::{Move, Tps};
 use rand::{
     seq::{IteratorRandom, SliceRandom},
     Rng,
@@ -20,35 +13,285 @@ use rand::{
 };
 use takzero::{
     network::{
-        net4_neurips::{Env, Net, N},
-        repr::{
-            game_to_tensor,
-            input_channels,
-            input_size,
-            move_mask,
-            output_channels,
-            output_size,
-            policy_tensor,
-        },
-        EnsembleNetwork,
-        Network,
-        RndNetwork,
+        net4_neurips::{Env, N},
+        repr::{game_to_tensor, input_channels},
+        residual::{ResidualBlock, SmallBlock},
     },
     search::env::Environment,
-    target::{Augment, Replay, Target},
+    target::{Replay, Target},
 };
 use tch::{
-    nn::{self, Adam, ModuleT, Optimizer, OptimizerConfig},
+    nn::{self, Adam, ModuleT, OptimizerConfig},
     Device,
-    Kind,
     Tensor,
 };
 
-const STEPS: usize = 20_000;
-const REFERENCE_PERIOD: usize = 500;
+const STEPS: usize = 25_000;
 const BATCH_SIZE: usize = 128;
 const DEVICE: Device = Device::Cuda(0);
 const LEARNING_RATE: f64 = 1e-4;
+
+const BATCH_5K: [&str; 128] = [
+    "x,1,1,11221S/1,2,2,1/x,2,12,112S/2,21,x,2 1 17",
+    "2,x,212S,2121S/x,1,2S,1/x2,2,1/x3,1 1 11",
+    "1,2,12,x/2,2,1,1/1,1,12S,2/x,1,x2 1 9",
+    "x,1,x2/1,1,12112,x/121,2S,x,21212S/2S,2,1,221 1 19",
+    "x2,2,2/1121,1,1112S,x/x,1221112S,x,2/x,1,21,2221S 1 27",
+    "1,x,121,x/x,1,12,1/x,2112S,11222,2/x,121,x2 2 20",
+    "1,x3/1,x3/1,2,x2/x3,2 2 3",
+    "1,1,x,2/x3,1/x4/2,x3 2 3",
+    "2,1,x,2/121,2,1,x/x,2,1,x/1,x3 2 7",
+    "1,2,x,2/1,x,1212112,x/12,2S,1S,1/x,2,21,1 1 15",
+    "x,1,1,1/x,2,x2/x4/2,x3 2 3",
+    "2,2S,1,x/2,1,2,x/2,1,2,121S/x,1,1,112 1 12",
+    "1,x2,2/1,x3/1,2,x2/x4 2 3",
+    "2,x,12S,x/2,12,212,x/1,1,x,121S/x,1,1,112 1 15",
+    "1,1,2,1/x,12,2,x/x,1,1,x/2,x3 2 6",
+    "2,x,1,x/x,2,1112S,1121/221S,x2,1/12,1212,x2 1 20",
+    "x2,2S,2/x2,1,1S/2,2,1,x/x,2,1,1 1 6",
+    "x,2,2,1/21,x,121S,1212S/121,x,1,1/2S,11212S,x2 2 21",
+    "2,1,x,2/1,2,x2/1,x3/1,x3 2 4",
+    "x3,1/x2,2121,12/x,2,x,1/2,x2,1 2 8",
+    "1,1,1,2/x,12,12,1/x3,1S/x3,2 2 8",
+    "1,2,x,1/2,1112S,11212,2/1,2,1S,1/1,12,2,1 1 17",
+    "21,1,2,2/2,2,112S,1/112,2221S,21,1/2,1,1,1 2 20",
+    "x3,2/x2,2S,1/x,1,x,1/2,x2,1 2 4",
+    "1212S,1,11,221/22,x3/x,12S,1,1/1,x,12,112S 2 20",
+    "2,x3/x,1,x2/1,2,2,x/x,12,1,1 1 6",
+    "1,2,x,1/2,2,112112S,x/1,1,x,2/x,1,x2 1 11",
+    "x3,1/x,1,2,x/x,1,2,1212/2,x,1,x 1 8",
+    "x,1,2,2/2,11112S,1,1S/x,212,1,x/1,2,12,1 1 15",
+    "1,1,x2/x2,2S,x/x4/2,x3 1 3",
+    "1,x,1,x/x4/x4/2,x3 2 2",
+    "1,2,x,121/x,1,2S,1/2,12S,x,1/2,1,x2 2 9",
+    "x3,1/x2,2121,x/x,2,x,112/2,x2,1 1 9",
+    "22121S,1,12,1/1,2S,1,x/212S,x2,1/1,2,12,2 1 16",
+    "2,x3/x,1,1,x/1,2,2,x/x,12,1,1 2 6",
+    "x,1,x,2/1,1,12,2/12,2S,1,21/x,121,x,2 1 12",
+    "x,12,1,1/1,2S,1,x/x,2,1212,x/x,1,x,2 1 10",
+    "x4/x,2S,x2/x,121121121S,2S,x/1,x2,1 1 12",
+    "2,x,1,2/x2,2,11211112S/x,121,x,1/1,12122221S,x2 2 24",
+    "x,12,1,1/1,2S,1S,x/x2,12,x/x,1,1212,2 1 12",
+    "x,2,1,11221S/1,2,21,x/x,1,112S,1/2,1,2,2 2 15",
+    "x,2,2,1/x2,121S,1212S/12,x,1,x/x,1121121,x2 2 18",
+    "x,1,x,2/1,1,12,2/12,2S,1,21/x2,1,221 2 12",
+    "1,1,1112S,x/12,2S,2,211221S/2,1,12,1/1,1,1,2S 2 21",
+    "x,1S,12,112/1,2,2,1/2S,1,1,1/2,x3 2 10",
+    "x3,2/x4/x2,1,x/x,2,1,1 2 3",
+    "x3,1/x2,2121,x/x,2,1,112/2,x2,1 2 9",
+    "1,1,2,2/1,2,1,112S/12,2S,x,112/1,1,2,1221S 1 19",
+    "2,x3/x,1,1,x/1,2,2,x/x,1212,x,1 1 8",
+    "2,12,1,1/1,2S,x2/1,2,x,12112/x2,21,x 1 12",
+    "2,x3/2S,1,1,1/1,2,2,1/x2,12,112 1 10",
+    "2,x,1,2/x,2S,2,1/x,12121S,2S,x/1,2,1,1 1 11",
+    "1,x,121121S,x/x,2S,1221121,x/x,2,x,2/x,121112S,x2 2 25",
+    "x,1,11,221/221212S,x3/x,12S,x,1/1,x,12,112S 2 19",
+    "2,x3/x4/1,2,x2/2,1,1,1 2 4",
+    "x,1,2S,2/1212,2,1,x/x,2,1,x/1,x,1,x 1 9",
+    "x,11112S,1122,2/22,2,x2/1,12S,x,1/x,1,121112S,x 1 24",
+    "2,x2,1/x,12,2S,112221S/1,x,12,1/21S,21,x2 1 17",
+    "1,1,2S,21/x,1,x,12/x,2,x2/2,1,2,x 1 8",
+    "1,1,1,2/212,x,12,1/x,12S,x,1/1,x,1212S,x 2 13",
+    "2,1,x,1/2,1,2,1/1,12S,x2/x3,2 1 7",
+    "2,2,1,x/2S,1,1,1/1,2,2,1/x,1S,12,112 2 11",
+    "x3,2/x2,1,1S/2,2,1,x/x,2,1,1 2 5",
+    "x,11112S,1122,2/22,x3/x,12S,1,1/1,1,12,112S 1 22",
+    "1,2,1,x/2,2,1,1/x,1121,12S,x/1,x,2,x 2 10",
+    "1,11212S,2,2/1,1112S,x,1/x,2,1,1/2,x2,12221S 1 21",
+    "2,12,1,1/1,2S,1,x/1,2,2112,121S/x2,21,x 2 14",
+    "1,1,2,2/1,2,1,x/12,2S,x,11212S/x,1,x,1221S 1 17",
+    "2,x2,1/12,1,x,1/1,2,2,1/x3,2 1 7",
+    "2,1,2,2/2S,1,121S,1/1,2,21,1/2,x2,112 2 13",
+    "x4/x,12,x2/x,121121,x2/1,x2,1 2 9",
+    "2,x3/x,1,x2/1,2,2,x/x,12,1,1 1 6",
+    "x,2,1,11221S/1,x,21112S,x/1,12,x,1/21,x,2,2 2 17",
+    "2,1212,x,1/1,x,2,x/x,1,1,x/2,x3 1 8",
+    "2,x3/2S,1,1,1/1,2,2,1/x,1,12,112 2 10",
+    "1,112,2S,1/121,x,2S,x/x,1,x2/2,221,x2 2 12",
+    "x,1S,1S,1/21221,x2,2/x,2,2,x/1,2,x2 2 9",
+    "221S,1112S,2S,1/1,221,1,2/2,2S,x,112/x,12,1,112S 2 27",
+    "1,x,2S,1/21,212,x,2S/1,2S,1,112/x,12,1,1 2 14",
+    "2,x3/x4/x,12,x2/1,2,1,1 1 5",
+    "2,x,1,x/x,2,1112S,1121/x,21S,x,1/12,12,1,x 2 17",
+    "2,2,2,1/1,1,2S,112221S/x,112112,x,1/x,221S,221,x 1 23",
+    "2,x3/2S,1,1,1/1,2,2,x/x,1212,x,1 1 9",
+    "1,x,212112,x/1,12S,1,12/221S,2,1,1112S/2,1,2S,2 1 25",
+    "x2,21,2/2,11112S,1,1S/x,21212,x2/1,x,1212S,x 1 18",
+    "1,112,2S,1/121,x,2S,x/1,2S,x2/x,22121,x2 2 14",
+    "x2,12S,2/2212221S,1,1,1S/x4/21,1121,11,221 2 26",
+    "x3,1/x2,12,1/x2,12,1/2,1S,1,2 2 8",
+    "1,112,1,12S/121,12S,2S,1/12S,12,1,1/2,22,1,1 2 20",
+    "112,x,1,x/12,1,2,1/x4/x,21S,2,2 1 10",
+    "112,1,1,2/2,x,121,x/2,12S,x,1/1,x,12,112S 1 16",
+    "22121S,1,1,1/112S,2S,112,1/x,22221S,2,1/11,x,2,2 2 23",
+    "x2,1,2/x2,2,1/x3,1/2,x2,1 2 4",
+    "221S,x,212S,2/221,11112S,11,1S/x,212S,12,x/1,x,1,x 2 22",
+    "1,x3/1,x3/1,2,x2/2,1,x,2 2 4",
+    "x,1,1,11221S/1,2,2,1/x2,12,112S/2,21,x,2 2 16",
+    "2,1,1S,2/1,12,x2/1,12,x2/1,x3 2 8",
+    "x,1112S,2,2/112,x,1,112S/x,1221,1,x/x,1,2,2221S 1 24",
+    "2,1112S,2S,1/2112,x,1,x/2,2S,x,11212S/1S,12,1,1 1 23",
+    "x2,2S,1/21,212,x,2S/x2,1,112/2,x,1,1 1 12",
+    "x,1,1,1/x,2,x2/x4/x3,2 2 3",
+    "12,1,1,2S/x2,2S,1/22221S,2,12,1112S/x2,21,2 1 19",
+    "x,1,1,1/x4/x,2,x,1212/2,x,1,x 2 7",
+    "1,12,x,21/x,1,1121,2/221S,2,1,x/2,1,2S,2 2 17",
+    "1,2,1,x/x,2,1,x/x,1,1,x/2,x,2S,x 2 5",
+    "2,1112S,2S,1/121S,221,1,2/2,2S,x,112/x,12,1,112S 1 27",
+    "x,12,1,1/1,2S,x2/x4/x3,2 1 5",
+    "x3,1/x3,1/x4/2,x3 2 2",
+    "x2,2,2/12S,x,1112S,x/1,12211,1,21/21,1,21,2221S 2 29",
+    "1,2,x,1/21,2,112112S,2/x,1,2S,1/x2,21121,x 2 16",
+    "2,2,1,x/x,1,2,12/x,12S,2S,1/1,22121S,1,1 1 14",
+    "112,1,1,2/121S,2,1,21/x,2,1,2/x,1,2S,2 2 13",
+    "2,x,1,x/21,12S,1,112/x,2,1S,11/12,12,1,x 2 15",
+    "x,2,2,1/x2,121S,1212S/12,x,1,x/x,112112,1,x 1 18",
+    "11212,x3/x,1,21,2S/1,1,1,2S/x2,21122221S,2 2 19",
+    "1,x,21211212S,21/1,12S,1,1/221S,2,x,1/2,1,2S,2 2 23",
+    "x3,2/2,1,12S,1S/x,212,x2/1,2,1,1 1 9",
+    "x,1,1,2/2,2,1,x/x,12S,x,1/1,1,12,x 2 8",
+    "1,112221S,1,x/x,2S,1,1/x,2,1,2/2,1,2,21S 2 15",
+    "2,x,1,2121/x,12,x,12S/1,12S,2S,x/1,22121S,1,1 2 18",
+    "1,1,1,2/12,2S,x,1212S/2S,x,112221S,x/21,x,221S,2 1 23",
+    "x,1,2,2/x,2,12S,x/1,2,1,21/11221S,1,1,2 2 14",
+    "2,1,x,2/x4/1,x3/1,x3 2 3",
+    "1,12,1,x/1,1,1S,221212S/1,2S,12,x/2S,2,x,1 2 14",
+    "x3,1/x,1,2,x/x,1,2,1212/2,x,1,x 1 8",
+    "x3,1/2,x,2S,112/1,2,1,1221S/2,1S,1,x 1 13",
+    "x2,2S,2/x,1,1,1S/2,2,1,x/x,2,1,1 2 6",
+    "1,1,x2/12,2S,1,1/1,2,1,2/1,x,2,2 2 8",
+];
+
+const BATCH_20K: [&str; 128] = [
+    "1,2,1,2/x,1,1,2/x2,112,x/x,2,x,21 1 9",
+    "1,x,1,2/2,2S,x,1/1,1,12S,2/x2,2,1 1 8",
+    "x,1,21,x/x,12S,1,1/1,1,2S,12/2,2,1,2 2 10",
+    "1,1,12,x/2,2S,x,1/1,1,12S,2/x2,2,1 1 9",
+    "1,x,1,2/2,12S,x,1/x,1,2S,x/x,1,2,1 2 7",
+    "x2,1,1/2,2S,1,2/1,x,21,112/1,x,2,2 2 10",
+    "2,1,1,1/2112S,x,1,2/x,1121S,2S,1/2,x,1,1212S 2 16",
+    "1,1,1,2/2,2S,x,1/1,1,12S,2/x2,2,1 2 8",
+    "2,1,2,1/2S,x,121,2/12121S,2S,2S,1/x,1,x,1 2 13",
+    "x2,12,1/1,x,12,x/2,1S,x,12/2,1,1,1 2 10",
+    "1,1,1112S,x/x,221,x2/2,x,112S,12/11112S,2,1,x 1 20",
+    "x,1,x,2/12,112,x,1/1,x2,2/1,x3 1 8",
+    "2,x2,1/2,12S,1,1/1,1,2S,2/2,12,1,1 1 10",
+    "2,1,2,x/x4/x2,1,x/x,1,2,1 2 4",
+    "x,1,12,x/212S,x,2,1/1,112S,x,2/x2,21,1 1 12",
+    "1,x2,2/2,12S,x2/1,x,12S,1/1,1,2,1 2 8",
+    "1,1,2,2/12,112121S,2S,1/1,2S,x,2/1,x3 1 13",
+    "2,1,112,1/212S,x,12,2/1,x,2,112/x,1,x,2 1 16",
+    "x,1,x,1/2,2,x,2/12,1,x,1/x4 1 6",
+    "x,1,2,1/1,1,12S,2/2,2S,x,1/1,1,12,x 2 9",
+    "2,1,1,2/2211212S,1S,12,2/x2,12S,1/1,121,x,1 2 17",
+    "1,21,x,1/2,112S,2,12/1,112S,112S,1/x,1,2,x 2 16",
+    "1,x2,2/2,12S,x,1/x,1,2S,x/x,1,2,1 1 7",
+    "1,2,1,2/x,1,1,2/x2,1,x/x,2,12,21 2 8",
+    "1S,1,x,1/2,2,1,x/12,x,1,12/2,x2,1 2 8",
+    "1,2,1,x/x4/x4/x3,2 1 3",
+    "x2,1212121S,x/21,1,2S,1/11112S,2,12S,2/2,1,21,2 1 21",
+    "1,x2,2/x4/1,x3/x4 2 2",
+    "x,21,1,21/1,1112S,2,1/2,1,x2/2,2,112S,x 2 15",
+    "1,2,2S,1/1,1,2S,1/x,1,1S,1/12,212,12112S,2 2 16",
+    "x,21112S,1,1/1,x,112S,x/121,2,x2/x,112S,212,2 1 19",
+    "1,x,1212,1/2,2S,2,1/1,1,12S,2/x,1,2,1 1 12",
+    "x2,121,1/212S,1,2,1/1,112S,x,2/x,1,2,112S 2 15",
+    "x,1,2,1/x,1,12S,1/x2,1,12/2,2S,1,x 2 8",
+    "21,1,1,x/x,12S,2,1/2,1,2S,2/x,1,2,1 2 9",
+    "2,1,12,2/2,2121S,2S,1/x,211212S,1,1/21,x,1,2 2 19",
+    "x,1,12,1/212S,x,2,1/1,112S,x,2/x2,21,1 2 12",
+    "x2,12,12/2S,1,1,1/x3,1/2,2,x,1 2 8",
+    "x3,2/x4/x4/1,2,1,x 1 3",
+    "2,x3/x3,2S/x4/1,1,1,2 1 4",
+    "x,1,2,1/x2,1,x/x4/2,x3 2 3",
+    "2,x2,1/x3,1/2,x,1,2/x3,1 2 4",
+    "x,2,x2/1,2,21,x/2,1,2,21/1,x,12,x 1 9",
+    "2,1221S,x2/2,2,2,1/x,1,1,2/1,12,x,1 1 11",
+    "1,12,1,x/1,2,2S,21/2,x,112S,1/1,21,2S,x 2 12",
+    "x2,12,1/x2,12,x/x,1S,x,12/2,1,x,1 1 9",
+    "1,2,2S,1/1,1,2S,1/x2,1S,1/12,212,12112S,2 1 16",
+    "2,x3/2,21,2,1/x,12221S,12,21/1,1,2,x 1 14",
+    "1,12,2,1/2,1,1,2/x2,1221S,x/2,121S,x,2 1 13",
+    "x,21,12,21/1,1112S,x,1/2,1,x2/2,2,112S,x 1 16",
+    "x,2,x,21/1,1,12S,1/1S,2S,2S,1/1212212S,x,1,2S 2 16",
+    "2,1,2,1/1,2,1,12/2,x,1,x/x3,1 2 7",
+    "x,1,12,1/2,1,1221S,x/21,2,2S,121/2,12,1,x 2 16",
+    "x4/2,1,2S,2121/1,x,2,x/1,x2,2 1 8",
+    "221,11112S,x,21/2,1,2S,1/2121,x,2,2/x,2,112S,1 1 22",
+    "x,1,2,1/x,1,2S,x/2,12S,x,1/1,2,1,2 1 8",
+    "2,12,21,x/x,2S,1112S,21/122121S,x3/112S,1,x,1221 2 22",
+    "1,2,x2/2S,1,1,1/x2,2S,2/2,x2,1 1 6",
+    "1,2S,12,1/1,112,12S,2/21S,1,1,2/2,x,1,221S 1 16",
+    "x2,2,1/1,1,12S,x/2,2S,x2/1,x,1,2 1 7",
+    "1,2,1,2/x,1,x,2/x2,1121121,x/x,2,x,21 2 12",
+    "x,1,12,x/21,2S,2,1/1,112S,x,2/x,1,2,1 1 11",
+    "1,x2,2/2,2S,x2/1,1,1,x/x4 2 4",
+    "2,1,21,x/x,12S,1,x/1,1,2S,1212/2,2,1,x 1 12",
+    "2,1212,21S,x/1,112S,2,112/2,1,1,x/2S,1,1,1 2 17",
+    "2,211211212S,1,2/1,2,221S,1/12S,2S,2,21/1,2,1,1 1 22",
+    "x,21,12121,x/212S,x2,1/1,112S,x,2/x,1,2,112S 2 17",
+    "2,x,2S,1/x2,1,x/x,2S,1,x/1,2,1,x 2 5",
+    "2,x3/2,21,x,1/x,12221S,12,21/1,1,2,x 2 13",
+    "1,2,x2/x,12S,1,1/x2,2S,2/2,1,x,1 1 7",
+    "2,x2,1/2,2,2,1/1,12,1,1S/x4 1 7",
+    "x,1,2,2/x,12S,12,1/21112,x,1,21/1112S,2,221,21 1 22",
+    "221S,1,x,2/2,x2,21S/2,1,112,x/1,12,1,1 2 13",
+    "1,2,1,2/x,1,1,2/21,112S,112,1/x,2,x,21 2 15",
+    "x,1,1S,x/x,2S,2S,21/2S,1S,2,2/121212121S,x2,2 1 17",
+    "x,212,1,x/x3,1/x4/2,2,x,1 1 6",
+    "1,1212S,x,1/1,12S,1,1/2,x,12S,1/21,112,2,2 1 16",
+    "221S,1,2S,2/2,x2,21S/2,2S,11221121,x/1,121,x,1 2 19",
+    "2,x,122121,x/x,2,21,x/x,1,12,x/1,1,1,x 2 13",
+    "2,1,1,12S/2,2,2S,21/1,x,12S,1/1,2,1,x 1 11",
+    "221,1,2S,1/2,2,1,1/1221S,2S,12S,12/2,1,2,1 1 17",
+    "1,x,1212,1/2,2S,2,1/1,1,12S,2/x,1,2,1 1 12",
+    "2,x3/x3,1/x4/x3,1 2 2",
+    "x,1,2,x/21,1,2S,x/12,12S,1,2/1,12,1,1 2 11",
+    "1,2,1,x/x,1,x,2/x4/x3,2 1 4",
+    "x4/1,1,x,2/x,12,212,x/2,x,1,1 1 8",
+    "2,x2,1/x2,1,1/x3,2/x4 2 3",
+    "x,1,2,1/21,2S,12S,x/12,1,1,2/x,1,2,1 2 10",
+    "x2,21,1/1,112S,x,2/212S,x,2,1/x,1,12,x 1 12",
+    "2,1,x,1/x2,2S,2/2S,1,1,1/x4 2 5",
+    "2,12,21S,x/x,2,2,1/x,1,1,2/1,12,x,1 1 10",
+    "x3,1/x3,2/x,1,2,1/2,x3 1 4",
+    "x,2,x,21/1,x,12S,1/x,2S,2S,1/121221,x,1,2S 2 14",
+    "1,1,1,2/2,x3/1,x2,1212/x3,2 1 8",
+    "1,x3/1,x3/2,2,x2/1,x2,2 1 4",
+    "x4/x2,1,1/x3,2/2,x2,1 2 3",
+    "1,1,1212121S,1/2,2S,2S,x/1,1112S,x,1/2,1,2,1212 2 21",
+    "21,x,2,x/x,221121,2S,x/2,x,1,1/1,x,2S,1 2 12",
+    "1,2,x2/2,12S,1,1/1,x,2S,2/2,1,x,1 1 8",
+    "2,2S,x2/x,1,x2/x,1,2S,x/x,1,2,1 1 5",
+    "1,1212S,x,1/2,2S,111221S,1/1,2,1,1/1,2,212S,2 2 18",
+    "1,1,2,2/x,2S,x,1/x,1,x2/x3,2 1 5",
+    "2,x2,1/2,2,2,x/1,1,x,1S/x4 1 5",
+    "2,1,1,1/1,12S,x,12/2,x,2S,1/x,1,2,1 2 9",
+    "x,1,2,x/21,1,2S,2/12,12S,1,2/1,12,1,1 1 12",
+    "1,2,1,2/x,1,1,2/21,112S,112,1/x,2,2,21 1 16",
+    "x,1,2,2/121,12S,1,x/12S,112,1,1/1,2,x,2 1 14",
+    "2,1,21,x/2,1,112S,1/1221S,1,x,12/112,2S,121,x 1 21",
+    "x3,1/x4/x,1S,1212,12/2,1,x,1 2 8",
+    "x,1,12,1/21,2S,2,1/1,112S,x,2/x,1,212S,1 2 13",
+    "1,1,1,2/2,x,1,1S/x,12112,x2/x2,2,2 1 11",
+    "x2,212S,1/1,112S,x,2/212S,1,2,1/x,1,12,1 1 14",
+    "x,1,x,2/12,11212,1S,1/1,2S,x,2/1,x3 1 11",
+    "2,x2,1/2,x,2,1/1,12121,x,1S/2,x3 2 9",
+    "1,1,12,1/2,1,1221S,x/21,2,x,1212S/2,12,1,x 2 17",
+    "x,1,2,2/121,12S,1,x/12S,1,1,1/1,2,2,2 1 12",
+    "1,1,1,21S/2,x,1,2S/x,12,1112,x/2,x,21S,2 2 14",
+    "x3,1/x3,2/x3,1/2,x3 1 3",
+    "2,2,1,x/x,1,2S,1/x,112S,x,2/1,2,1,1 1 9",
+    "x2,2,1/1,1,1,2S/2,2S,x2/1,x,1,2 2 6",
+    "2,x3/x,1,x,2S/x4/1,1,1,2 2 4",
+    "x2,212S,x/1,112S,x,21/2,1,2,1/112S,1,12,1 2 15",
+    "12,x,2S,2121/1,1,12S,x/1,2S,2S,1/121,221S,112S,2S 2 21",
+    "1,2,1,1/212S,x,2,12/x,112S,1,1/x,1,212S,x 1 14",
+    "1,2,1,x/x3,1/x4/2,2,x2 1 4",
+    "1,1,2,112S/1,112S,121,x/x3,121/2,212,112S,x 2 19",
+    "2,1,x,12112/1,1,112S,x/22112S,x2,1/2,1,x,1 2 17",
+    "x,2,1,x/x,1,12S,21/x,1,12S,121/2,2,1,x 2 11",
+];
 
 fn get_replays(path: impl AsRef<Path>) -> impl Iterator<Item = Replay<Env>> {
     BufReader::new(OpenOptions::new().read(true).open(path).unwrap())
@@ -56,6 +299,7 @@ fn get_replays(path: impl AsRef<Path>) -> impl Iterator<Item = Replay<Env>> {
         .filter_map(|line| line.ok()?.parse::<Replay<Env>>().ok())
 }
 
+#[allow(unused)]
 fn get_targets(path: impl AsRef<Path>) -> impl Iterator<Item = Target<Env>> {
     BufReader::new(OpenOptions::new().read(true).open(path).unwrap())
         .lines()
@@ -89,130 +333,37 @@ fn reference_envs(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> (V
     (games, tensor)
 }
 
-// struct Tensors {
-//     input: Tensor,
-//     mask: Tensor,
-//     target_value: Tensor,
-//     target_policy: Tensor,
-// }
-
-// impl Default for Tensors {
-//     fn default() -> Self {
-//         let policy = Tensor::zeros(
-//             [
-//                 BATCH_SIZE as i64,
-//                 output_channels::<N>() as i64,
-//                 N as i64,
-//                 N as i64,
-//             ],
-//             (Kind::Float, DEVICE),
-//         );
-//         Self {
-//             input: Tensor::zeros(
-//                 [
-//                     BATCH_SIZE as i64,
-//                     input_channels::<N>() as i64,
-//                     N as i64,
-//                     N as i64,
-//                 ],
-//                 (Kind::Float, DEVICE),
-//             ),
-//             mask: Tensor::zeros_like(&policy).to_dtype(Kind::Bool, false,
-// false),             target_value: Tensor::new(),
-//             target_policy: policy,
-//         }
-//     }
-// }
-
-// fn create_input_and_target_tensors(
-//     tensors: &mut Tensors,
-//     batch: impl Iterator<Item = Target<Env>>,
-//     rng: &mut impl Rng,
-// ) {
-//     // Create input tensors.
-//     let mut inputs = Vec::with_capacity(BATCH_SIZE);
-//     let mut policy_targets = Vec::with_capacity(BATCH_SIZE);
-//     let mut masks = Vec::with_capacity(BATCH_SIZE);
-//     let mut value_targets = Vec::with_capacity(BATCH_SIZE);
-//     for target in batch {
-//         let target = target.augment(rng);
-//         inputs.push(game_to_tensor(&target.env, Device::Cpu));
-//         policy_targets.push(policy_tensor::<N>(&target.policy, Device::Cpu));
-//         masks.push(move_mask::<N>(
-//             &target.policy.iter().map(|(m, _)| *m).collect::<Vec<_>>(),
-//             Device::Cpu,
-//         ));
-//         value_targets.push(target.value);
-//     }
-
-//     // Get network output.
-//     tensors.input.copy_(&Tensor::cat(&inputs, 0));
-//     tensors.mask.copy_(&Tensor::cat(&masks, 0));
-//     // Get the target.
-//     tensors
-//         .target_policy
-//         .copy_(&Tensor::cat(&policy_targets, 0));
-//     tensors.target_value =
-// Tensor::from_slice(&value_targets).unsqueeze(1).to(DEVICE); }
-
-// fn compute_loss_and_take_step(net: &Net, opt: &mut Optimizer, tensors:
-// &Tensors) {     // Get network output.
-//     let (policy, network_value, _, ensemble) = net.forward_t(&tensors.input,
-// true);     let log_softmax_network_policy = policy
-//         .masked_fill(&tensors.mask, f64::from(f32::MIN))
-//         .view([-1, output_size::<N>() as i64])
-//         .log_softmax(1, Kind::Float);
-
-//     // Calculate loss.
-//     let loss_policy = -(log_softmax_network_policy
-//         * &tensors .target_policy .view([BATCH_SIZE as i64,
-//           output_size::<N>() as i64]))
-//         .sum(Kind::Float)
-//         / i64::try_from(BATCH_SIZE).unwrap();
-//     let loss_value = (&tensors.target_value - network_value)
-//         .square()
-//         .mean(Kind::Float);
-//     let loss_ensemble = (&tensors.target_value - ensemble)
-//         .square()
-//         .mean(Kind::Float);
-//     let loss = &loss_policy + &loss_value + &loss_ensemble;
-//     // #[rustfmt::skip]
-//     // println!(
-//     //     "loss = {loss:?}\n\
-//     //      loss_policy = {loss_policy:?}\n\
-//     //      loss_value = {loss_value:?}\n\
-//     //      loss_ensemble = {loss_ensemble:?}"
-//     // );
-//     // Take step.
-//     opt.backward_step(&loss);
-// }
-
 fn rnd(path: &nn::Path) -> nn::SequentialT {
-    const HIDDEN_LAYER: i64 = 1024;
-    const OUTPUT: i64 = 512;
-    nn::seq_t()
-        .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
-        .add_fn(|x| x / x.square().sum_dim_intlist(1, true, None))
-        .add(nn::linear(
-            path / "input_linear",
-            input_size::<N>() as i64,
-            HIDDEN_LAYER,
-            nn::LinearConfig::default(),
+    const RES_BLOCKS: u32 = 8;
+    const FILTERS: i64 = 64;
+    let mut net = nn::seq_t()
+        .add(nn::conv2d(
+            path / "input_conv2d",
+            input_channels::<N>() as i64,
+            FILTERS,
+            3,
+            nn::ConvConfig {
+                stride: 1,
+                padding: 1,
+                bias: false,
+                ..Default::default()
+            },
         ))
-        .add_fn(Tensor::relu)
-        .add(nn::linear(
-            path / "hidden_linear",
-            HIDDEN_LAYER,
-            HIDDEN_LAYER,
-            nn::LinearConfig::default(),
+        .add(nn::batch_norm2d(
+            path / "batch_norm",
+            FILTERS,
+            nn::BatchNormConfig::default(),
         ))
-        .add_fn(Tensor::relu)
-        .add(nn::linear(
-            path / "final_linear",
-            HIDDEN_LAYER,
-            OUTPUT,
-            nn::LinearConfig::default(),
-        ))
+        .add_fn(Tensor::relu);
+    for n in 0..RES_BLOCKS {
+        net = net.add(ResidualBlock::new(
+            &(path / format!("res_block_{n}")),
+            FILTERS,
+            FILTERS,
+        ));
+    }
+    net.add(SmallBlock::new(&(path / "last_small_block"), FILTERS, 32))
+        .add_fn(|x| x.flatten(1, 3))
 }
 
 fn main() {
@@ -226,12 +377,35 @@ fn main() {
 
     let mut opt = Adam::default().build(&vs, LEARNING_RATE).unwrap();
 
-    let mut replays = get_replays("directed-replays-01.txt");
+    let mut replays = get_replays("4x4_old_directed_01_replays.txt");
     let mut buffer = Vec::with_capacity(2048);
-    let mut reference_batches = Vec::new();
+
+    // let mut actions = Vec::new();
+    // let (_, early_tensor) = reference_envs(4, &mut actions, &mut rng);
+    // let (_, late_tensor) = reference_envs(120, &mut actions, &mut rng);
+    let early_tensor = Tensor::concat(
+        &BATCH_5K
+            .into_iter()
+            .map(|s| game_to_tensor::<4, 4>(&s.parse::<Tps>().unwrap().into(), Device::Cpu))
+            .collect::<Vec<_>>(),
+        0,
+    )
+    .to(DEVICE);
+    let late_tensor = Tensor::concat(
+        &BATCH_20K
+            .into_iter()
+            .map(|s| game_to_tensor::<4, 4>(&s.parse::<Tps>().unwrap().into(), Device::Cpu))
+            .collect::<Vec<_>>(),
+        0,
+    )
+    .to(DEVICE);
 
     let mut losses: Vec<f64> = Vec::with_capacity(STEPS);
-    let mut batch_losses: Vec<Vec<f64>> = Vec::new();
+    let mut early_losses: Vec<f64> = Vec::with_capacity(STEPS);
+    let mut late_losses: Vec<f64> = Vec::with_capacity(STEPS);
+
+    let mut running_mean = early_tensor.zeros_like();
+    let mut running_sum_squares = running_mean.ones_like();
     for step in 0..STEPS {
         if step % 100 == 0 {
             println!("step: {step: >8}");
@@ -259,203 +433,61 @@ fn main() {
         )
         .to(DEVICE);
 
+        // Update normalization statistics.
+        let new_running_mean = &running_mean + (&tensor - &running_mean) / (step + 1) as i64;
+        running_sum_squares += (&tensor - &running_mean) * (&tensor - &new_running_mean);
+        running_mean = new_running_mean;
+        let running_variance = &running_sum_squares / (step + 1) as i64; // Normalize.
+
+        // Compute loss for early batch.
+        let input = ((&early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let target_out = target.forward_t(&input, false).detach();
+        let predictor_out = predictor.forward_t(&input, false).detach();
+        let loss = (target_out - predictor_out).square().mean(None);
+        early_losses.push(loss.try_into().unwrap());
+
+        // Compute loss for late batch.
+        let input = ((&late_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let target_out = target.forward_t(&input, false).detach();
+        let predictor_out = predictor.forward_t(&input, false).detach();
+        let loss = (target_out - predictor_out).square().mean(None);
+        late_losses.push(loss.try_into().unwrap());
+
         // Do a training step.
-        let target_out = target.forward_t(&tensor, false).detach();
-        let predictor_out = predictor.forward_t(&tensor, true);
+        let input = ((tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let target_out = target.forward_t(&input, false).detach();
+        let predictor_out = predictor.forward_t(&input, true);
         let loss = (target_out - predictor_out).square().mean(None);
         opt.backward_step(&loss);
-        // Save the loss.
+
+        // Save the normalized loss.
         losses.push(loss.try_into().unwrap());
-
-        // Save reference batch.
-        if step % REFERENCE_PERIOD == 0 {
-            reference_batches.push(tensor.copy());
-            batch_losses.push(Vec::with_capacity(STEPS - step));
-        }
-
-        for (batch_loss, reference_batch) in batch_losses.iter_mut().zip(reference_batches.iter()) {
-            // Compute loss for reference batch.
-            let target_out = target.forward_t(reference_batch, false).detach();
-            let predictor_out = predictor.forward_t(reference_batch, true);
-            let loss = (target_out - predictor_out).square().mean(None);
-            batch_loss.push(loss.try_into().unwrap());
-        }
     }
 
-    println!("Plotting.");
+    println!("{running_mean}");
+    println!("{running_mean:?}");
+    println!("{running_sum_squares}");
+    println!("{running_sum_squares:?}");
 
-    let mut chart = Chart::new()
-        .title(Title::new().text("RND Loss").left("center").top(0))
-        .x_axis(Axis::new().name("Training steps"))
-        .y_axis(Axis::new().name("Loss").min(0).max(0.0001))
-        .grid(Grid::new())
-        .legend(
-            Legend::new()
-                .data(
-                    std::iter::once("Recent batch".to_string())
-                        .chain(
-                            (0..batch_losses.len())
-                                .map(|i| format!("{} batch", i * REFERENCE_PERIOD)),
-                        )
-                        .collect(),
-                )
-                .bottom(10)
-                .left(30),
-        )
-        .series(
-            Line::new()
-                .data(
-                    losses
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, l)| vec![i as f64, l])
-                        .collect(),
-                )
-                .name("Recent batch")
-                .symbol(Symbol::None),
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("rnd_data.csv")
+        .unwrap();
+    let content = losses
+        .into_iter()
+        .zip(early_losses)
+        .zip(late_losses)
+        .enumerate()
+        .fold(
+            "step,loss,early,late\n".to_string(),
+            |mut s, (step, ((loss, early), late))| {
+                writeln!(&mut s, "{step},{loss},{early},{late}").unwrap();
+                s
+            },
         );
-    for (i, batch_loss) in batch_losses.into_iter().enumerate() {
-        let start = REFERENCE_PERIOD * i;
-        chart = chart.series(
-            Line::new()
-                .data(
-                    batch_loss
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, l)| vec![(i + start) as f64, l])
-                        .collect(),
-                )
-                .name(format!("{start} batch"))
-                .symbol(Symbol::None),
-        );
-    }
-
-    let mut renderer = HtmlRenderer::new("graph", 1400, 700).theme(Theme::Infographic);
-    renderer.save(&chart, "graph.html").unwrap();
+    file.write_all(content.as_bytes()).unwrap();
 
     println!("Done.");
 }
-
-// fn ensemble_experiment() {
-//     let mut selfplay =
-// targets("targets-selfplay-no-explore-01.txt").skip(BATCH_SIZE * 15_000);
-//     let mut reanalyze =
-// targets("targets-reanalyze-no-explore-01.txt").skip(BATCH_SIZE * 10_000);
-//     println!("loaded targets");
-
-//     let mut buffer = Vec::with_capacity(16_384);
-//     buffer.extend(selfplay.by_ref().take(5_000));
-//     buffer.extend(reanalyze.by_ref().take(5_000));
-//     println!("created buffer");
-
-//     let seed: u64 = 12345;
-//     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-
-//     let mut net = Net::new(Device::Cuda(0), Some(rng.gen()));
-//     let mut opt = Adam::default().build(net.vs_mut(),
-// LEARNING_RATE).unwrap();     println!("created network");
-
-//     // Create reference positions.
-//     let mut actions = Vec::new();
-//     let (_early_positions, early_tensor) = reference_envs(5, &mut actions,
-// &mut rng);     let (_mid_positions, mid_tensor) = reference_envs(30, &mut
-// actions, &mut rng);     let (_late_positions, late_tensor) =
-// reference_envs(120, &mut actions, &mut rng);     let mut lines = [vec![],
-// vec![], vec![]];
-
-//     let mut tensors = Tensors::default();
-//     for step in 1..=STEPS {
-//         println!("{step} / {STEPS}");
-
-//         buffer.extend(selfplay.by_ref().take(BATCH_SIZE / 2));
-//         buffer.extend(reanalyze.by_ref().take(BATCH_SIZE / 2));
-//         buffer.shuffle(&mut rng);
-
-//         create_input_and_target_tensors(
-//             &mut tensors,
-//             buffer.drain(buffer.len() - BATCH_SIZE..),
-//             &mut rng,
-//         );
-//         compute_loss_and_take_step(&net, &mut opt, &tensors);
-
-//         if step % 100 == 1 {
-//             let (_, value, _, ensemble) = net.forward_t(&early_tensor,
-// false);             lines[0].push((
-//                 step as f64,
-//                 f64::try_from((ensemble.mean_dim(1, false, None) -
-// value).mean(None)).unwrap(),
-// f64::try_from(ensemble.var_dim(1i64, false, false).mean(None)).unwrap(),
-//             ));
-//             let (_, value, _, ensemble) = net.forward_t(&mid_tensor, false);
-//             lines[1].push((
-//                 step as f64,
-//                 f64::try_from((ensemble.mean_dim(1, false, None) -
-// value).mean(None)).unwrap(),
-// f64::try_from(ensemble.var_dim(1i64, false, false).mean(None)).unwrap(),
-//             ));
-//             let (_, value, _, ensemble) = net.forward_t(&late_tensor, false);
-//             lines[2].push((
-//                 step as f64,
-//                 f64::try_from((ensemble.mean_dim(1, false, None) -
-// value).mean(None)).unwrap(),
-// f64::try_from(ensemble.var_dim(1i64, false, false).mean(None)).unwrap(),
-//             ));
-//         }
-//     }
-//     plot(lines);
-// }
-
-// fn plot(mut lines: [Vec<(f64, f64, f64)>; 3]) {
-//     let chart = Chart::new()
-//         .title(
-//             Title::new()
-//                 .text("Ensemble Variance During Training")
-//                 .left("center")
-//                 .top(0),
-//         )
-//         .x_axis(Axis::new().name("Training steps"))
-//         .y_axis(Axis::new().name("Variance"))
-//         .grid(Grid::new())
-//         .legend(
-//             Legend::new()
-//                 .data(vec!["Early (5 ply)", "Middle (30 ply)", "Late (<=120
-// ply)"])                 .bottom(10)
-//                 .left(30),
-//         )
-//         .series(
-//             Line::new()
-//                 .data(
-//                     std::mem::take(&mut lines[0])
-//                         .into_iter()
-//                         .map(|(s, _, v)| vec![s, v])
-//                         .collect(),
-//                 )
-//                 .name("Early (5 ply)")
-//                 .symbol(Symbol::None),
-//         )
-//         .series(
-//             Line::new()
-//                 .data(
-//                     std::mem::take(&mut lines[1])
-//                         .into_iter()
-//                         .map(|(s, _, v)| vec![s, v])
-//                         .collect(),
-//                 )
-//                 .name("Middle (30 ply)")
-//                 .symbol(Symbol::None),
-//         )
-//         .series(
-//             Line::new()
-//                 .data(
-//                     std::mem::take(&mut lines[2])
-//                         .into_iter()
-//                         .map(|(s, _, v)| vec![s, v])
-//                         .collect(),
-//                 )
-//                 .name("Late (<=120 ply)")
-//                 .symbol(Symbol::None),
-//         );
-
-//     let mut renderer = HtmlRenderer::new("graph", 1400,
-// 700).theme(Theme::Infographic);     renderer.save(&chart,
-// "graph.html").unwrap(); }
