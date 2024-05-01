@@ -11,6 +11,7 @@ pub struct SmallBlock {
 }
 
 impl SmallBlock {
+    #[must_use]
     pub fn new(vs: &nn::Path, in_channels: i64, out_channels: i64) -> Self {
         let model = nn::seq_t()
             .add(nn::conv2d(
