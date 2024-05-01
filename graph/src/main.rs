@@ -13,7 +13,7 @@ use charming::{
     Chart,
     HtmlRenderer,
 };
-use takzero::{network::net5::Env, search::env::Environment, target::Replay};
+use takzero::{network::net4_neurips::Env, search::env::Environment, target::Replay};
 
 fn main() {
     let chart = Chart::new()
@@ -30,43 +30,38 @@ fn main() {
         .legend(
             Legend::new()
                 .data(vec![
-                    "undirected-random",
-                    "directed-random",
-                    "directed-random-top8",
-                    "undirected-seq-hal-bugged",
-                    "undirected-seq-hal-fixed",
+                    "undirected-seq-hal-00",
+                    "undirected-puct-00",
+                    "directed-epuct-00",
+                    "directed-epuct-01",
                 ])
                 .bottom(10)
                 .left(10),
         )
         .series(
             Line::new()
-                .data(get_unique_positions("undirected.txt"))
-                .name("undirected-random")
+                .data(get_unique_positions(
+                    "4x4_neurips_undirected_00_replays.txt",
+                ))
+                .name("undirected-seq-hal-00")
                 .symbol(Symbol::None),
         )
         .series(
             Line::new()
-                .data(get_unique_positions("directed.txt"))
-                .name("directed-random")
+                .data(get_unique_positions("4x4_old_directed_00_replays.txt"))
+                .name("directed-epuct-00")
                 .symbol(Symbol::None),
         )
         .series(
             Line::new()
-                .data(get_unique_positions("directed-top.txt"))
-                .name("directed-random-top8")
+                .data(get_unique_positions("4x4_old_directed_01_replays.txt"))
+                .name("directed-epuct-01")
                 .symbol(Symbol::None),
         )
         .series(
             Line::new()
-                .data(get_unique_positions("undirected-seq-hal-bugged.txt"))
-                .name("undirected-seq-hal-bugged")
-                .symbol(Symbol::None),
-        )
-        .series(
-            Line::new()
-                .data(get_unique_positions("undirected-seq-hal-fixed.txt"))
-                .name("undirected-seq-hal-fixed")
+                .data(get_unique_positions("4x4_old_undirected_00_replays.txt"))
+                .name("undirected-puct-00")
                 .symbol(Symbol::None),
         );
 
