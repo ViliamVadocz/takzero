@@ -408,7 +408,7 @@ fn main() {
     let mut batch20k_losses: Vec<f64> = Vec::with_capacity(STEPS);
 
     let mut running_mean = early_tensor.zeros_like();
-    let mut running_sum_squares = running_mean.ones_like();
+    let mut running_sum_squares = running_mean.ones_like() * 0.0001;
     for step in 0..STEPS {
         if step % 100 == 0 {
             println!("step: {step: >8}");
