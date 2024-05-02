@@ -366,6 +366,7 @@ fn rnd(path: &nn::Path) -> nn::SequentialT {
         .add_fn(|x| x.flatten(1, 3))
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let seed: u64 = 12345;
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
@@ -380,10 +381,10 @@ fn main() {
     let mut replays = get_replays("4x4_old_directed_01_replays.txt");
     let mut buffer = Vec::with_capacity(2048);
 
-    // let mut actions = Vec::new();
-    // let (_, early_tensor) = reference_envs(4, &mut actions, &mut rng);
-    // let (_, late_tensor) = reference_envs(120, &mut actions, &mut rng);
-    let early_tensor = Tensor::concat(
+    let mut actions = Vec::new();
+    let (_, early_tensor) = reference_envs(4, &mut actions, &mut rng);
+    let (_, late_tensor) = reference_envs(120, &mut actions, &mut rng);
+    let batch5k_tensor = Tensor::concat(
         &BATCH_5K
             .into_iter()
             .map(|s| game_to_tensor::<4, 4>(&s.parse::<Tps>().unwrap().into(), Device::Cpu))
@@ -391,7 +392,7 @@ fn main() {
         0,
     )
     .to(DEVICE);
-    let late_tensor = Tensor::concat(
+    let batch20k_tensor = Tensor::concat(
         &BATCH_20K
             .into_iter()
             .map(|s| game_to_tensor::<4, 4>(&s.parse::<Tps>().unwrap().into(), Device::Cpu))
@@ -403,6 +404,8 @@ fn main() {
     let mut losses: Vec<f64> = Vec::with_capacity(STEPS);
     let mut early_losses: Vec<f64> = Vec::with_capacity(STEPS);
     let mut late_losses: Vec<f64> = Vec::with_capacity(STEPS);
+    let mut batch5k_losses: Vec<f64> = Vec::with_capacity(STEPS);
+    let mut batch20k_losses: Vec<f64> = Vec::with_capacity(STEPS);
 
     let mut running_mean = early_tensor.zeros_like();
     let mut running_sum_squares = running_mean.ones_like();
@@ -424,14 +427,22 @@ fn main() {
         // Sample a batch.
         buffer.shuffle(&mut rng);
         let batch = buffer.split_off(buffer.len() - BATCH_SIZE);
-        let tensor = Tensor::concat(
-            &batch
-                .into_iter()
-                .map(|env| game_to_tensor(&env, Device::Cpu))
-                .collect::<Vec<_>>(),
-            0,
-        )
-        .to(DEVICE);
+        let tensor = if step == 5_000 {
+            batch5k_tensor.copy()
+        } else if step == 20_000 {
+            batch20k_tensor.copy()
+        } else if (15_000..15_016).contains(&step) {
+            late_tensor.copy()
+        } else {
+            Tensor::concat(
+                &batch
+                    .into_iter()
+                    .map(|env| game_to_tensor(&env, Device::Cpu))
+                    .collect::<Vec<_>>(),
+                0,
+            )
+            .to(DEVICE)
+        };
 
         // Update normalization statistics.
         let new_running_mean = &running_mean + (&tensor - &running_mean) / (step + 1) as i64;
@@ -452,6 +463,20 @@ fn main() {
         let predictor_out = predictor.forward_t(&input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         late_losses.push(loss.try_into().unwrap());
+
+        // Compute loss for 5k batch.
+        let input = ((&batch5k_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let target_out = target.forward_t(&input, false).detach();
+        let predictor_out = predictor.forward_t(&input, false).detach();
+        let loss = (target_out - predictor_out).square().mean(None);
+        batch5k_losses.push(loss.try_into().unwrap());
+
+        // Compute loss for 20k batch.
+        let input = ((&batch20k_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let target_out = target.forward_t(&input, false).detach();
+        let predictor_out = predictor.forward_t(&input, false).detach();
+        let loss = (target_out - predictor_out).square().mean(None);
+        batch20k_losses.push(loss.try_into().unwrap());
 
         // Do a training step.
         let input = ((tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
@@ -479,11 +504,13 @@ fn main() {
         .into_iter()
         .zip(early_losses)
         .zip(late_losses)
+        .zip(batch5k_losses)
+        .zip(batch20k_losses)
         .enumerate()
         .fold(
-            "step,loss,early,late\n".to_string(),
-            |mut s, (step, ((loss, early), late))| {
-                writeln!(&mut s, "{step},{loss},{early},{late}").unwrap();
+            "step,loss,early,late,batch5k,batch20k\n".to_string(),
+            |mut s, (step, ((((loss, early), late), batch5k), batch20k))| {
+                writeln!(&mut s, "{step},{loss},{early},{late},{batch5k},{batch20k}").unwrap();
                 s
             },
         );
