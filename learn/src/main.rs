@@ -71,6 +71,9 @@ struct Args {
     /// and also where to save models.
     #[arg(long)]
     directory: PathBuf,
+    /// Targets to use for resuming after restart.
+    #[arg(long)]
+    resume_targets: Option<PathBuf>,
 }
 
 struct TargetWithContext {
@@ -102,31 +105,42 @@ fn main() {
     log::info!("seed = {seed}");
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
-    // Load or initialize a network.
-    let (mut net, mut starting_steps) = if let Some((starting_steps, model_path)) =
-        get_model_path_with_most_steps(&args.directory)
-    {
-        log::info!(
-            "Resuming at {starting_steps} steps with {}",
-            model_path.display()
-        );
-        (
-            Net::load(model_path, DEVICE).expect("Model file should be loadable"),
-            starting_steps,
-        )
-    } else {
-        log::info!("Creating new model");
-        let net = Net::new(DEVICE, Some(rng.gen()));
-        net.save(args.directory.join("model_0000000.ot")).unwrap();
-        (net, 0)
-    };
+    // Initialize a network.
+    log::info!("Initializing a network model");
+    let mut net = Net::new(DEVICE, Some(rng.gen()));
+    net.save(args.directory.join("model_0000000.ot")).unwrap();
+    let mut starting_steps = 0;
 
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
     // Load RND reference games.
     let (early_reference, late_reference) = reference_games(DEVICE, &mut rng);
 
-    // Pre-training.
-    if starting_steps == 0 {
+    if let Some(target_file) = &args.resume_targets {
+        // Resuming after restarting.
+        let mut targets = BufReader::new(OpenOptions::new().read(true).open(target_file).unwrap())
+            .lines()
+            .filter_map(|line| line.ok()?.parse::<Target<Env>>().ok())
+            .collect::<Vec<_>>();
+        targets.shuffle(&mut rng);
+        for batch in targets.chunks_exact(BATCH_SIZE) {
+            let tensors = create_input_and_target_tensors(batch.iter(), &mut rng);
+            compute_loss_and_take_step(
+                &mut net,
+                &mut opt,
+                tensors,
+                &early_reference,
+                &late_reference,
+                false,
+            );
+            starting_steps += 1;
+        }
+        net.save(
+            args.directory
+                .join(format!("model_{starting_steps:0>7}.ot")),
+        )
+        .unwrap();
+    } else {
+        // Pre-training.
         pre_training(
             &mut net,
             &mut opt,
@@ -155,7 +169,8 @@ fn main() {
     // Main training loop.
     let mut last_loaded = Instant::now();
     for model_steps in (starting_steps + 1).. {
-        let using_reanalyze = model_steps >= STEPS_BEFORE_REANALYZE;
+        let using_reanalyze =
+            args.resume_targets.is_some() || model_steps >= STEPS_BEFORE_REANALYZE;
 
         // Make sure there are enough targets before sampling a batch.
         loop {
@@ -251,6 +266,7 @@ fn main() {
 /// Get the path to the model file (ending with ".ot")
 /// which has the highest number of steps (number after '_')
 /// in the given directory.
+#[allow(unused)]
 fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(usize, PathBuf)> {
     read_dir(directory)
         .unwrap()
