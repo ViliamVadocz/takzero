@@ -48,8 +48,7 @@ impl<E: Environment> Node<E> {
     #[inline]
     fn update_mean_value(&mut self, value: f32) {
         if let Eval::Value(mean_value) = &mut self.evaluation {
-            *mean_value =
-                (*mean_value * (self.visit_count - 1) as f32 + value) / self.visit_count as f32;
+            *mean_value += (-*mean_value + value) / (self.visit_count as f32);
         };
     }
 
@@ -58,8 +57,7 @@ impl<E: Environment> Node<E> {
         if self.evaluation.is_known() {
             return;
         }
-        self.std_dev = (self.std_dev * ((self.visit_count - 1) as f32) + variance.sqrt())
-            / self.visit_count as f32;
+        self.std_dev += (-self.std_dev + variance.sqrt()) / (self.visit_count as f32);
     }
 
     // TODO: Once pruning is added back, we can skip traversing all evaluations to
