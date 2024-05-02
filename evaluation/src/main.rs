@@ -6,7 +6,7 @@ use clap::Parser;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
-        net5::{Env, Net},
+        net4_neurips::{Env, Net},
         Network,
     },
     search::{
@@ -21,8 +21,9 @@ const DEVICE: Device = Device::Cuda(0);
 
 const BATCH_SIZE: usize = 64;
 const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
-const VISITS: usize = 400;
 const MAX_MOVES: usize = 200;
+const SAMPLED_ACTIONS: usize = 64;
+const SEARCH_BUDGET: u32 = 768;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -105,12 +106,12 @@ fn real_main() {
             Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
         });
 
-        let a_as_white = compete(&a, &b, &games);
+        let a_as_white = compete(&a, &b, &games, &mut rng);
         log::info!(
             "{name_a} vs. {name_b}: {a_as_white:?} {:.1}%",
             a_as_white.win_rate() * 100.0
         );
-        let b_as_white = compete(&b, &a, &games);
+        let b_as_white = compete(&b, &a, &games, &mut rng);
         log::info!(
             "{name_b} vs. {name_a}: {b_as_white:?} {:.1}%",
             b_as_white.win_rate() * 100.0
@@ -120,7 +121,7 @@ fn real_main() {
 /// Pit two networks against each other in the given games. Evaluation is from
 /// the perspective of white.
 #[allow(dead_code)]
-fn compete<W, B>(white: &W, black: &B, games: &[Env]) -> Evaluation
+fn compete<W, B>(white: &W, black: &B, games: &[Env], rng: &mut impl Rng) -> Evaluation
 where
     W: Network + Agent<Env>,
     B: Network + Agent<Env>,
@@ -145,18 +146,25 @@ where
             } else {
                 (&mut black_mcts, &mut white_mcts)
             };
-            if is_white {
-                for _ in 0..VISITS {
-                    current.simulate(white, &ZERO_BETA);
-                }
+            let top_actions: [_; BATCH_SIZE] = if is_white {
+                current.gumbel_sequential_halving(
+                    white,
+                    &ZERO_BETA,
+                    SAMPLED_ACTIONS,
+                    SEARCH_BUDGET,
+                    rng,
+                )
             } else {
-                for _ in 0..VISITS {
-                    current.simulate(black, &ZERO_BETA);
-                }
-            }
+                current.gumbel_sequential_halving(
+                    black,
+                    &ZERO_BETA,
+                    SAMPLED_ACTIONS,
+                    SEARCH_BUDGET,
+                    rng,
+                )
+            };
 
             // Pick the top actions and take a step.
-            let top_actions: [_; BATCH_SIZE] = current.select_best_actions();
             current.step(&top_actions);
             other.step(&top_actions);
 
