@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use fast_tak::takparse::{Move, Tps};
+use fast_tak::takparse::Move;
 use rand::{
     seq::{IteratorRandom, SliceRandom},
     Rng,
@@ -73,8 +73,8 @@ fn reference_envs(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> (V
 }
 
 fn rnd(path: &nn::Path) -> nn::SequentialT {
-    const RES_BLOCKS: u32 = 8;
-    const FILTERS: i64 = 64;
+    const RES_BLOCKS: u32 = 16;
+    const FILTERS: i64 = 32;
     let mut net = nn::seq_t()
         .add(nn::conv2d(
             path / "input_conv2d",
@@ -93,7 +93,7 @@ fn rnd(path: &nn::Path) -> nn::SequentialT {
             FILTERS,
             nn::BatchNormConfig::default(),
         ))
-        .add_fn(Tensor::relu);
+        .add_fn(Tensor::sigmoid);
     for n in 0..RES_BLOCKS {
         net = net.add(ResidualBlock::new(
             &(path / format!("res_block_{n}")),
@@ -117,14 +117,13 @@ fn main() {
 
     let mut opt = Adam::default().build(&vs, LEARNING_RATE).unwrap();
 
-    let mut replays = get_replays("4x4_old_directed_01_replays.txt");
-
+    let mut positions = Vec::new();
     let mut seen_positions = HashSet::new();
     let mut unique_positions = Vec::new();
-
-    for replay in replays {
+    for replay in get_replays("4x4_old_directed_01_replays.txt") {
         let mut env = replay.env;
         for action in replay.actions {
+            positions.push(env.clone());
             if seen_positions.insert(env.clone().canonical()) {
                 unique_positions.push(env.clone());
             }
@@ -132,38 +131,53 @@ fn main() {
         }
     }
 
-    unique_positions.truncate(STEPS * BATCH_SIZE);
-    println!("{}", unique_positions.len());
-
-    let early_batch = unique_positions[..1_000_000].choose_multiple(&mut rng, 128);
+    let early_game = unique_positions
+        .iter()
+        .filter(|s| s.ply < 10)
+        .cloned()
+        .choose_multiple(&mut rng, 128);
     let early_tensor = Tensor::concat(
-        &early_batch
-            .into_iter()
+        &early_game
+            .iter()
             .map(|s| game_to_tensor(s, Device::Cpu))
             .collect::<Vec<_>>(),
-        1,
+        0,
     )
     .to(DEVICE);
-    let late_batch =
-        unique_positions[unique_positions.len() - 1_000_000..].choose_multiple(&mut rng, 128);
+    let late_game = unique_positions
+        .iter()
+        .filter(|s| s.ply >= 60)
+        .cloned()
+        .choose_multiple(&mut rng, 128);
     let late_tensor = Tensor::concat(
-        &late_batch
-            .into_iter()
+        &late_game
+            .iter()
             .map(|s| game_to_tensor(s, Device::Cpu))
             .collect::<Vec<_>>(),
-        1,
+        0,
     )
     .to(DEVICE);
 
-    let mut unique_positions_iter = unique_positions.into_iter();
+    let mut actions = vec![];
+    let (random_early_batch, random_early_tensor) = reference_envs(8, &mut actions, &mut rng);
+    let (random_late_batch, random_late_tensor) = reference_envs(120, &mut actions, &mut rng);
+
     let mut buffer = Vec::with_capacity(2048);
+    let mut positions = positions.into_iter().filter(|s| {
+        !early_game.contains(s)
+            && !late_game.contains(s)
+            && !random_early_batch.contains(s)
+            && !random_late_batch.contains(s)
+    });
 
     let mut losses: Vec<f64> = Vec::with_capacity(STEPS);
     let mut early_losses: Vec<f64> = Vec::with_capacity(STEPS);
     let mut late_losses: Vec<f64> = Vec::with_capacity(STEPS);
+    let mut random_early_losses: Vec<f64> = Vec::with_capacity(STEPS);
+    let mut random_late_losses: Vec<f64> = Vec::with_capacity(STEPS);
 
     let mut running_mean = early_tensor.zeros_like();
-    let mut running_sum_squares = running_mean.ones_like() * 0.0001;
+    let mut running_sum_squares = running_mean.ones_like() * 1e-3;
     // let mut running_sum_squares_output = 0.0;
 
     for step in 0..STEPS {
@@ -173,16 +187,14 @@ fn main() {
 
         // Add replays to buffer until we have enough.
         while buffer.len() < 1024 {
-            let position = unique_positions_iter.next().unwrap();
+            let position = positions.next().unwrap();
             buffer.push(position);
         }
 
         // Sample a batch.
         buffer.shuffle(&mut rng);
         let batch = buffer.split_off(buffer.len() - BATCH_SIZE);
-        let tensor = if (5_000..5_004).contains(&step) {
-            early_tensor.copy()
-        } else if (20_000..20_004).contains(&step) {
+        let tensor = if (10_000..=10_016).contains(&step) {
             late_tensor.copy()
         } else {
             Tensor::concat(
@@ -215,6 +227,20 @@ fn main() {
         let loss = (target_out - predictor_out).square().mean(None);
         late_losses.push(loss.try_into().unwrap());
 
+        // Compute loss for random early batch.
+        let input = ((&random_early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let target_out = target.forward_t(&input, false).detach();
+        let predictor_out = predictor.forward_t(&input, false).detach();
+        let loss = (target_out - predictor_out).square().mean(None);
+        random_early_losses.push(loss.try_into().unwrap());
+
+        // Compute loss for random late batch.
+        let input = ((&random_late_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let target_out = target.forward_t(&input, false).detach();
+        let predictor_out = predictor.forward_t(&input, false).detach();
+        let loss = (target_out - predictor_out).square().mean(None);
+        random_late_losses.push(loss.try_into().unwrap());
+
         // Do a training step.
         let input = ((tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
         let target_out = target.forward_t(&input, false).detach();
@@ -241,11 +267,17 @@ fn main() {
         .into_iter()
         .zip(early_losses)
         .zip(late_losses)
+        .zip(random_early_losses)
+        .zip(random_late_losses)
         .enumerate()
         .fold(
-            "step,loss,early,late\n".to_string(),
-            |mut s, (step, ((loss, early), late))| {
-                writeln!(&mut s, "{step},{loss},{early},{late}").unwrap();
+            "step,loss,early,late,random_early,random_late\n".to_string(),
+            |mut s, (step, ((((loss, early), late), random_early), random_late))| {
+                writeln!(
+                    &mut s,
+                    "{step},{loss},{early},{late},{random_early},{random_late}"
+                )
+                .unwrap();
                 s
             },
         );

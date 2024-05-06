@@ -12,15 +12,15 @@ with open("rnd_data.csv", "r") as file:
     loss = [s[1] for s in rows]
     early = [s[2] for s in rows]
     late = [s[3] for s in rows]
-    batch5k = [s[4] for s in rows]
-    batch20k = [s[5] for s in rows]
+    random_early = [s[4] for s in rows]
+    random_late = [s[5] for s in rows]
 
 
 plt.plot(steps, loss, label="current")
-plt.plot(steps, early, label="early (4 ply)")
-plt.plot(steps, late, label="late (120 ply)")
-plt.plot(steps, batch5k, label="batch at 5k")
-plt.plot(steps, batch20k, label="batch at 20k")
+plt.plot(steps, early, label="early")
+plt.plot(steps, late, label="late")
+plt.plot(steps, random_early, label="random early (8 ply)")
+plt.plot(steps, random_late, label="random late (120 ply)")
 plt.grid()
 plt.legend()
 plt.title("RND output")
