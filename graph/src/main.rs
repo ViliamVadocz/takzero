@@ -30,13 +30,21 @@ fn main() {
         .legend(
             Legend::new()
                 .data(vec![
+                    "undirected-seq-hal-restart-00",
                     "undirected-seq-hal-00",
-                    "undirected-puct-00",
                     "directed-epuct-00",
                     "directed-epuct-01",
                 ])
                 .bottom(10)
                 .left(10),
+        )
+        .series(
+            Line::new()
+                .data(get_unique_positions(
+                    "4x4_neurips_restart_undirected_00_replays.txt",
+                ))
+                .name("undirected-seq-hal-restart-00")
+                .symbol(Symbol::None),
         )
         .series(
             Line::new()
@@ -56,12 +64,6 @@ fn main() {
             Line::new()
                 .data(get_unique_positions("4x4_old_directed_01_replays.txt"))
                 .name("directed-epuct-01")
-                .symbol(Symbol::None),
-        )
-        .series(
-            Line::new()
-                .data(get_unique_positions("4x4_old_undirected_00_replays.txt"))
-                .name("undirected-puct-00")
                 .symbol(Symbol::None),
         );
 
