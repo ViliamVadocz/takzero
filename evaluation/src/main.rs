@@ -6,7 +6,8 @@ use clap::Parser;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
-        net4_neurips::{Env, Net},
+        net4_big,
+        net4_neurips::{self, Env},
         Network,
     },
     search::{
@@ -35,22 +36,50 @@ struct Args {
     step: usize,
 }
 
-#[cfg(never)]
-fn compare_small_big() {
-    let small = net4::Net::load("baseline-small.ot", Device::Cuda(0)).unwrap();
-    let big = net4_big::Net::load("baseline-big.ot", Device::Cuda(0)).unwrap();
+fn compare_mid_big(
+    path_1: impl AsRef<std::path::Path>,
+    path_2: impl AsRef<std::path::Path>,
+    games: &[Env],
+    rng: &mut impl Rng,
+) -> Evaluation {
+    let big_1 = path_1
+        .as_ref()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .split_once('_')
+        .map(|(f, _)| f == "big")
+        .unwrap_or_default();
+    let big_2 = path_2
+        .as_ref()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .split_once('_')
+        .map(|(f, _)| f == "big")
+        .unwrap_or_default();
 
-    let seed: u64 = thread_rng().gen();
-    log::info!("seed: {seed}");
-    let mut rng = StdRng::seed_from_u64(seed);
-
-    let mut actions = Vec::new();
-    loop {
-        let games: [Env; BATCH_SIZE] = array::from_fn(|_| Env::new_opening(&mut rng, &mut actions));
-        let res = compete(&small, &big, &games);
-        log::info!("small vs. big: {res:?} {:.1}%", res.win_rate() * 100.0);
-        let res = compete(&big, &small, &games);
-        log::info!("big vs. small: {res:?} {:.1}%", res.win_rate() * 100.0);
+    match (big_1, big_2) {
+        (true, true) => {
+            let a = net4_big::Net::load(path_1, DEVICE).unwrap();
+            let b = net4_big::Net::load(path_2, DEVICE).unwrap();
+            compete(&a, &b, games, rng)
+        }
+        (true, false) => {
+            let a = net4_big::Net::load(path_1, DEVICE).unwrap();
+            let b = net4_neurips::Net::load(path_2, DEVICE).unwrap();
+            compete(&a, &b, games, rng)
+        }
+        (false, true) => {
+            let a = net4_neurips::Net::load(path_1, DEVICE).unwrap();
+            let b = net4_big::Net::load(path_2, DEVICE).unwrap();
+            compete(&a, &b, games, rng)
+        }
+        (false, false) => {
+            let a = net4_neurips::Net::load(path_1, DEVICE).unwrap();
+            let b = net4_neurips::Net::load(path_2, DEVICE).unwrap();
+            compete(&a, &b, games, rng)
+        }
     }
 }
 
@@ -89,14 +118,14 @@ fn real_main() {
         let path_a = match_up.next().unwrap();
         let path_b = match_up.next().unwrap();
 
-        let Ok(a) = Net::load(path_a, DEVICE) else {
-            log::warn!("Cannot load {}", path_a.display());
-            continue;
-        };
-        let Ok(b) = Net::load(path_b, DEVICE) else {
-            log::warn!("Cannot load {}", path_b.display());
-            continue;
-        };
+        // let Ok(a) = Net::load(path_a, DEVICE) else {
+        //     log::warn!("Cannot load {}", path_a.display());
+        //     continue;
+        // };
+        // let Ok(b) = Net::load(path_b, DEVICE) else {
+        //     log::warn!("Cannot load {}", path_b.display());
+        //     continue;
+        // };
         let name_a = path_a.file_name().unwrap().to_string_lossy().to_string();
         let name_b = path_b.file_name().unwrap().to_string_lossy().to_string();
 
@@ -106,12 +135,14 @@ fn real_main() {
             Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
         });
 
-        let a_as_white = compete(&a, &b, &games, &mut rng);
+        // let a_as_white = compete(&a, &b, &games, &mut rng);
+        let a_as_white = compare_mid_big(path_a, path_b, &games, &mut rng);
         log::info!(
             "{name_a} vs. {name_b}: {a_as_white:?} {:.1}%",
             a_as_white.win_rate() * 100.0
         );
-        let b_as_white = compete(&b, &a, &games, &mut rng);
+        // let b_as_white = compete(&b, &a, &games, &mut rng);
+        let b_as_white = compare_mid_big(path_b, path_a, &games, &mut rng);
         log::info!(
             "{name_b} vs. {name_a}: {b_as_white:?} {:.1}%",
             b_as_white.win_rate() * 100.0
