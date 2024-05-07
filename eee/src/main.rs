@@ -31,6 +31,7 @@ const STEPS: usize = 25_000;
 const BATCH_SIZE: usize = 128;
 const DEVICE: Device = Device::Cuda(0);
 const LEARNING_RATE: f64 = 1e-4;
+const FORCED_USES: u32 = 4;
 
 fn get_replays(path: impl AsRef<Path>) -> impl Iterator<Item = Replay<Env>> {
     BufReader::new(OpenOptions::new().read(true).open(path).unwrap())
@@ -73,7 +74,7 @@ fn reference_envs(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> (V
 }
 
 fn rnd(path: &nn::Path) -> nn::SequentialT {
-    const RES_BLOCKS: u32 = 16;
+    const RES_BLOCKS: u32 = 8;
     const FILTERS: i64 = 32;
     let mut net = nn::seq_t()
         .add(nn::conv2d(
@@ -93,7 +94,8 @@ fn rnd(path: &nn::Path) -> nn::SequentialT {
             FILTERS,
             nn::BatchNormConfig::default(),
         ))
-        .add_fn(Tensor::sigmoid);
+        .add_fn(Tensor::relu);
+    // .add_fn(|x| x.tanh() * 5);
     for n in 0..RES_BLOCKS {
         net = net.add(ResidualBlock::new(
             &(path / format!("res_block_{n}")),
@@ -162,6 +164,19 @@ fn main() {
     let (random_early_batch, random_early_tensor) = reference_envs(8, &mut actions, &mut rng);
     let (random_late_batch, random_late_tensor) = reference_envs(120, &mut actions, &mut rng);
 
+    let (_, impossible_early_tensor) = reference_envs(8, &mut actions, &mut rng);
+    let impossible_early_tensor = impossible_early_tensor.index_select(
+        1,
+        &Tensor::from_slice(
+            &[6, 7, 4, 5, 2, 3, 0, 1]
+                .into_iter()
+                .chain(8..input_channels::<N>())
+                .map(|x| x as i64)
+                .collect::<Vec<_>>(),
+        )
+        .to(DEVICE),
+    );
+
     let mut buffer = Vec::with_capacity(2048);
     let mut positions = positions.into_iter().filter(|s| {
         !early_game.contains(s)
@@ -175,6 +190,7 @@ fn main() {
     let mut late_losses: Vec<f64> = Vec::with_capacity(STEPS);
     let mut random_early_losses: Vec<f64> = Vec::with_capacity(STEPS);
     let mut random_late_losses: Vec<f64> = Vec::with_capacity(STEPS);
+    let mut impossible_losses: Vec<f64> = Vec::with_capacity(STEPS);
 
     let mut running_mean = early_tensor.zeros_like();
     let mut running_sum_squares = running_mean.ones_like() * 1e-3;
@@ -188,7 +204,7 @@ fn main() {
         // Add replays to buffer until we have enough.
         while buffer.len() < 1024 {
             let position = positions.next().unwrap();
-            buffer.push(position);
+            buffer.push((position, FORCED_USES));
         }
 
         // Sample a batch.
@@ -199,13 +215,19 @@ fn main() {
         } else {
             Tensor::concat(
                 &batch
-                    .into_iter()
-                    .map(|env| game_to_tensor(&env, Device::Cpu))
+                    .iter()
+                    .map(|(env, _)| game_to_tensor(env, Device::Cpu))
                     .collect::<Vec<_>>(),
                 0,
             )
             .to(DEVICE)
         };
+        buffer.extend(
+            batch
+                .into_iter()
+                .filter(|(_, x)| *x <= 1)
+                .map(|(s, x)| (s, x - 1)),
+        );
 
         // Update normalization statistics.
         let new_running_mean = &running_mean + (&tensor - &running_mean) / (step + 1) as i64;
@@ -241,6 +263,14 @@ fn main() {
         let loss = (target_out - predictor_out).square().mean(None);
         random_late_losses.push(loss.try_into().unwrap());
 
+        // Compute loss for impossible early batch
+        let input =
+            ((&impossible_early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let target_out = target.forward_t(&input, false).detach();
+        let predictor_out = predictor.forward_t(&input, false).detach();
+        let loss = (target_out - predictor_out).square().mean(None);
+        impossible_losses.push(loss.try_into().unwrap());
+
         // Do a training step.
         let input = ((tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
         let target_out = target.forward_t(&input, false).detach();
@@ -263,24 +293,31 @@ fn main() {
         .truncate(true)
         .open("rnd_data.csv")
         .unwrap();
-    let content = losses
-        .into_iter()
-        .zip(early_losses)
-        .zip(late_losses)
-        .zip(random_early_losses)
-        .zip(random_late_losses)
-        .enumerate()
-        .fold(
-            "step,loss,early,late,random_early,random_late\n".to_string(),
-            |mut s, (step, ((((loss, early), late), random_early), random_late))| {
-                writeln!(
-                    &mut s,
-                    "{step},{loss},{early},{late},{random_early},{random_late}"
-                )
-                .unwrap();
-                s
-            },
-        );
+    let content =
+        losses
+            .into_iter()
+            .zip(early_losses)
+            .zip(late_losses)
+            .zip(random_early_losses)
+            .zip(random_late_losses)
+            .zip(impossible_losses)
+            .enumerate()
+            .fold(
+                "step,loss,early,late,random_early,random_late,impossible_early\n".to_string(),
+                |mut s,
+                 (
+                    step,
+                    (((((loss, early), late), random_early), random_late), impossible_early),
+                )| {
+                    writeln!(
+                        &mut s,
+                        "{step},{loss},{early},{late},{random_early},{random_late},\
+                         {impossible_early}"
+                    )
+                    .unwrap();
+                    s
+                },
+            );
     file.write_all(content.as_bytes()).unwrap();
 
     println!("Done.");
