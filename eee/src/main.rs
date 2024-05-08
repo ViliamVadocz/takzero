@@ -27,7 +27,7 @@ use tch::{
     Tensor,
 };
 
-const STEPS: usize = 25_000;
+const STEPS: usize = 30_000;
 const BATCH_SIZE: usize = 128;
 const DEVICE: Device = Device::Cuda(0);
 const LEARNING_RATE: f64 = 1e-4;
@@ -73,10 +73,21 @@ fn reference_envs(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> (V
     (games, tensor)
 }
 
-fn rnd(path: &nn::Path) -> nn::SequentialT {
+fn rnd(path: &nn::Path, target: bool) -> nn::SequentialT {
     const RES_BLOCKS: u32 = 8;
     const FILTERS: i64 = 32;
     let mut net = nn::seq_t()
+        .add(nn::layer_norm(
+            path / "layer_norm",
+            vec![
+                BATCH_SIZE as i64,
+                input_channels::<N>() as i64,
+                N as i64,
+                N as i64,
+            ],
+            nn::LayerNormConfig::default(),
+        ))
+        // .add_fn(|x| x * 5)
         .add(nn::conv2d(
             path / "input_conv2d",
             input_channels::<N>() as i64,
@@ -95,7 +106,6 @@ fn rnd(path: &nn::Path) -> nn::SequentialT {
             nn::BatchNormConfig::default(),
         ))
         .add_fn(Tensor::relu);
-    // .add_fn(|x| x.tanh() * 5);
     for n in 0..RES_BLOCKS {
         net = net.add(ResidualBlock::new(
             &(path / format!("res_block_{n}")),
@@ -114,8 +124,14 @@ fn main() {
 
     let vs = nn::VarStore::new(DEVICE);
     let root = vs.root();
-    let target = rnd(&(&root / "target"));
-    let predictor = rnd(&(&root / "predictor"));
+    let target = rnd(&(&root / "target"), true);
+    let predictor = rnd(&(&root / "predictor"), false);
+    for (name, tensor) in &mut vs.variables() {
+        if name.contains("target") {
+            *tensor = tensor.set_requires_grad(false);
+            *tensor *= 2.0;
+        }
+    }
 
     let mut opt = Adam::default().build(&vs, LEARNING_RATE).unwrap();
 
@@ -192,8 +208,8 @@ fn main() {
     let mut random_late_losses: Vec<f64> = Vec::with_capacity(STEPS);
     let mut impossible_losses: Vec<f64> = Vec::with_capacity(STEPS);
 
-    let mut running_mean = early_tensor.zeros_like();
-    let mut running_sum_squares = running_mean.ones_like() * 1e-3;
+    // let mut running_mean = early_tensor.zeros_like();
+    // let mut running_sum_squares = running_mean.ones_like() * 1e-3;
     // let mut running_sum_squares_output = 0.0;
 
     for step in 0..STEPS {
@@ -210,18 +226,14 @@ fn main() {
         // Sample a batch.
         buffer.shuffle(&mut rng);
         let batch = buffer.split_off(buffer.len() - BATCH_SIZE);
-        let tensor = if (10_000..=10_016).contains(&step) {
-            late_tensor.copy()
-        } else {
-            Tensor::concat(
-                &batch
-                    .iter()
-                    .map(|(env, _)| game_to_tensor(env, Device::Cpu))
-                    .collect::<Vec<_>>(),
-                0,
-            )
-            .to(DEVICE)
-        };
+        let tensor = Tensor::concat(
+            &batch
+                .iter()
+                .map(|(env, _)| game_to_tensor(env, Device::Cpu))
+                .collect::<Vec<_>>(),
+            0,
+        )
+        .to(DEVICE);
         buffer.extend(
             batch
                 .into_iter()
@@ -230,49 +242,49 @@ fn main() {
         );
 
         // Update normalization statistics.
-        let new_running_mean = &running_mean + (&tensor - &running_mean) / (step + 1) as i64;
-        running_sum_squares += (&tensor - &running_mean) * (&tensor - &new_running_mean);
-        running_mean = new_running_mean;
-        let running_variance = &running_sum_squares / (step + 1) as i64; // Normalize.
+        // let new_running_mean = &running_mean + (&tensor - &running_mean) / (step + 1) as i64;
+        // running_sum_squares += (&tensor - &running_mean) * (&tensor - &new_running_mean);
+        // running_mean = new_running_mean;
+        // let running_variance = &running_sum_squares / (step + 1) as i64; // Normalize.
 
         // Compute loss for early batch.
-        let input = ((&early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let input = &early_tensor; // ((&early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
         let target_out = target.forward_t(&input, false).detach();
         let predictor_out = predictor.forward_t(&input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         early_losses.push(loss.try_into().unwrap());
 
         // Compute loss for late batch.
-        let input = ((&late_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let input = &late_tensor; //  ((&late_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
         let target_out = target.forward_t(&input, false).detach();
         let predictor_out = predictor.forward_t(&input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         late_losses.push(loss.try_into().unwrap());
 
         // Compute loss for random early batch.
-        let input = ((&random_early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let input = &random_early_tensor; //  ((&random_early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
         let target_out = target.forward_t(&input, false).detach();
         let predictor_out = predictor.forward_t(&input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         random_early_losses.push(loss.try_into().unwrap());
 
         // Compute loss for random late batch.
-        let input = ((&random_late_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let input = &random_late_tensor; //  ((&random_late_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
         let target_out = target.forward_t(&input, false).detach();
         let predictor_out = predictor.forward_t(&input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         random_late_losses.push(loss.try_into().unwrap());
 
         // Compute loss for impossible early batch
-        let input =
-            ((&impossible_early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let input = &impossible_early_tensor;
+            // ((& impossible_early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
         let target_out = target.forward_t(&input, false).detach();
         let predictor_out = predictor.forward_t(&input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         impossible_losses.push(loss.try_into().unwrap());
 
         // Do a training step.
-        let input = ((tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
+        let input = tensor; // ((tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
         let target_out = target.forward_t(&input, false).detach();
         let predictor_out = predictor.forward_t(&input, true);
         let loss = (target_out - predictor_out).square().mean(None);
@@ -281,11 +293,6 @@ fn main() {
         // Save the normalized loss.
         losses.push(loss.try_into().unwrap());
     }
-
-    println!("{running_mean}");
-    println!("{running_mean:?}");
-    println!("{running_sum_squares}");
-    println!("{running_sum_squares:?}");
 
     let mut file = OpenOptions::new()
         .write(true)
