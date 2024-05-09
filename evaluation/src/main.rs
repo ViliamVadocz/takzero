@@ -7,7 +7,7 @@ use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
         net4_big,
-        net4_neurips::{self, Env},
+        net4_neurips::{self, Env, Net},
         Network,
     },
     search::{
@@ -36,6 +36,7 @@ struct Args {
     step: usize,
 }
 
+#[allow(unused)]
 fn compare_mid_big(
     path_1: impl AsRef<std::path::Path>,
     path_2: impl AsRef<std::path::Path>,
@@ -48,16 +49,14 @@ fn compare_mid_big(
         .unwrap()
         .to_string_lossy()
         .split_once('_')
-        .map(|(f, _)| f == "big")
-        .unwrap_or_default();
+        .is_some_and(|(f, _)| f == "big");
     let big_2 = path_2
         .as_ref()
         .file_name()
         .unwrap()
         .to_string_lossy()
         .split_once('_')
-        .map(|(f, _)| f == "big")
-        .unwrap_or_default();
+        .is_some_and(|(f, _)| f == "big");
 
     match (big_1, big_2) {
         (true, true) => {
@@ -118,14 +117,14 @@ fn real_main() {
         let path_a = match_up.next().unwrap();
         let path_b = match_up.next().unwrap();
 
-        // let Ok(a) = Net::load(path_a, DEVICE) else {
-        //     log::warn!("Cannot load {}", path_a.display());
-        //     continue;
-        // };
-        // let Ok(b) = Net::load(path_b, DEVICE) else {
-        //     log::warn!("Cannot load {}", path_b.display());
-        //     continue;
-        // };
+        let Ok(a) = Net::load(path_a, DEVICE) else {
+            log::warn!("Cannot load {}", path_a.display());
+            continue;
+        };
+        let Ok(b) = Net::load(path_b, DEVICE) else {
+            log::warn!("Cannot load {}", path_b.display());
+            continue;
+        };
         let name_a = path_a.file_name().unwrap().to_string_lossy().to_string();
         let name_b = path_b.file_name().unwrap().to_string_lossy().to_string();
 
@@ -135,14 +134,14 @@ fn real_main() {
             Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
         });
 
-        // let a_as_white = compete(&a, &b, &games, &mut rng);
-        let a_as_white = compare_mid_big(path_a, path_b, &games, &mut rng);
+        let a_as_white = compete(&a, &b, &games, &mut rng);
+        // let a_as_white = compare_mid_big(path_a, path_b, &games, &mut rng);
         log::info!(
             "{name_a} vs. {name_b}: {a_as_white:?} {:.1}%",
             a_as_white.win_rate() * 100.0
         );
-        // let b_as_white = compete(&b, &a, &games, &mut rng);
-        let b_as_white = compare_mid_big(path_b, path_a, &games, &mut rng);
+        let b_as_white = compete(&b, &a, &games, &mut rng);
+        // let b_as_white = compare_mid_big(path_b, path_a, &games, &mut rng);
         log::info!(
             "{name_b} vs. {name_a}: {b_as_white:?} {:.1}%",
             b_as_white.win_rate() * 100.0
