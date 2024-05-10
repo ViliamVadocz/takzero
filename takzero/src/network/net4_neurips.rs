@@ -13,7 +13,7 @@ use super::{
     RndNetwork,
 };
 use crate::{
-    network::repr::{input_size, output_size},
+    network::{repr::output_size, residual::SmallBlock},
     search::agent::Agent,
 };
 
@@ -38,7 +38,7 @@ pub struct Net {
 #[derive(Debug)]
 struct Rnd {
     target: nn::SequentialT,
-    learning: nn::SequentialT,
+    predictor: nn::SequentialT,
     // Normalization variables
     // TODO: Replace by running mean and std_dev
     min: Tensor,
@@ -124,32 +124,45 @@ fn ube_net(path: &nn::Path) -> nn::SequentialT {
 }
 
 fn rnd(path: &nn::Path) -> nn::SequentialT {
-    // TODO: Replace by convolution
-    const HIDDEN_LAYER: i64 = 128;
-    const OUTPUT: i64 = 128;
-    nn::seq_t()
-        .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
-        .add_fn(|x| x / x.square().sum_dim_intlist(1, true, None))
-        .add(nn::linear(
-            path / "input_linear",
-            input_size::<N>() as i64,
-            HIDDEN_LAYER,
-            nn::LinearConfig::default(),
+    const RND_RESIDUAL_BLOCKS: i64 = 4;
+    const RND_FILTERS: i64 = 32;
+    let mut net = nn::seq_t()
+        .add(nn::layer_norm(
+            path / "layer_norm",
+            vec![input_channels::<N>() as i64, N as i64, N as i64],
+            nn::LayerNormConfig::default(),
         ))
-        .add_fn(Tensor::relu)
-        .add(nn::linear(
-            path / "hidden_linear",
-            HIDDEN_LAYER,
-            HIDDEN_LAYER,
-            nn::LinearConfig::default(),
+        .add(nn::conv2d(
+            path / "input_conv2d",
+            input_channels::<N>() as i64,
+            RND_FILTERS,
+            3,
+            nn::ConvConfig {
+                stride: 1,
+                padding: 1,
+                bias: false,
+                ..Default::default()
+            },
         ))
-        .add_fn(Tensor::relu)
-        .add(nn::linear(
-            path / "final_linear",
-            HIDDEN_LAYER,
-            OUTPUT,
-            nn::LinearConfig::default(),
+        .add(nn::batch_norm2d(
+            path / "batch_norm",
+            RND_FILTERS,
+            nn::BatchNormConfig::default(),
         ))
+        .add_fn(Tensor::relu);
+    for n in 0..RND_RESIDUAL_BLOCKS {
+        net = net.add(ResidualBlock::new(
+            &(path / format!("res_block_{n}")),
+            RND_FILTERS,
+            RND_FILTERS,
+        ));
+    }
+    net.add(SmallBlock::new(
+        &(path / "last_small_block"),
+        RND_FILTERS,
+        32,
+    ))
+    .add_fn(|x| x.flatten(1, 3))
 }
 
 impl Network for Net {
@@ -166,10 +179,8 @@ impl Network for Net {
             value_net: value_net(&(&root / "value")),
             ube_net: ube_net(&(&root / "ube")),
             rnd: Rnd {
-                learning: rnd(&(&root / "rnd_learning")),
+                predictor: rnd(&(&root / "rnd_predictor")),
                 target: rnd(&(&root / "rnd_target")),
-                // TODO: Try the normalization from the paper
-                // (subtract running mean and divide by running std_dev)
                 min: root.var("min", &[1], nn::Init::Const(0.0)),
                 max: root.var("max", &[1], nn::Init::Const(1.0)),
             },
@@ -197,16 +208,18 @@ impl RndNetwork for Net {
     }
 
     fn forward_rnd(&self, xs: &Tensor, train: bool) -> Tensor {
-        let learning = self
+        let predictor = self
             .rnd
-            .learning
+            .predictor
             .forward_t(&xs.set_requires_grad(false), train);
         let target = self
             .rnd
             .target
             .forward_t(&xs.set_requires_grad(false), false)
             .detach();
-        (learning - target).square().sum_dim_intlist(1, false, None)
+        (predictor - target)
+            .square()
+            .sum_dim_intlist(1, false, None)
     }
 
     fn normalized_rnd(&self, xs: &Tensor) -> Tensor {

@@ -73,14 +73,13 @@ fn reference_envs(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> (V
     (games, tensor)
 }
 
-fn rnd(path: &nn::Path, target: bool) -> nn::SequentialT {
+fn rnd(path: &nn::Path, _target: bool) -> nn::SequentialT {
     let res_blocks = 4;
     let filters = 32;
     let mut net = nn::seq_t()
         .add(nn::layer_norm(
             path / "layer_norm",
             vec![
-                BATCH_SIZE as i64,
                 input_channels::<N>() as i64,
                 N as i64,
                 N as i64,
