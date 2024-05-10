@@ -27,8 +27,8 @@ use tch::{
     Tensor,
 };
 
-const STEPS: usize = 30_000;
-const BATCH_SIZE: usize = 128;
+const STEPS: usize = 45_000;
+const BATCH_SIZE: usize = 256;
 const DEVICE: Device = Device::Cuda(0);
 const LEARNING_RATE: f64 = 1e-4;
 const FORCED_USES: u32 = 4;
@@ -74,8 +74,8 @@ fn reference_envs(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> (V
 }
 
 fn rnd(path: &nn::Path, target: bool) -> nn::SequentialT {
-    const RES_BLOCKS: u32 = 8;
-    const FILTERS: i64 = 32;
+    let res_blocks = 4;
+    let filters = 32;
     let mut net = nn::seq_t()
         .add(nn::layer_norm(
             path / "layer_norm",
@@ -87,11 +87,11 @@ fn rnd(path: &nn::Path, target: bool) -> nn::SequentialT {
             ],
             nn::LayerNormConfig::default(),
         ))
-        // .add_fn(|x| x * 5)
+        // .add_fn(|x| x * 2)
         .add(nn::conv2d(
             path / "input_conv2d",
             input_channels::<N>() as i64,
-            FILTERS,
+            filters,
             3,
             nn::ConvConfig {
                 stride: 1,
@@ -102,36 +102,37 @@ fn rnd(path: &nn::Path, target: bool) -> nn::SequentialT {
         ))
         .add(nn::batch_norm2d(
             path / "batch_norm",
-            FILTERS,
+            filters,
             nn::BatchNormConfig::default(),
         ))
         .add_fn(Tensor::relu);
-    for n in 0..RES_BLOCKS {
+    for n in 0..res_blocks {
         net = net.add(ResidualBlock::new(
             &(path / format!("res_block_{n}")),
-            FILTERS,
-            FILTERS,
+            filters,
+            filters,
         ));
     }
-    net.add(SmallBlock::new(&(path / "last_small_block"), FILTERS, 32))
+    net.add(SmallBlock::new(&(path / "last_small_block"), filters, 32))
         .add_fn(|x| x.flatten(1, 3))
 }
 
 #[allow(clippy::too_many_lines)]
 fn main() {
-    let seed: u64 = 12345;
+    let seed: u64 = 432;
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
+    tch::manual_seed(rng.gen());
     let vs = nn::VarStore::new(DEVICE);
     let root = vs.root();
     let target = rnd(&(&root / "target"), true);
     let predictor = rnd(&(&root / "predictor"), false);
-    for (name, tensor) in &mut vs.variables() {
-        if name.contains("target") {
-            *tensor = tensor.set_requires_grad(false);
-            *tensor *= 2.0;
-        }
-    }
+    // for (name, tensor) in &mut vs.variables() {
+    //     if name.contains("target") {
+    //         *tensor = tensor.set_requires_grad(false);
+    //         *tensor *= 1.5;
+    //     }
+    // }
 
     let mut opt = Adam::default().build(&vs, LEARNING_RATE).unwrap();
 
@@ -153,7 +154,7 @@ fn main() {
         .iter()
         .filter(|s| s.ply < 10)
         .cloned()
-        .choose_multiple(&mut rng, 128);
+        .choose_multiple(&mut rng, BATCH_SIZE);
     let early_tensor = Tensor::concat(
         &early_game
             .iter()
@@ -166,7 +167,7 @@ fn main() {
         .iter()
         .filter(|s| s.ply >= 60)
         .cloned()
-        .choose_multiple(&mut rng, 128);
+        .choose_multiple(&mut rng, BATCH_SIZE);
     let late_tensor = Tensor::concat(
         &late_game
             .iter()
