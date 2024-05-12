@@ -37,7 +37,7 @@ const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
-// const WEIGHTED_RANDOM_PLIES: u16 = 10;
+const WEIGHTED_RANDOM_PLIES: u16 = 10;
 // const NOISE_ALPHA: f32 = 0.05;
 // const NOISE_RATIO: f32 = 0.2;
 const UBE_TARGET_BETA: f32 = 0.5;
@@ -131,16 +131,21 @@ fn main() {
         //     batched_mcts.simulate(&net, &betas);
         // }
 
-        // let selected_actions =
-        //     batched_mcts.select_actions_in_selfplay(&mut rng, WEIGHTED_RANDOM_PLIES);
-
-        let selected_actions = batched_mcts.gumbel_sequential_halving(
+        let mut selected_actions = batched_mcts.gumbel_sequential_halving(
             &net,
             &betas,
             SAMPLED_ACTIONS,
             SEARCH_BUDGET,
             &mut rng,
         );
+        selected_actions
+            .iter_mut()
+            .zip(batched_mcts.nodes_and_envs())
+            .for_each(|(selected_action, (node, env))| {
+                if env.steps() < WEIGHTED_RANDOM_PLIES {
+                    *selected_action = node.select_selfplay_action(true, &mut rng);
+                }
+            });
 
         // Log UBE statistics.
         // batched_mcts
