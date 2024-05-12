@@ -276,8 +276,8 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
                         .zip(&mut self.actions)
                         .zip(&mut self.trajectories)
                         .zip(betas)
-                        .filter_map(|((((node, env), actions), trajectory), beta)| {
-                            match node.forward(trajectory, env.clone(), *beta) {
+                        .filter_map(|((((node, env), actions), trajectory), _beta)| {
+                            match node.forward(trajectory, env.clone(), 0.0 /* *beta */) {
                                 Forward::Known(eval) => {
                                     // If the result is known just propagate it now.
                                     node.backward_known_eval(trajectory.drain(..), eval);
