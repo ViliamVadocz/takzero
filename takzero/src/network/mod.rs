@@ -23,6 +23,16 @@ pub trait Network: Sized {
         Ok(nn)
     }
 
+    #[allow(clippy::missing_errors_doc)]
+    fn load_partial(
+        path: impl AsRef<std::path::Path>,
+        device: tch::Device,
+    ) -> Result<Self, tch::TchError> {
+        let mut nn = Self::new(device, None);
+        nn.vs_mut().load_partial(path)?;
+        Ok(nn)
+    }
+
     #[must_use]
     fn clone(&self, device: tch::Device) -> Self {
         let mut nn = Self::new(device, None);

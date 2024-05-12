@@ -117,11 +117,11 @@ fn real_main() {
         let path_a = match_up.next().unwrap();
         let path_b = match_up.next().unwrap();
 
-        let Ok(a) = Net::load(path_a, DEVICE) else {
+        let Ok(a) = Net::load_partial(path_a, DEVICE) else {
             log::warn!("Cannot load {}", path_a.display());
             continue;
         };
-        let Ok(b) = Net::load(path_b, DEVICE) else {
+        let Ok(b) = Net::load_partial(path_b, DEVICE) else {
             log::warn!("Cannot load {}", path_b.display());
             continue;
         };
