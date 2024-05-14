@@ -13,7 +13,9 @@ use rand::prelude::*;
 use takzero::{
     network::{
         net4_neurips::{Env, Net},
+        repr::game_to_tensor,
         Network,
+        RndNetwork,
     },
     search::{
         env::Environment,
@@ -40,6 +42,7 @@ struct Args {
     tps: Option<Tps>,
 }
 
+#[allow(unused)]
 fn gather_policy_data(agent: &Net, rng: &mut impl Rng) {
     let file = OpenOptions::new().read(true).open("replays.txt").unwrap();
     let env_batches = BufReader::new(file)
@@ -99,6 +102,46 @@ fn main() {
             let (bm_node, _) = batched_mcts.nodes_and_envs_mut().next().unwrap();
             std::mem::swap(bm_node, &mut node);
             println!("{node}");
+
+            // Print raw network output.
+            let xs = tch::Tensor::concat(
+                &node
+                    .children
+                    .iter()
+                    .map(|(a, _)| {
+                        let mut clone = env.clone();
+                        clone.step(*a);
+                        game_to_tensor(&clone, tch::Device::Cpu)
+                    })
+                    .collect::<Vec<_>>(),
+                0,
+            )
+            .to(DEVICE);
+            let rnd_out: Vec<f32> = agent.normalized_rnd(&xs).try_into().unwrap();
+            let (_policy, value, ube) = agent.forward_t(&xs, false);
+            let value_out: Vec<Vec<f32>> = value.try_into().unwrap();
+            let ube_out: Vec<Vec<f32>> = ube.exp().try_into().unwrap();
+
+            println!("network output:");
+            println!("[action]  [value]  [ rnd ]  [ ube ]");
+            let mut raw_network_output = rnd_out
+                .into_iter()
+                .zip(value_out)
+                .zip(ube_out)
+                .zip(node.children.iter())
+                .collect::<Vec<_>>();
+            raw_network_output.sort_by_key(|(_, (_, n))| n.visit_count);
+            raw_network_output.reverse();
+            for (((rnd, value), ube), (action, _)) in aaaa {
+                println!(
+                    "{: ^8}  {:+.4}  {rnd:+.4}  {:+.4}",
+                    action.to_string(),
+                    value[0],
+                    ube[0]
+                );
+            }
+            println!();
+
             let action = node.select_best_action();
             println!(">>> {action}");
             node.descend(&action);
