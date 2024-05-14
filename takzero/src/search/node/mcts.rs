@@ -55,7 +55,6 @@ impl<E: Environment> Node<E> {
     #[inline]
     fn update_standard_deviation(&mut self, variance: NotNan<f32>) {
         if self.evaluation.is_known() {
-            self.std_dev = NotNan::default();
             return;
         }
         self.std_dev += (-self.std_dev + variance.sqrt()) / (self.visit_count as f32);
@@ -124,6 +123,7 @@ impl<E: Environment> Node<E> {
             if node.needs_initialization() {
                 if let Some(terminal) = env.terminal() {
                     node.evaluation = terminal.into();
+                    node.std_dev = NotNan::default();
                     break Forward::Known(node.evaluation);
                 }
                 break Forward::NeedsNetwork(env);
