@@ -32,9 +32,9 @@ struct Args {
     /// Path to model to load.
     #[arg(long)]
     model_path: PathBuf,
-    /// Run an example game with this many visits per step.
+    /// Run an example game
     #[arg(long)]
-    example_visits: Option<usize>,
+    example: bool,
     /// Starting position written as TPS
     #[arg(long)]
     tps: Option<Tps>,
@@ -81,18 +81,23 @@ fn gather_policy_data(agent: &Net, rng: &mut impl Rng) {
 fn main() {
     let args = Args::parse();
 
-    let agent = Net::load(args.model_path, DEVICE).unwrap();
+    let agent = Net::load_partial(args.model_path, DEVICE).unwrap();
     let mut rng = StdRng::seed_from_u64(123);
 
     let mut env = args.tps.map(Env::from).unwrap_or_default();
     let mut node = Node::default();
-    if let Some(visits) = args.example_visits {
+    if args.example {
         while env.terminal().is_none() {
             println!("tps: {}", Tps::from(env.clone()));
-            for _ in 0..visits {
-                node.simulate_simple(&agent, env.clone(), BETA);
-            }
-            // batched_mcts.gumbel_sequential_halving(&agent, &[BETA], 64, 768, &mut rng);
+            // for _ in 0..visits {
+            //     node.simulate_simple(&agent, env.clone(), BETA);
+            // }
+            let mut batched_mcts = BatchedMCTS::from_envs([env.clone()]);
+            let (bm_node, _) = batched_mcts.nodes_and_envs_mut().next().unwrap();
+            std::mem::swap(bm_node, &mut node);
+            batched_mcts.gumbel_sequential_halving(&agent, &[BETA], 64, 768, &mut rng);
+            let (bm_node, _) = batched_mcts.nodes_and_envs_mut().next().unwrap();
+            std::mem::swap(bm_node, &mut node);
             println!("{node}");
             let action = node.select_best_action();
             println!(">>> {action}");
