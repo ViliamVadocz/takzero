@@ -279,7 +279,15 @@ fn restart_envs_and_complete_targets(
             if let Some((terminal, replay)) = terminal_and_replay {
                 #[cfg(feature = "exploration")]
                 if *beta > 0.0 {
-                    exploration_replays.push(replay.clone());
+                    exploration_replays.push(Replay {
+                        env: replay.env.clone(),
+                        actions: replay
+                            .actions
+                            .iter()
+                            .copied()
+                            .take(usize::from(WEIGHTED_RANDOM_PLIES))
+                            .collect(),
+                    });
                 }
                 finished_replays.push(replay);
 
@@ -305,7 +313,8 @@ fn restart_envs_and_complete_targets(
 
                     value = value.negate();
                     // Only generate targets from non-exploratory episodes.
-                    if *beta == 0.0 {
+                    // (Or after the initial exploration.)
+                    if *beta == 0.0 || env.ply > WEIGHTED_RANDOM_PLIES {
                         targets.push(Target {
                             env,
                             value: f32::from(value),
