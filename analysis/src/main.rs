@@ -124,15 +124,15 @@ fn main() {
 
             println!("network output:");
             println!("[action]  [value]  [ rnd ]  [ ube ]");
-            let mut raw_network_output = rnd_out
+            let mut network_output = rnd_out
                 .into_iter()
                 .zip(value_out)
                 .zip(ube_out)
                 .zip(node.children.iter())
                 .collect::<Vec<_>>();
-            raw_network_output.sort_by_key(|(_, (_, n))| n.visit_count);
-            raw_network_output.reverse();
-            for (((rnd, value), ube), (action, _)) in aaaa {
+            network_output.sort_by_key(|(_, (_, n))| n.visit_count);
+            network_output.reverse();
+            for (((rnd, value), ube), (action, _)) in network_output {
                 println!(
                     "{: ^8}  {:+.4}  {rnd:+.4}  {:+.4}",
                     action.to_string(),
