@@ -55,6 +55,7 @@ impl<E: Environment> Node<E> {
     #[inline]
     fn update_standard_deviation(&mut self, variance: NotNan<f32>) {
         if self.evaluation.is_known() {
+            self.std_dev = NotNan::default();
             return;
         }
         self.std_dev += (-self.std_dev + variance.sqrt()) / (self.visit_count as f32);
