@@ -82,7 +82,7 @@ impl<E: Environment> Node<E> {
     #[inline]
     #[must_use]
     pub const fn needs_initialization(&self) -> bool {
-        self.children.is_empty()
+        self.children.is_empty() && !self.evaluation.is_known()
     }
 
     /// Returns an iterator over the Principal Variation of the search tree
