@@ -12,7 +12,7 @@ use fast_tak::takparse::{Move, Tps};
 use rand::prelude::*;
 use takzero::{
     network::{
-        net5::{Env, Net},
+        net4_neurips::{Env, Net},
         Network,
     },
     search::{
@@ -40,17 +40,12 @@ struct Args {
     tps: Option<Tps>,
 }
 
-fn main() {
-    let args = Args::parse();
-
-    let agent = Net::load(args.model_path, DEVICE).unwrap();
-
-    let mut rng = StdRng::seed_from_u64(123);
+fn gather_policy_data(agent: &Net, rng: &mut impl Rng) {
     let file = OpenOptions::new().read(true).open("replays.txt").unwrap();
     let env_batches = BufReader::new(file)
         .lines()
         .filter_map(|line| line.ok()?.parse::<Replay<Env>>().ok())
-        .choose_multiple(&mut rng, 1024)
+        .choose_multiple(rng, 1024)
         .into_iter()
         .map(|mut replay| {
             replay.advance(rng.gen_range(0..replay.len()));
@@ -66,7 +61,7 @@ fn main() {
         // for _ in 0..800 {
         //     batched_mcts.simulate(&agent, &[BETA; 128]);
         // }
-        batched_mcts.gumbel_sequential_halving(&agent, &[BETA; 128], 64, 768, &mut rng);
+        batched_mcts.gumbel_sequential_halving(agent, &[BETA; 128], 64, 768, rng);
 
         for (node, _) in batched_mcts.nodes_and_envs() {
             line.clear();
@@ -81,7 +76,13 @@ fn main() {
             println!("{line}");
         }
     }
-    return;
+}
+
+fn main() {
+    let args = Args::parse();
+
+    let agent = Net::load(args.model_path, DEVICE).unwrap();
+    let mut rng = StdRng::seed_from_u64(123);
 
     let mut env = args.tps.map(Env::from).unwrap_or_default();
     let mut node = Node::default();
@@ -91,6 +92,7 @@ fn main() {
             for _ in 0..visits {
                 node.simulate_simple(&agent, env.clone(), BETA);
             }
+            // batched_mcts.gumbel_sequential_halving(&agent, &[BETA], 64, 768, &mut rng);
             println!("{node}");
             let action = node.select_best_action();
             println!(">>> {action}");
@@ -126,7 +128,7 @@ fn main() {
             let mut batched_mcts = BatchedMCTS::from_envs([env.clone()]);
             let (bm_node, _) = batched_mcts.nodes_and_envs_mut().next().unwrap();
             std::mem::swap(bm_node, &mut node);
-            batched_mcts.gumbel_sequential_halving(&agent, &[BETA], 32, 680, &mut rng);
+            batched_mcts.gumbel_sequential_halving(&agent, &[BETA], 64, 768, &mut rng);
             let (bm_node, _) = batched_mcts.nodes_and_envs_mut().next().unwrap();
             std::mem::swap(bm_node, &mut node);
         }
