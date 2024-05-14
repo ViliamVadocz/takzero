@@ -40,7 +40,7 @@ where
 impl<E: Environment> Node<E> {
     #[must_use]
     pub fn action_info(&self) -> Vec<ActionInfo<E::Action>> {
-        self.improved_policy()
+        self.improved_policy(self.most_visited_count())
             .zip(self.children.iter())
             .map(|(improved_policy, (action, child))| ActionInfo {
                 action: action.clone(),

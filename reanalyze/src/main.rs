@@ -198,7 +198,7 @@ fn main() {
                     .iter()
                     .map(|(a, _)| a)
                     .copied()
-                    .zip(node.improved_policy())
+                    .zip(node.improved_policy(node.most_visited_count()))
                     .collect(); // policy_target_from_proportional_visits(node);
                 let ube = node.ube_target(UBE_TARGET_BETA).into_inner();
 

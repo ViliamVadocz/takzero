@@ -46,6 +46,12 @@ const MAX_SELFPLAY_BUFFER_LEN: usize = 32_000;
 
 const SAMPLED_ACTIONS: usize = 64;
 const SEARCH_BUDGET: u32 = 768;
+const IMPROVED_POLICY_VISITATIONS: u32 = {
+    let log_sampled = SAMPLED_ACTIONS.ilog2();
+    let per_step_per_action = SEARCH_BUDGET / log_sampled / SAMPLED_ACTIONS as u32;
+    let power_series = 2u32.pow(log_sampled) - 1;
+    per_step_per_action * power_series
+};
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -242,7 +248,7 @@ fn take_a_step(
             policy_targets.push(IncompleteTarget {
                 env: env.clone(),
                 policy: node
-                    .improved_policy()
+                    .improved_policy(IMPROVED_POLICY_VISITATIONS as f32)
                     .zip(node.children.iter())
                     .map(|(p, (a, _))| (*a, p))
                     .collect(), // policy_target_from_proportional_visits(node),

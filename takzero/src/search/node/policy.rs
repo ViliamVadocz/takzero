@@ -33,8 +33,7 @@ impl<E: Environment> Node<E> {
     /// # Panics
     ///
     /// Panics if the evaluation is NaN.
-    pub fn improved_policy(&self) -> impl Iterator<Item = NotNan<f32>> + '_ {
-        let most_visited_count = self.most_visited_count();
+    pub fn improved_policy(&self, visitations: f32) -> impl Iterator<Item = NotNan<f32>> + '_ {
         let p = self.children.iter().map(move |(_, node)| -> NotNan<f32> {
             let completed_value = if node.needs_initialization() {
                 self.evaluation
@@ -42,7 +41,7 @@ impl<E: Environment> Node<E> {
                 node.evaluation.negate()
             }
             .into();
-            sigma_improve(completed_value, node.std_dev, 0.0, most_visited_count) + node.logit
+            sigma_improve(completed_value, node.std_dev, 0.0, visitations) + node.logit
         });
 
         softmax(p)
@@ -55,7 +54,7 @@ impl<E: Environment> Node<E> {
     ///
     /// Panics if there are no children.
     pub fn select_with_improved_policy(&mut self) -> usize {
-        self.improved_policy()
+        self.improved_policy(self.most_visited_count())
             .zip(self.children.iter())
             .enumerate()
             // Prune only losing moves to preserve optimality.
