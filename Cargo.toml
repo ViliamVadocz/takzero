@@ -11,6 +11,7 @@ members = [
     "tei",
     "eee",
     "visualize_search",
+    "visualize_replay_buffer",
 ]
 resolver = "2"
 
