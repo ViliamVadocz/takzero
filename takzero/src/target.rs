@@ -1,4 +1,12 @@
-use std::{collections::VecDeque, fmt, num::ParseFloatError, str::FromStr};
+use std::{
+    collections::VecDeque,
+    fmt,
+    fs::OpenOptions,
+    io::{BufRead, BufReader},
+    num::ParseFloatError,
+    path::Path,
+    str::FromStr,
+};
 
 use fast_tak::{
     takparse::{GameResult, ParseMoveError, ParsePtnError, ParseTpsError, Ptn, Tps},
@@ -223,6 +231,38 @@ where
             actions: ptn.moves().iter().copied().collect(),
         })
     }
+}
+
+/// Open a file and parse all the replays (stored one per line).
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be opened.
+pub fn get_replays<const N: usize, const HALF_KOMI: i8>(
+    path: impl AsRef<Path>,
+) -> Result<impl Iterator<Item = Replay<Game<N, HALF_KOMI>>>, std::io::Error>
+where
+    Reserves<N>: Default,
+{
+    Ok(BufReader::new(OpenOptions::new().read(true).open(path)?)
+        .lines()
+        .filter_map(|line| line.ok()?.parse::<Replay<Game<N, HALF_KOMI>>>().ok()))
+}
+
+/// Open a file and parse all the targets (stored one per line).
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be opened.
+pub fn get_targets<const N: usize, const HALF_KOMI: i8>(
+    path: impl AsRef<Path>,
+) -> Result<impl Iterator<Item = Target<Game<N, HALF_KOMI>>>, std::io::Error>
+where
+    Reserves<N>: Default,
+{
+    Ok(BufReader::new(OpenOptions::new().read(true).open(path)?)
+        .lines()
+        .filter_map(|line| line.ok()?.parse::<Target<Game<N, HALF_KOMI>>>().ok()))
 }
 
 #[cfg(test)]

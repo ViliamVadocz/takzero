@@ -1,10 +1,4 @@
-use std::{
-    collections::HashSet,
-    fmt::Write as FmtWrite,
-    fs::OpenOptions,
-    io::{BufRead, BufReader, Write as IoWrite},
-    path::Path,
-};
+use std::{collections::HashSet, fmt::Write as FmtWrite, fs::OpenOptions, io::Write};
 
 use fast_tak::takparse::Move;
 use rand::{
@@ -19,7 +13,7 @@ use takzero::{
         residual::{ResidualBlock, SmallBlock},
     },
     search::env::Environment,
-    target::{Replay, Target},
+    target::get_replays,
 };
 use tch::{
     nn::{self, Adam, ModuleT, OptimizerConfig},
@@ -32,19 +26,6 @@ const BATCH_SIZE: usize = 256;
 const DEVICE: Device = Device::Cuda(0);
 const LEARNING_RATE: f64 = 1e-4;
 const FORCED_USES: u32 = 4;
-
-fn get_replays(path: impl AsRef<Path>) -> impl Iterator<Item = Replay<Env>> {
-    BufReader::new(OpenOptions::new().read(true).open(path).unwrap())
-        .lines()
-        .filter_map(|line| line.ok()?.parse::<Replay<Env>>().ok())
-}
-
-#[allow(unused)]
-fn get_targets(path: impl AsRef<Path>) -> impl Iterator<Item = Target<Env>> {
-    BufReader::new(OpenOptions::new().read(true).open(path).unwrap())
-        .lines()
-        .filter_map(|line| line.ok()?.parse::<Target<Env>>().ok())
-}
 
 fn random_env(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> Env {
     let mut env = Env::default();
@@ -79,11 +60,7 @@ fn rnd(path: &nn::Path, _target: bool) -> nn::SequentialT {
     let mut net = nn::seq_t()
         .add(nn::layer_norm(
             path / "layer_norm",
-            vec![
-                input_channels::<N>() as i64,
-                N as i64,
-                N as i64,
-            ],
+            vec![input_channels::<N>() as i64, N as i64, N as i64],
             nn::LayerNormConfig::default(),
         ))
         // .add_fn(|x| x * 2)
@@ -138,7 +115,7 @@ fn main() {
     let mut positions = Vec::new();
     let mut seen_positions = HashSet::new();
     let mut unique_positions = Vec::new();
-    for replay in get_replays("4x4_old_directed_01_replays.txt") {
+    for replay in get_replays("4x4_old_directed_01_replays.txt").unwrap() {
         let mut env = replay.env;
         for action in replay.actions {
             positions.push(env.clone());
@@ -242,44 +219,48 @@ fn main() {
         );
 
         // Update normalization statistics.
-        // let new_running_mean = &running_mean + (&tensor - &running_mean) / (step + 1) as i64;
-        // running_sum_squares += (&tensor - &running_mean) * (&tensor - &new_running_mean);
-        // running_mean = new_running_mean;
-        // let running_variance = &running_sum_squares / (step + 1) as i64; // Normalize.
+        // let new_running_mean = &running_mean + (&tensor - &running_mean) / (step + 1)
+        // as i64; running_sum_squares += (&tensor - &running_mean) * (&tensor -
+        // &new_running_mean); running_mean = new_running_mean;
+        // let running_variance = &running_sum_squares / (step + 1) as i64; //
+        // Normalize.
 
         // Compute loss for early batch.
         let input = &early_tensor; // ((&early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
-        let target_out = target.forward_t(&input, false).detach();
-        let predictor_out = predictor.forward_t(&input, false).detach();
+        let target_out = target.forward_t(input, false).detach();
+        let predictor_out = predictor.forward_t(input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         early_losses.push(loss.try_into().unwrap());
 
         // Compute loss for late batch.
         let input = &late_tensor; //  ((&late_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
-        let target_out = target.forward_t(&input, false).detach();
-        let predictor_out = predictor.forward_t(&input, false).detach();
+        let target_out = target.forward_t(input, false).detach();
+        let predictor_out = predictor.forward_t(input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         late_losses.push(loss.try_into().unwrap());
 
         // Compute loss for random early batch.
-        let input = &random_early_tensor; //  ((&random_early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
-        let target_out = target.forward_t(&input, false).detach();
-        let predictor_out = predictor.forward_t(&input, false).detach();
+        let input = &random_early_tensor; //  ((&random_early_tensor - &running_mean) / running_variance.sqrt()).clip(-5,
+                                          // 5);
+        let target_out = target.forward_t(input, false).detach();
+        let predictor_out = predictor.forward_t(input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         random_early_losses.push(loss.try_into().unwrap());
 
         // Compute loss for random late batch.
-        let input = &random_late_tensor; //  ((&random_late_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
-        let target_out = target.forward_t(&input, false).detach();
-        let predictor_out = predictor.forward_t(&input, false).detach();
+        let input = &random_late_tensor; //  ((&random_late_tensor - &running_mean) / running_variance.sqrt()).clip(-5,
+                                         // 5);
+        let target_out = target.forward_t(input, false).detach();
+        let predictor_out = predictor.forward_t(input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         random_late_losses.push(loss.try_into().unwrap());
 
         // Compute loss for impossible early batch
         let input = &impossible_early_tensor;
-            // ((& impossible_early_tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
-        let target_out = target.forward_t(&input, false).detach();
-        let predictor_out = predictor.forward_t(&input, false).detach();
+        // ((& impossible_early_tensor - &running_mean) /
+        // running_variance.sqrt()).clip(-5, 5);
+        let target_out = target.forward_t(input, false).detach();
+        let predictor_out = predictor.forward_t(input, false).detach();
         let loss = (target_out - predictor_out).square().mean(None);
         impossible_losses.push(loss.try_into().unwrap());
 
