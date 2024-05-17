@@ -16,10 +16,20 @@ use charming::{
 use takzero::{network::net4_neurips::Env, search::env::Environment, target::Replay};
 
 fn main() {
-    let chart = Chart::new()
+    let replays = [
+        "undirected_00",
+        "undirected_01",
+        "undirected_02",
+        "directed_00",
+        "restart_undirected_00",
+        "restart_undirected_01",
+        "restart_directed_00",
+    ];
+
+    let mut chart = Chart::new()
         .title(
             Title::new()
-                .text("Ratio of Unique Positions Seen in 100k Chunks")
+                .text("Ratio of Unique Positions Seen in 500k Chunks")
                 .subtext("Accounting for Symmetries")
                 .left("center")
                 .top(0),
@@ -27,46 +37,15 @@ fn main() {
         .x_axis(Axis::new().name("Positions"))
         .y_axis(Axis::new().name("Ratio"))
         .grid(Grid::new())
-        .legend(
-            Legend::new()
-                .data(vec![
-                    "undirected-seq-hal-restart-00",
-                    "undirected-seq-hal-00",
-                    "directed-epuct-00",
-                    "directed-epuct-01",
-                ])
-                .bottom(10)
-                .left(10),
-        )
-        .series(
+        .legend(Legend::new().data(replays.to_vec()).bottom(10).left(10));
+    for r in replays {
+        chart = chart.series(
             Line::new()
-                .data(get_unique_positions(
-                    "4x4_neurips_restart_undirected_00_replays.txt",
-                ))
-                .name("undirected-seq-hal-restart-00")
-                .symbol(Symbol::None),
-        )
-        .series(
-            Line::new()
-                .data(get_unique_positions(
-                    "4x4_neurips_undirected_00_replays.txt",
-                ))
-                .name("undirected-seq-hal-00")
-                .symbol(Symbol::None),
-        )
-        .series(
-            Line::new()
-                .data(get_unique_positions("4x4_old_directed_00_replays.txt"))
-                .name("directed-epuct-00")
-                .symbol(Symbol::None),
-        )
-        .series(
-            Line::new()
-                .data(get_unique_positions("4x4_old_directed_01_replays.txt"))
-                .name("directed-epuct-01")
+                .data(get_unique_positions(format!("4x4_neurips_{r}_replays.txt")))
+                .name(r)
                 .symbol(Symbol::None),
         );
-
+    }
     let mut renderer = HtmlRenderer::new("graph", 1200, 800).theme(Theme::Infographic);
     renderer.save(&chart, "graph.html").unwrap();
 }
@@ -77,7 +56,7 @@ fn get_unique_positions(path: impl AsRef<Path>) -> Vec<Vec<f64>> {
     let mut points = Vec::with_capacity(4096);
     let mut i = 0;
     for line in BufReader::new(file).lines() {
-        if i / 100_000 > points.len() {
+        if i / 500_000 > points.len() {
             points.push(vec![
                 i as f64,
                 positions.keys().len() as f64 / positions.values().sum::<u64>() as f64,
