@@ -78,9 +78,9 @@ fn main() {
         queue.push_back(env.canonical());
     }
 
-    let mut layers_d0 = vec![vec![]; ACTIONS];
-    let mut layers_d1 = vec![vec![]; ACTIONS];
-    let mut layers_u0 = vec![vec![]; ACTIONS];
+    let mut layers_dir0 = vec![vec![]; ACTIONS];
+    let mut layers_dir1 = vec![vec![]; ACTIONS];
+    let mut layers_und0 = vec![vec![]; ACTIONS];
 
     let mut actions = Vec::new();
     while let Some(env) = queue.pop_front() {
@@ -91,13 +91,13 @@ fn main() {
             let canonical = clone.canonical();
 
             if let Some(x) = d0.get(&canonical) {
-                layers_d0[(env.ply - 2) as usize].push(x);
+                layers_dir0[(env.ply - 2) as usize].push(x);
             }
             if let Some(x) = d1.get(&canonical) {
-                layers_d1[(env.ply - 2) as usize].push(x);
+                layers_dir1[(env.ply - 2) as usize].push(x);
             }
             if let Some(x) = u0.get(&canonical) {
-                layers_u0[(env.ply - 2) as usize].push(x);
+                layers_und0[(env.ply - 2) as usize].push(x);
             }
 
             if canonical.ply - 2 < ACTIONS as u16 {
@@ -107,17 +107,17 @@ fn main() {
     }
 
     println!("d0");
-    for (i, layer) in layers_d0.into_iter().enumerate() {
+    for (i, layer) in layers_dir0.into_iter().enumerate() {
         println!("{}: {}", i + 2, layer.len());
     }
 
     println!("d1");
-    for (i, layer) in layers_d1.into_iter().enumerate() {
+    for (i, layer) in layers_dir1.into_iter().enumerate() {
         println!("{}: {}", i + 2, layer.len());
     }
 
     println!("u0");
-    for (i, layer) in layers_u0.into_iter().enumerate() {
+    for (i, layer) in layers_und0.into_iter().enumerate() {
         println!("{}: {}", i + 2, layer.len());
     }
 }
