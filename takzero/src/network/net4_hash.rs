@@ -1,14 +1,9 @@
-use std::{
-    collections::HashSet,
-    fs::OpenOptions,
-    io::{BufRead, BufReader, Read, Seek},
-};
-
 use fast_tak::{takparse::Move, Game};
 use ordered_float::NotNan;
 use tch::{
     nn::{self, ModuleT},
     Device,
+    Kind,
     Tensor,
 };
 
@@ -19,15 +14,15 @@ use super::{
     Network,
 };
 use crate::{
-    network::repr::output_size,
-    search::{agent::Agent, env::Environment},
-    target::Replay,
+    network::repr::{input_size, output_size},
+    search::agent::Agent,
 };
 
 pub const N: usize = 4;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
 const FILTERS: i64 = 256;
+const HASH_BITS: usize = 24;
 
 // Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
 pub const MAXIMUM_VARIANCE: f64 = 4.0;
@@ -39,7 +34,8 @@ pub struct Net {
     policy_net: nn::SequentialT,
     value_net: nn::SequentialT,
     ube_net: nn::SequentialT,
-    hash_set: HashSet<Env>,
+    simhash_matrix: Tensor,
+    simhash_set: Tensor,
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
@@ -133,8 +129,12 @@ impl Network for Net {
             policy_net: policy_net(&(&root / "policy")),
             value_net: value_net(&(&root / "value")),
             ube_net: ube_net(&(&root / "ube")),
+            simhash_matrix: root.randn_standard("simhash_matrix", &[
+                input_size::<N>() as i64,
+                HASH_BITS as i64,
+            ]),
+            simhash_set: root.zeros_no_train("simhash_set", &[1 << HASH_BITS]),
             vs,
-            hash_set: HashSet::new(),
         }
     }
 
@@ -157,36 +157,31 @@ impl HashNetwork<Env> for Net {
         (policy, value, ube)
     }
 
-    fn forward_hash(&self, envs: &[Env]) -> Tensor {
-        Tensor::from_slice(
-            &envs
-                .iter()
-                .map(|e| self.hash_set.contains(&e.clone().canonical()))
-                .collect::<Vec<_>>(),
-        )
+    fn get_indices(&self, xs: &Tensor) -> Tensor {
+        let options = (Kind::Int64, self.vs().device());
+        let powers_of_two =
+            Tensor::scalar_tensor(2, options).pow(&Tensor::arange(HASH_BITS as i64, options));
+        let dots = xs
+            .view([-1, input_size::<N>() as i64])
+            .matmul(&self.simhash_matrix.detach());
+        powers_of_two
+            .masked_fill(&dots.lt(0.0), 0.0)
+            .sum_dim_intlist(1, false, None)
     }
 
-    fn load_hash(
-        &mut self,
-        path: impl AsRef<std::path::Path>,
-        seek: &mut u64,
-    ) -> std::io::Result<()> {
-        let mut reader = BufReader::new(OpenOptions::new().read(true).open(path)?);
-        reader.seek(std::io::SeekFrom::Start(*seek))?;
-        for replay in reader
-            .by_ref()
-            .lines()
-            .filter_map(|line| line.unwrap().parse::<Replay<Env>>().ok())
-        {
-            let mut env = replay.env;
-            self.hash_set.extend(replay.actions.into_iter().map(|a| {
-                let ret = env.clone().canonical(); // Store canonical positions.
-                env.step(a);
-                ret
-            }));
-        }
-        *seek = reader.stream_position()?;
-        Ok(())
+    fn update_counts(&mut self, xs: &Tensor) {
+        let indices = self.get_indices(xs);
+        let _ = self.simhash_set.index_put_(
+            &[Some(&indices)],
+            &Tensor::ones_like(&indices).to_kind(Kind::Float),
+            true,
+        );
+    }
+
+    fn forward_hash(&self, xs: &Tensor) -> Tensor {
+        let indices = self.get_indices(xs);
+        let counts = self.simhash_set.detach().index_select(0, &indices);
+        MAXIMUM_VARIANCE / (1 + counts.sqrt())
     }
 }
 
@@ -241,10 +236,10 @@ impl Agent<Env> for Net {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        let local_uncertainties = self.forward_hash(env_batch);
+        let local_uncertainties = self.forward_hash(&xs);
         let uncertainties: Vec<_> = ube_uncertainties
             .exp() // Exponent because UBE prediction is log(variance)
-            .masked_fill(&local_uncertainties.logical_not(), MAXIMUM_VARIANCE)
+            .maximum(&local_uncertainties)
             .clamp(0.0, MAXIMUM_VARIANCE)
             .view([-1])
             .try_into()
@@ -262,11 +257,12 @@ mod tests {
     use std::array;
 
     use fast_tak::Game;
-    use tch::Device;
+    use rand::{rngs::StdRng, Rng, SeedableRng};
+    use tch::{Device, Tensor};
 
-    use super::{Env, Net};
+    use super::{Env, Net, HALF_KOMI, N};
     use crate::{
-        network::Network,
+        network::{repr::game_to_tensor, HashNetwork, Network},
         search::{agent::Agent, env::Environment},
     };
 
@@ -285,8 +281,11 @@ mod tests {
     #[test]
     fn evaluate_batch() {
         const BATCH_SIZE: usize = 128;
-        let net = Net::new(Device::cuda_if_available(), Some(456));
-        let mut games: [Env; BATCH_SIZE] = array::from_fn(|_| Game::default());
+        const SEED: u64 = 456;
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let net = Net::new(Device::cuda_if_available(), Some(rng.gen()));
+        let mut games: [Env; BATCH_SIZE] =
+            array::from_fn(|_| Game::new_opening_with_random_steps(&mut rng, &mut vec![], 10));
         let mut actions_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
         games
             .iter_mut()
@@ -294,5 +293,36 @@ mod tests {
             .for_each(|(game, actions)| game.populate_actions(actions));
         let output = net.policy_value_uncertainty(&games, &actions_batch);
         assert_eq!(output.count(), BATCH_SIZE);
+    }
+
+    #[test]
+    fn counts_work() {
+        const BATCH_SIZE: usize = 128;
+        const SEED: u64 = 456;
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut net = Net::new(Device::cuda_if_available(), Some(rng.gen()));
+
+        let xs = Tensor::cat(
+            &(0..BATCH_SIZE)
+                .map(|_| {
+                    game_to_tensor(
+                        &Game::<N, HALF_KOMI>::new_opening_with_random_steps(
+                            &mut rng,
+                            &mut vec![],
+                            5,
+                        ),
+                        Device::cuda_if_available(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            0,
+        );
+
+        let before = net.forward_hash(&xs);
+        println!("{before}");
+        net.update_counts(&xs);
+        let after = net.forward_hash(&xs);
+        println!("{after}");
+        assert!(bool::try_from(before.gt_tensor(&after).all()).unwrap());
     }
 }

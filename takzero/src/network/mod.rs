@@ -1,7 +1,3 @@
-use tch::Tensor;
-
-use crate::search::env::Environment;
-
 pub mod net4;
 pub mod net4_big;
 pub mod net4_ensemble;
@@ -66,20 +62,10 @@ pub trait EnsembleNetwork: Network {
     fn forward_ensemble(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor;
 }
 
-pub trait HashNetwork<E: Environment>: Network {
+pub trait HashNetwork<E: crate::search::env::Environment>: Network {
     fn forward_t(&self, xs: &tch::Tensor, train: bool) -> (tch::Tensor, tch::Tensor, tch::Tensor);
 
-    fn forward_hash(&self, envs: &[E]) -> Tensor;
-
-    /// Load positions into `HashSet` from a replay file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the path is invalid, or if there is a problem with
-    /// the seek.
-    fn load_hash(
-        &mut self,
-        path: impl AsRef<std::path::Path>,
-        seek: &mut u64,
-    ) -> std::io::Result<()>;
+    fn get_indices(&self, xs: &tch::Tensor) -> tch::Tensor;
+    fn update_counts(&mut self, xs: &tch::Tensor);
+    fn forward_hash(&self, xs: &tch::Tensor) -> tch::Tensor;
 }
