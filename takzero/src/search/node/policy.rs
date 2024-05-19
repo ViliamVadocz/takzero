@@ -53,7 +53,8 @@ impl<E: Environment> Node<E> {
     /// # Panics
     ///
     /// Panics if there are no children.
-    pub fn select_with_improved_policy(&mut self) -> usize {
+    #[must_use]
+    pub fn select_with_improved_policy(&self) -> usize {
         self.improved_policy(self.most_visited_count())
             .zip(self.children.iter())
             .enumerate()
@@ -73,7 +74,8 @@ impl<E: Environment> Node<E> {
     /// # Panics
     ///
     /// Panics if there are no children.
-    pub fn select_with_puct(&mut self, beta: f32) -> usize {
+    #[must_use]
+    pub fn select_with_puct(&self, beta: f32) -> usize {
         let parent_visit_count = self.visit_count as f32;
         self.children
             .iter()
@@ -98,7 +100,8 @@ impl<E: Environment> Node<E> {
     /// # Panics
     ///
     /// Panics if there are no children.
-    pub fn select_with_uct(&mut self, beta: f32) -> usize {
+    #[must_use]
+    pub fn select_with_uct(&self, beta: f32) -> usize {
         let parent_visit_count = self.visit_count as f32;
         self.children
             .iter()
