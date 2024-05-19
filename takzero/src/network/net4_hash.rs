@@ -182,6 +182,7 @@ impl HashNetwork<Env> for Net {
         let indices = self.get_indices(xs);
         let counts = self.simhash_set.detach().index_select(0, &indices);
         MAXIMUM_VARIANCE / (1 + counts.sqrt())
+        // MAXIMUM_VARIANCE * counts.eq(0)
     }
 }
 
