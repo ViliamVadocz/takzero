@@ -22,7 +22,7 @@ pub const N: usize = 4;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
 const FILTERS: i64 = 256;
-const HASH_BITS: usize = 24;
+const HASH_BITS: usize = 27;
 
 // Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
 pub const MAXIMUM_VARIANCE: f64 = 4.0;
@@ -181,8 +181,8 @@ impl HashNetwork<Env> for Net {
     fn forward_hash(&self, xs: &Tensor) -> Tensor {
         let indices = self.get_indices(xs);
         let counts = self.simhash_set.detach().index_select(0, &indices);
-        MAXIMUM_VARIANCE / (1 + counts.sqrt())
-        // MAXIMUM_VARIANCE * counts.eq(0)
+        // MAXIMUM_VARIANCE / (1 + counts.sqrt()) // smooth
+        MAXIMUM_VARIANCE * counts.eq(0) // binary
     }
 }
 
