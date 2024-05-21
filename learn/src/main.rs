@@ -12,10 +12,10 @@ use ordered_float::NotNan;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net4_neurips::{Env, Net, HALF_KOMI, MAXIMUM_VARIANCE, N},
+        net4_hash::{Env, Net, MAXIMUM_VARIANCE, N},
         repr::{game_to_tensor, move_mask, output_size, policy_tensor},
+        HashNetwork,
         Network,
-        RndNetwork,
     },
     search::{agent::Agent, env::Environment, eval::Eval},
     target::{Augment, Target},
@@ -27,9 +27,8 @@ use tch::{
     Tensor,
 };
 
-use crate::rnd_normalization::{reference_games, update_rnd};
-
-mod rnd_normalization;
+// use crate::rnd_normalization::{reference_games, update_rnd};
+// mod rnd_normalization;
 
 // The environment to learn.
 #[rustfmt::skip] #[allow(dead_code)]
@@ -113,7 +112,7 @@ fn main() {
 
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
     // Load RND reference games.
-    let (early_reference, late_reference) = reference_games(DEVICE, &mut rng);
+    // let (early_reference, late_reference) = reference_games(DEVICE, &mut rng);
 
     if let Some(target_file) = &args.resume_targets {
         // Resuming after restarting.
@@ -125,11 +124,9 @@ fn main() {
         for batch in targets.chunks_exact(BATCH_SIZE) {
             let tensors = create_input_and_target_tensors(batch.iter(), &mut rng);
             compute_loss_and_take_step(
-                &mut net,
-                &mut opt,
-                tensors,
-                &early_reference,
-                &late_reference,
+                &mut net, &mut opt, tensors,
+                // &early_reference,
+                // &late_reference,
                 false,
             );
             starting_steps += 1;
@@ -146,8 +143,8 @@ fn main() {
             &mut opt,
             &mut rng,
             &args.directory,
-            &early_reference,
-            &late_reference,
+            // &early_reference,
+            // &late_reference,
         );
         starting_steps += PRE_TRAINING_STEPS;
         net.save(
@@ -231,11 +228,9 @@ fn main() {
             &mut rng,
         );
         compute_loss_and_take_step(
-            &mut net,
-            &mut opt,
-            tensors,
-            &early_reference,
-            &late_reference,
+            &mut net, &mut opt, tensors,
+            // &early_reference,
+            // &late_reference,
             true,
         );
 
@@ -373,8 +368,8 @@ fn compute_loss_and_take_step(
     net: &mut Net,
     opt: &mut Optimizer,
     tensors: Tensors,
-    early_reference: &Tensor,
-    late_reference: &Tensor,
+    // early_reference: &Tensor,
+    // late_reference: &Tensor,
     train_ube: bool,
 ) {
     // Get network output.
@@ -398,19 +393,22 @@ fn compute_loss_and_take_step(
         // We don't want to train UBE in pre-training.
         Tensor::zeros_like(&loss_value)
     };
-    let loss_rnd = net.forward_rnd(&tensors.input, true).mean(Kind::Float);
-    let loss = &loss_policy + &loss_value + &loss_ube + &loss_rnd;
+    // let loss_rnd = net.forward_rnd(&tensors.input, true).mean(Kind::Float);
+    let loss = &loss_policy + &loss_value + &loss_ube; // + &loss_rnd;
     #[rustfmt::skip]
     log::info!(
         "loss = {loss:?}\n\
          loss_policy = {loss_policy:?}\n\
          loss_value = {loss_value:?}\n\
-         loss_ube = {loss_ube:?}\n\
-         loss_rnd = {loss_rnd:?}"
+         loss_ube = {loss_ube:?}"
     );
+    // loss_rnd = {loss_rnd:?}"
 
     // Update network RND min and max for normalization.
-    update_rnd(net, early_reference, late_reference);
+    // update_rnd(net, early_reference, late_reference);
+
+    // Update hash counts
+    net.update_counts(&tensors.input);
 
     // Take step.
     opt.backward_step(&loss);
@@ -421,8 +419,8 @@ fn pre_training(
     opt: &mut Optimizer,
     rng: &mut impl Rng,
     directory: &Path,
-    early_reference: &Tensor,
-    late_reference: &Tensor,
+    // early_reference: &Tensor,
+    // late_reference: &Tensor,
 ) {
     log::info!("Pre-training");
     let mut actions = Vec::new();
@@ -469,7 +467,10 @@ fn pre_training(
 
     for batch in buffer.chunks_exact(BATCH_SIZE).take(PRE_TRAINING_STEPS) {
         let tensors = create_input_and_target_tensors(batch.iter(), rng);
-        compute_loss_and_take_step(net, opt, tensors, early_reference, late_reference, false);
+        compute_loss_and_take_step(
+            net, opt, tensors, // early_reference, late_reference,
+            false,
+        );
     }
 }
 

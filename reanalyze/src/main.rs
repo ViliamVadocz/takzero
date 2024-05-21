@@ -9,7 +9,7 @@ use clap::Parser;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net4_neurips::{Env, Net},
+        net4_hash::{Env, Net},
         Network,
     },
     search::{
