@@ -31,7 +31,7 @@ pub struct Net {
     policy_net: nn::SequentialT,
     value_net: nn::SequentialT,
     ube_net: nn::SequentialT,
-    simhash_set: Tensor,
+    lcghash_set: Tensor,
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
@@ -125,7 +125,7 @@ impl Network for Net {
             policy_net: policy_net(&(&root / "policy")),
             value_net: value_net(&(&root / "value")),
             ube_net: ube_net(&(&root / "ube")),
-            simhash_set: root.zeros_no_train("simhash_set", &[1 << HASH_BITS]),
+            lcghash_set: root.zeros_no_train("lcghash_set", &[1 << HASH_BITS]),
             vs,
         }
     }
@@ -183,12 +183,13 @@ impl HashNetwork<Env> for Net {
             acc += x.squeeze();
         }
 
-        acc.bitwise_right_shift(&Tensor::scalar_tensor((64 - HASH_BITS) as i64, options))
+        acc.abs()
+            .bitwise_right_shift(&Tensor::scalar_tensor((63 - HASH_BITS) as i64, options))
     }
 
     fn update_counts(&mut self, xs: &Tensor) {
         let indices = tch::no_grad(|| self.get_indices(xs));
-        let _ = self.simhash_set.index_put_(
+        let _ = self.lcghash_set.index_put_(
             &[Some(&indices)],
             &Tensor::ones_like(&indices).to_kind(Kind::Float),
             true,
@@ -197,7 +198,7 @@ impl HashNetwork<Env> for Net {
 
     fn forward_hash(&self, xs: &Tensor) -> Tensor {
         let indices = tch::no_grad(|| self.get_indices(xs));
-        let counts = self.simhash_set.detach().index_select(0, &indices);
+        let counts = self.lcghash_set.detach().index_select(0, &indices);
         // MAXIMUM_VARIANCE / (1 + counts.sqrt()) // smooth
         MAXIMUM_VARIANCE * counts.eq(0) // binary
     }
