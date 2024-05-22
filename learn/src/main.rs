@@ -42,7 +42,7 @@ const _: () = assert_net::<Net>();
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
 const STEPS_PER_SAVE: usize = 10;
-const STEPS_PER_CHECKPOINT: usize = 25000;
+const STEPS_PER_CHECKPOINT: usize = 50_000;
 const LEARNING_RATE: f64 = 1e-4;
 
 // Pre-training
