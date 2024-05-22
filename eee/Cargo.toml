@@ -15,3 +15,15 @@ ordered-float.workspace = true
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "rnd"
+path = "src/rnd.rs"
+
+[[bin]]
+name = "simhash"
+path = "src/simhash.rs"
+
+[[bin]]
+name = "lcghash"
+path = "src/lcghash.rs"

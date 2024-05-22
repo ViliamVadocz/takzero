@@ -8,7 +8,7 @@ use rand::{
 };
 use takzero::{
     network::{
-        net4_lcg_hash::{Env, Net, N},
+        net4_simhash::{Env, Net, N},
         repr::{game_to_tensor, input_channels},
         HashNetwork,
         Network,
