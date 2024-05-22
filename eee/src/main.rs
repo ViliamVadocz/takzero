@@ -63,7 +63,7 @@ fn reference_batches(
 ) {
     let early_game = unique_positions
         .iter()
-        .filter(|s| s.ply < 10)
+        .filter(|s| s.ply == 8)
         .cloned()
         .choose_multiple(rng, BATCH_SIZE);
     let early_tensor = Tensor::concat(
@@ -76,7 +76,7 @@ fn reference_batches(
     .to(DEVICE);
     let late_game = unique_positions
         .iter()
-        .filter(|s| s.ply >= 60)
+        .filter(|s| s.ply == 60)
         .cloned()
         .choose_multiple(rng, BATCH_SIZE);
     let late_tensor = Tensor::concat(
@@ -90,7 +90,7 @@ fn reference_batches(
 
     let mut actions = vec![];
     let (random_early_batch, random_early_tensor) = reference_envs(8, &mut actions, rng);
-    let (random_late_batch, random_late_tensor) = reference_envs(120, &mut actions, rng);
+    let (random_late_batch, random_late_tensor) = reference_envs(60, &mut actions, rng);
 
     let (_, impossible_early_tensor) = reference_envs(8, &mut actions, rng);
     let impossible_early_tensor = impossible_early_tensor.index_select(

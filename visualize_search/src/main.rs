@@ -1,49 +1,51 @@
 use std::f32::consts::PI;
 
 use fast_tak::takparse::Tps;
-use rand::{rngs::StdRng, Rng, SeedableRng};
+// use rand::{rngs::StdRng, Rng, SeedableRng};
 use svg::{
     node::element::{Circle, Line, Script},
     Document,
 };
 use takzero::{
     network::{
-        net4_big::{Env, Net},
+        net4_neurips::{Env, Net},
         Network,
     },
     search::{env::Environment, node::Node},
 };
 
-const BETA: f32 = 0.0;
 const VISITS: u32 = 1000;
 const ARM_LENGTH: f32 = 40.0;
 const CIRCLE_RADIUS: f32 = 6.0;
 const COLOR: &str = "#8142f5";
 
 fn main() {
-    let mut rng = StdRng::seed_from_u64(123);
+    // let mut rng = StdRng::seed_from_u64(123);
     // let mut actions = vec![];
     // let game = Env::new_opening(&mut rng, &mut actions);
-    let env: Env = "1,x,2,112S/x,12,1,1/2,x,1,x/2,x3 1 9"
-        .parse::<Tps>()
-        .unwrap()
-        .into();
-    let net = Net::new(tch::Device::Cuda(0), Some(rng.gen()));
-    // let net = Net::load("directed-random-01.ot", tch::Device::Cuda(0)).unwrap();
+    // let net = Net::new(tch::Device::Cuda(0), Some(rng.gen()));
+    let net = Net::load("directed.ot", tch::Device::Cuda(0)).unwrap();
+    let env: Env = "x,1,x,1/x4/x4/2,x3 2 2".parse::<Tps>().unwrap().into();
+
+    for beta in [0.0, 0.5, 1.0, 2.0, 3.0, 4.0] {
+        visualize_search(&net, &env, beta);
+    }
+}
+
+fn visualize_search(net: &Net, env: &Env, beta: f32) {
     let mut node = Node::default();
 
     for _ in 0..VISITS {
-        node.simulate_simple(&net, env.clone(), BETA);
+        node.simulate_simple(net, env.clone(), beta);
     }
 
-    let mut document = Document::new()
-        .set("viewBox", (-500, -500, 1000, 1000))
-        .set("style", "background:black");
+    let mut document = Document::new().set("viewBox", (-400, -400, 1000, 1000));
+    // .set("style", "background:black");
 
-    document = draw_tree(document, &node, &env, 0.0, 0.0, 0.0, 2.0 * PI);
+    document = draw_tree(document, &node, env, 0.0, 0.0, 0.0, 2.0 * PI);
     document = document.add(Script::new(include_str!("preview.js")));
 
-    svg::save("tree.svg", &document).unwrap();
+    svg::save(format!("tree_with_beta={beta}.svg"), &document).unwrap();
 }
 
 fn opacity(visits: u32) -> f32 {

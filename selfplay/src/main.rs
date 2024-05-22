@@ -12,7 +12,7 @@ use ordered_float::NotNan;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net4_lcg_hash::{Env, Net},
+        net4_lcghash::{Env, Net},
         Network,
     },
     search::{

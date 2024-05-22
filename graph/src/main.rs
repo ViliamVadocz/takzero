@@ -17,13 +17,14 @@ use takzero::{network::net4_neurips::Env, search::env::Environment, target::Repl
 
 fn main() {
     let replays = [
-        "undirected_00",
-        "undirected_01",
-        "undirected_02",
-        "directed_00",
-        "restart_undirected_00",
-        "restart_undirected_01",
-        "restart_directed_00",
+        // "neurips_undirected_00",
+        // "neurips_undirected_01",
+        // "neurips_undirected_02",
+        // "neurips_directed_00",
+        // "neurips_restart_undirected_00",
+        // "neurips_restart_undirected_01",
+        // "neurips_restart_directed_00",
+        "simhash_directed_00",
     ];
 
     let mut chart = Chart::new()
@@ -41,7 +42,7 @@ fn main() {
     for r in replays {
         chart = chart.series(
             Line::new()
-                .data(get_unique_positions(format!("4x4_neurips_{r}_replays.txt")))
+                .data(get_unique_positions(format!("4x4_{r}_replays.txt")))
                 .name(r)
                 .symbol(Symbol::None),
         );
