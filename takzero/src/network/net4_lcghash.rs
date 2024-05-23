@@ -31,6 +31,7 @@ pub struct Net {
     policy_net: nn::SequentialT,
     value_net: nn::SequentialT,
     ube_net: nn::SequentialT,
+    lcghash_init: Tensor,
     lcghash_set: Tensor,
 }
 
@@ -125,6 +126,12 @@ impl Network for Net {
             policy_net: policy_net(&(&root / "policy")),
             value_net: value_net(&(&root / "value")),
             ube_net: ube_net(&(&root / "ube")),
+            lcghash_init: root.uniform(
+                "lcghash_init",
+                &[input_channels::<N>() as i64, N as i64, N as i64],
+                -100.0,
+                100.0,
+            ),
             lcghash_set: root.zeros_no_train("lcghash_set", &[1 << HASH_BITS]),
             vs,
         }
@@ -157,11 +164,11 @@ impl HashNetwork<Env> for Net {
 
         let options = (Kind::Int64, self.vs().device());
 
-        let (mantissa, exponent) = xs.frexp();
-        let mantissa = (mantissa * 1024).to_dtype(Kind::Int64, false, false);
         let (batch_size, channels, rows, _cols) = xs.size4().unwrap();
+        let input =
+            (self.lcghash_init.detach() + xs * (1 << 20)).to_dtype(Kind::Int64, false, false);
 
-        let xs = (mantissa + exponent).split(1, 3);
+        let xs = input.split(1, 3);
         let mut acc = Tensor::zeros([batch_size, channels, rows], options);
         for x in xs {
             acc *= MULTIPLIER;
