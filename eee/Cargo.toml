@@ -27,3 +27,7 @@ path = "src/simhash.rs"
 [[bin]]
 name = "lcghash"
 path = "src/lcghash.rs"
+
+[[bin]]
+name = "ensemble"
+path = "src/ensemble.rs"

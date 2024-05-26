@@ -18,7 +18,7 @@ pub const N: usize = 4;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
 const FILTERS: i64 = 256;
-const ENSEMBLE_SIZE: usize = 16;
+pub const ENSEMBLE_SIZE: usize = 16;
 
 // Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
 pub const MAXIMUM_VARIANCE: f64 = 4.0;
@@ -37,7 +37,7 @@ pub struct Net {
 struct Ensemble([nn::SequentialT; ENSEMBLE_SIZE]);
 
 fn core(path: &nn::Path) -> nn::SequentialT {
-    const CORE_RES_BLOCKS: u32 = 20;
+    const CORE_RES_BLOCKS: u32 = 16;
     let mut core = nn::seq_t()
         .add(nn::conv2d(
             path / "input_conv2d",
@@ -154,13 +154,13 @@ impl EnsembleNetwork for Net {
         (policy, value, ube, ensemble)
     }
 
-    fn forward_ensemble(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor {
+    fn forward_ensemble(&self, core_xs: &tch::Tensor, train: bool) -> tch::Tensor {
         Tensor::concat(
             &self
                 .ensemble
                 .0
                 .iter()
-                .map(|nn| nn.forward_t(xs, train))
+                .map(|nn| nn.forward_t(core_xs, train))
                 .collect::<Vec<_>>(),
             1,
         )
