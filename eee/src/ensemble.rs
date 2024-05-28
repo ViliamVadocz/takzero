@@ -31,6 +31,7 @@ mod utils;
 const BATCH_SIZE: usize = 128;
 const DEVICE: Device = Device::Cuda(0);
 const LEARNING_RATE: f64 = 1e-4;
+const STEPS: usize = 3000;
 
 const MINIMUM_UBE_TARGET: f64 = -10.0;
 const FORCED_USES: usize = 4;
@@ -78,7 +79,7 @@ fn main() {
     let mut random_late: Vec<f64> = Vec::new();
     let mut impossible: Vec<f64> = Vec::new();
 
-    for step in 0.. {
+    for step in 0..STEPS {
         if step % 100 == 0 {
             println!("step {step}");
         }
