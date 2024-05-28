@@ -1,4 +1,6 @@
-use fast_tak::takparse::Move;
+use std::{collections::HashSet, fmt::Write, fs::OpenOptions, io::Write as _};
+
+use fast_tak::takparse::{Move, Tps};
 use ordered_float::NotNan;
 use rand::{
     distributions::{Distribution, WeightedIndex},
@@ -22,14 +24,18 @@ use tch::{
     Kind,
     Tensor,
 };
+use utils::reference_batches;
 
-const BATCH_SIZE: usize = 256;
+mod utils;
+
+const BATCH_SIZE: usize = 128;
 const DEVICE: Device = Device::Cuda(0);
 const LEARNING_RATE: f64 = 1e-4;
 
 const MINIMUM_UBE_TARGET: f64 = -10.0;
 const FORCED_USES: usize = 4;
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let mut rng = rand::rngs::StdRng::seed_from_u64(1_234_567);
     let net = Net::new(DEVICE, Some(rng.gen()));
@@ -49,7 +55,37 @@ fn main() {
 
     let mut opt = Adam::default().build(net.vs(), LEARNING_RATE).unwrap();
 
-    while self_play.len() >= BATCH_SIZE / 2 && reanalyze.len() >= BATCH_SIZE / 2 {
+    let unique_positions: Vec<_> = self_play
+        .iter()
+        .chain(reanalyze.iter())
+        .map(|(t, _)| t.env.clone().canonical())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let (
+        (_early_game, early_tensor),
+        (_late_game, late_tensor),
+        (_random_early_batch, random_early_tensor),
+        (_random_late_batch, random_late_tensor),
+        impossible_early_tensor,
+    ) = reference_batches(&unique_positions, &mut rng);
+
+    let mut current: Vec<f64> = Vec::new();
+    let mut after: Vec<f64> = Vec::new();
+    let mut early: Vec<f64> = Vec::new();
+    let mut late: Vec<f64> = Vec::new();
+    let mut random_early: Vec<f64> = Vec::new();
+    let mut random_late: Vec<f64> = Vec::new();
+    let mut impossible: Vec<f64> = Vec::new();
+
+    for step in 0.. {
+        if step % 100 == 0 {
+            println!("step {step}");
+        }
+        if self_play.len() < BATCH_SIZE / 2 || reanalyze.len() < BATCH_SIZE / 2 {
+            break;
+        }
+
         // Sample batch.
         self_play.shuffle(&mut rng);
         reanalyze.shuffle(&mut rng);
@@ -77,10 +113,91 @@ fn main() {
                 .map(|(t, x)| (t, x - 1)),
         );
 
-        take_step(&net, &mut opt, tensors);
+        current.push(
+            net.forward_core_and_ensemble(&tensors.input, false)
+                .var(false)
+                .try_into()
+                .unwrap(),
+        );
 
-        // TODO: Collect data (current, after, early, late, etc.)
+        take_step(&net, &mut opt, &tensors);
+
+        // Collect data.
+        after.push(
+            net.forward_core_and_ensemble(&tensors.input, false)
+                .var(false)
+                .try_into()
+                .unwrap(),
+        );
+        early.push(
+            net.forward_core_and_ensemble(&early_tensor, false)
+                .var(false)
+                .try_into()
+                .unwrap(),
+        );
+        late.push(
+            net.forward_core_and_ensemble(&late_tensor, false)
+                .var(false)
+                .try_into()
+                .unwrap(),
+        );
+        random_early.push(
+            net.forward_core_and_ensemble(&random_early_tensor, false)
+                .var(false)
+                .try_into()
+                .unwrap(),
+        );
+        random_late.push(
+            net.forward_core_and_ensemble(&random_late_tensor, false)
+                .var(false)
+                .try_into()
+                .unwrap(),
+        );
+        impossible.push(
+            net.forward_core_and_ensemble(&impossible_early_tensor, false)
+                .var(false)
+                .try_into()
+                .unwrap(),
+        );
     }
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("eee_data.csv")
+        .unwrap();
+    let content = current
+        .into_iter()
+        .zip(after)
+        .zip(early)
+        .zip(late)
+        .zip(random_early)
+        .zip(random_late)
+        .zip(impossible)
+        .enumerate()
+        .fold(
+            "step,current,after,early,late,random_early,random_late,impossible_early\n".to_string(),
+            |mut s,
+             (
+                step,
+                (
+                    (((((current, after), early), late), random_early), random_late),
+                    impossible_early,
+                ),
+            )| {
+                writeln!(
+                    &mut s,
+                    "{step},{current},{after},{early},{late},{random_early},{random_late},\
+                     {impossible_early}"
+                )
+                .unwrap();
+                s
+            },
+        );
+    file.write_all(content.as_bytes()).unwrap();
+
+    println!("Done.");
 }
 
 struct Tensors {
@@ -103,7 +220,7 @@ fn create_input_and_target_tensors<'a>(
     let mut masks = Vec::with_capacity(BATCH_SIZE);
     let mut value_targets = Vec::with_capacity(BATCH_SIZE);
     let mut ube_targets = Vec::with_capacity(BATCH_SIZE);
-    let mut ensemble_targets = Vec::with_capacity(BATCH_SIZE);
+    let mut ensemble_envs_and_policies = Vec::with_capacity(BATCH_SIZE);
     for target in batch {
         let target = target.augment(rng);
         inputs.push(game_to_tensor(&target.env, DEVICE));
@@ -114,7 +231,8 @@ fn create_input_and_target_tensors<'a>(
         ));
         value_targets.push(target.value);
         ube_targets.push(target.ube);
-        ensemble_targets.push(get_ensemble_targets(net, &target.env, &target.policy, rng));
+
+        ensemble_envs_and_policies.push((target.env, target.policy));
     }
 
     // Get network output.
@@ -130,7 +248,8 @@ fn create_input_and_target_tensors<'a>(
         .to(DEVICE)
         .log()
         .clamp(MINIMUM_UBE_TARGET, MAXIMUM_VARIANCE.ln());
-    let target_ensemble = Tensor::stack(&ensemble_targets, 0);
+
+    let target_ensemble = get_ensemble_targets(net, &ensemble_envs_and_policies, rng);
 
     Tensors {
         input,
@@ -142,38 +261,60 @@ fn create_input_and_target_tensors<'a>(
     }
 }
 
-// TODO: Do this for an entire batch at once.
-// TODO: Don't run policy, value, UBE heads since they are not needed.
+#[allow(clippy::type_complexity)]
 fn get_ensemble_targets(
     net: &Net,
-    env: &Env,
-    policy: &[(Move, NotNan<f32>)],
+    envs_and_policies: &[(Env, Box<[(Move, NotNan<f32>)]>)],
     rng: &mut impl Rng,
 ) -> Tensor {
-    // Select an action proportional to the improved policy.
-    let weighted_index = WeightedIndex::new(policy.iter().map(|(_, p)| p.into_inner())).expect(
-        "there should be at least one action and the improved policy should not be negative",
-    );
-    let action = policy[weighted_index.sample(rng)].0;
-    // Take a step in the environment.
-    let mut clone = env.clone();
-    clone.step(action);
-    // If the state is terminal, use the terminal value. Otherwise bootstrap from
-    // network predictions.
-    clone.terminal().map_or_else(
-        || {
-            let xs = game_to_tensor::<N, HALF_KOMI>(&clone, DEVICE);
-            let bootstrap = net.forward_t(&xs, false).3;
-            -DISCOUNT_FACTOR * bootstrap
-        },
-        |t| {
-            Tensor::ones([1, ENSEMBLE_SIZE as i64], (Kind::Float, DEVICE))
-                * f64::from(f32::from(Eval::from(t).negate()))
-        },
+    let envs_after: Vec<_> = envs_and_policies
+        .iter()
+        .map(|(env, policy)| {
+            // Select an action proportional to the improved policy.
+            let weighted_index = WeightedIndex::new(policy.iter().map(|(_, p)| p.into_inner()))
+                .expect(
+                    "there should be at least one action and the improved policy should not be \
+                     negative",
+                );
+            let action = policy[weighted_index.sample(rng)].0;
+            // Take a step in the environment.
+            let mut clone = env.clone();
+            let Ok(()) = clone.play(action) else {
+                let tps: Tps = clone.into();
+                panic!("{tps}, {action}");
+            };
+            clone
+        })
+        .collect();
+    let xs = Tensor::cat(
+        &envs_after
+            .iter()
+            .map(|game| game_to_tensor(game, Device::Cpu))
+            .collect::<Vec<_>>(),
+        0,
+    )
+    .to(DEVICE);
+    let bootstrap = -DISCOUNT_FACTOR * net.forward_core_and_ensemble(&xs, false);
+    let (indices, values): (Vec<_>, Vec<_>) = envs_after
+        .iter()
+        .enumerate()
+        .filter_map(|(i, game)| {
+            game.terminal()
+                .map(|t| (i as i64, f32::from(Eval::from(t).negate())))
+        })
+        .unzip();
+
+    bootstrap.index_put(
+        &[Some(Tensor::from_slice(&indices))],
+        &Tensor::from_slice(&values)
+            .to(DEVICE)
+            .expand([ENSEMBLE_SIZE as i64, -1], true)
+            .transpose(0, 1),
+        false,
     )
 }
 
-fn take_step(net: &Net, opt: &mut Optimizer, tensors: Tensors) {
+fn take_step(net: &Net, opt: &mut Optimizer, tensors: &Tensors) {
     // Get network output.
     let (policy, network_value, network_ube, ensemble_value) = net.forward_t(&tensors.input, true);
     let log_softmax_network_policy = policy
@@ -184,25 +325,25 @@ fn take_step(net: &Net, opt: &mut Optimizer, tensors: Tensors) {
     // Calculate loss.
     let loss_policy = -(log_softmax_network_policy * &tensors.target_policy).sum(Kind::Float)
         / i64::try_from(BATCH_SIZE).unwrap();
-    let loss_value = (tensors.target_value - network_value)
+    let loss_value = (&tensors.target_value - network_value)
         .square()
         .mean(Kind::Float);
-    let loss_ube = (tensors.target_ube - network_ube)
+    let loss_ube = (&tensors.target_ube - network_ube)
         .square()
         .mean(Kind::Float);
-    let loss_ensemble = (tensors.target_ensemble - ensemble_value)
+    let loss_ensemble = (&tensors.target_ensemble - ensemble_value)
         .square()
         .mean(Kind::Float);
 
     let loss = &loss_policy + &loss_value + &loss_ube + &loss_ensemble;
-    #[rustfmt::skip]
-    println!(
-        "loss = {loss:?}\n\
-         loss_policy = {loss_policy:?}\n\
-         loss_value = {loss_value:?}\n\
-         loss_ube = {loss_ube:?}\n\
-         loss_ensemble = {loss_ensemble:?}"
-    );
+    // #[rustfmt::skip]
+    // println!(
+    //     "loss = {loss:?}\n\
+    //      loss_policy = {loss_policy:?}\n\
+    //      loss_value = {loss_value:?}\n\
+    //      loss_ube = {loss_ube:?}\n\
+    //      loss_ensemble = {loss_ensemble:?}"
+    // );
 
     // Take step.
     opt.backward_step(&loss);

@@ -60,7 +60,8 @@ pub trait EnsembleNetwork: Network {
         train: bool,
     ) -> (tch::Tensor, tch::Tensor, tch::Tensor, tch::Tensor);
 
-    fn forward_ensemble(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor;
+    fn forward_ensemble(&self, core_xs: &tch::Tensor, train: bool) -> tch::Tensor;
+    fn forward_core_and_ensemble(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor;
 }
 
 pub trait HashNetwork<E: crate::search::env::Environment>: Network {

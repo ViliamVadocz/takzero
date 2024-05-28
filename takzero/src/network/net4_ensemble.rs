@@ -154,7 +154,7 @@ impl EnsembleNetwork for Net {
         (policy, value, ube, ensemble)
     }
 
-    fn forward_ensemble(&self, core_xs: &tch::Tensor, train: bool) -> tch::Tensor {
+    fn forward_ensemble(&self, core_xs: &Tensor, train: bool) -> Tensor {
         Tensor::concat(
             &self
                 .ensemble
@@ -164,6 +164,10 @@ impl EnsembleNetwork for Net {
                 .collect::<Vec<_>>(),
             1,
         )
+    }
+
+    fn forward_core_and_ensemble(&self, xs: &Tensor, train: bool) -> Tensor {
+        self.forward_ensemble(&self.core.forward_t(xs, train), train)
     }
 }
 
