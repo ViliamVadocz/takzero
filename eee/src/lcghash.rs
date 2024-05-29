@@ -1,28 +1,19 @@
 use std::{collections::HashSet, fmt::Write as FmtWrite, fs::OpenOptions, io::Write};
 
-use fast_tak::takparse::Move;
-use rand::{
-    seq::{IteratorRandom, SliceRandom},
-    Rng,
-    SeedableRng,
-};
+use rand::{seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
-    network::{
-        net4_lcghash::{Env, Net, N},
-        repr::{game_to_tensor, input_channels},
-        HashNetwork,
-        Network,
-    },
+    network::{net4_lcghash::Net, repr::game_to_tensor, HashNetwork, Network},
     search::env::Environment,
     target::get_replays,
 };
 use tch::{Device, Tensor};
 use utils::reference_batches;
 
-const STEPS: usize = 45_000;
-const BATCH_SIZE: usize = 256;
+const STEPS: usize = 200_000;
+const BATCH_SIZE: usize = 128;
 const DEVICE: Device = Device::Cuda(0);
 const FORCED_USES: u32 = 4;
+const PERIOD: usize = 100;
 
 mod utils;
 
@@ -35,7 +26,7 @@ fn main() {
     let mut positions = Vec::new();
     let mut seen_positions = HashSet::new();
     let mut unique_positions = Vec::new();
-    for replay in get_replays("4x4_neurips_undirected_00_replays.txt")
+    for replay in get_replays("4x4_lcghash_filtered.txt")
         .unwrap()
         .take(STEPS * BATCH_SIZE / 10)
     {
@@ -57,11 +48,10 @@ fn main() {
         impossible_early_tensor,
     ) = reference_batches(&unique_positions, &mut rng);
 
-    for game in &early_game {
+    for (game, hash) in early_game.iter().zip(net.get_indices(&early_tensor)) {
         let tps: fast_tak::takparse::Tps = game.clone().into();
-        println!("{tps}");
+        println!("{tps} \t:\t {hash}");
     }
-    let early_hashes = net.get_indices(&early_tensor);
 
     let mut buffer = Vec::with_capacity(2048);
     let mut positions = positions.into_iter().filter(|s| {
@@ -72,17 +62,54 @@ fn main() {
             && !random_late_batch.contains(&c)
     });
 
-    let mut current: Vec<f64> = Vec::with_capacity(STEPS);
-    let mut after: Vec<f64> = Vec::with_capacity(STEPS);
-    let mut early_losses: Vec<f64> = Vec::with_capacity(STEPS);
-    let mut late_losses: Vec<f64> = Vec::with_capacity(STEPS);
-    let mut random_early_losses: Vec<f64> = Vec::with_capacity(STEPS);
-    let mut random_late_losses: Vec<f64> = Vec::with_capacity(STEPS);
-    let mut impossible_losses: Vec<f64> = Vec::with_capacity(STEPS);
+    let mut current: Vec<f64> = Vec::new();
+    let mut after: Vec<f64> = Vec::new();
+    let mut early_losses: Vec<f64> = Vec::new();
+    let mut late_losses: Vec<f64> = Vec::new();
+    let mut random_early_losses: Vec<f64> = Vec::new();
+    let mut random_late_losses: Vec<f64> = Vec::new();
+    let mut impossible_losses: Vec<f64> = Vec::new();
 
-    for step in 0..STEPS {
-        if step % 100 == 0 {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("eee_data.csv")
+        .unwrap();
+
+    for step in 0..=STEPS {
+        if step % PERIOD == 0 {
             println!("step: {step: >8}");
+            let content = current
+                .drain(..)
+                .zip(after.drain(..))
+                .zip(early_losses.drain(..))
+                .zip(late_losses.drain(..))
+                .zip(random_early_losses.drain(..))
+                .zip(random_late_losses.drain(..))
+                .zip(impossible_losses.drain(..))
+                .enumerate()
+                .fold(
+                    String::new(),
+                    |mut s,
+                     (
+                        i,
+                        (
+                            (((((current, after), early), late), random_early), random_late),
+                            impossible_early,
+                        ),
+                    )| {
+                        writeln!(
+                            &mut s,
+                            "{},{current},{after},{early},{late},{random_early},{random_late},\
+                             {impossible_early}",
+                            step + i - PERIOD
+                        )
+                        .unwrap();
+                        s
+                    },
+                );
+            file.write_all(content.as_bytes()).unwrap();
         }
 
         // Add replays to buffer until we have enough.
@@ -128,42 +155,6 @@ fn main() {
         let var = net.forward_hash(&tensor).mean(None);
         after.push(var.try_into().unwrap());
     }
-
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open("eee_data.csv")
-        .unwrap();
-    let content = current
-        .into_iter()
-        .zip(after)
-        .zip(early_losses)
-        .zip(late_losses)
-        .zip(random_early_losses)
-        .zip(random_late_losses)
-        .zip(impossible_losses)
-        .enumerate()
-        .fold(
-            "step,current,after,early,late,random_early,random_late,impossible_early\n".to_string(),
-            |mut s,
-             (
-                step,
-                (
-                    (((((current, after), early), late), random_early), random_late),
-                    impossible_early,
-                ),
-            )| {
-                writeln!(
-                    &mut s,
-                    "{step},{current},{after},{early},{late},{random_early},{random_late},\
-                     {impossible_early}"
-                )
-                .unwrap();
-                s
-            },
-        );
-    file.write_all(content.as_bytes()).unwrap();
 
     println!("Done.");
 }
