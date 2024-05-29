@@ -67,7 +67,7 @@ pub trait EnsembleNetwork: Network {
 pub trait HashNetwork<E: crate::search::env::Environment>: Network {
     fn forward_t(&self, xs: &tch::Tensor, train: bool) -> (tch::Tensor, tch::Tensor, tch::Tensor);
 
-    fn get_indices(&self, xs: &tch::Tensor) -> tch::Tensor;
+    fn get_indices(&self, xs: &tch::Tensor) -> Vec<usize>;
     fn update_counts(&mut self, xs: &tch::Tensor);
     fn forward_hash(&self, xs: &tch::Tensor) -> tch::Tensor;
 }

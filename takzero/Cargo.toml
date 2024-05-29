@@ -13,6 +13,7 @@ rayon.workspace = true
 tch.workspace = true
 thiserror.workspace = true
 ordered-float.workspace = true
+bitvec = "1.0.1"
 
 [lints]
 workspace = true

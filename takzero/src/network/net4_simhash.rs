@@ -1,9 +1,13 @@
+use std::io::{Read, Write};
+
+use bitvec::prelude::*;
 use fast_tak::{takparse::Move, Game};
 use ordered_float::NotNan;
 use tch::{
     nn::{self, ModuleT},
     Device,
     Kind,
+    TchError,
     Tensor,
 };
 
@@ -22,7 +26,7 @@ pub const N: usize = 4;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
 const FILTERS: i64 = 256;
-const HASH_BITS: usize = 24;
+const HASH_BITS: usize = 32;
 
 // Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
 pub const MAXIMUM_VARIANCE: f64 = 4.0;
@@ -35,7 +39,7 @@ pub struct Net {
     value_net: nn::SequentialT,
     ube_net: nn::SequentialT,
     simhash_matrix: Tensor,
-    simhash_set: Tensor,
+    simhash_set: BitBox<u8>,
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
@@ -133,7 +137,7 @@ impl Network for Net {
                 input_size::<N>() as i64,
                 HASH_BITS as i64,
             ]),
-            simhash_set: root.zeros_no_train("simhash_set", &[1 << HASH_BITS]),
+            simhash_set: bitbox![u8, Lsb0; 0; 1 << HASH_BITS],
             vs,
         }
     }
@@ -144,6 +148,44 @@ impl Network for Net {
 
     fn vs_mut(&mut self) -> &mut nn::VarStore {
         &mut self.vs
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), TchError> {
+        self.vs().save(&path)?;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(
+                path.as_ref()
+                    .parent()
+                    .map(std::path::Path::to_path_buf)
+                    .unwrap_or_default()
+                    .join("bitvec.bin"),
+            )?;
+        file.write_all(self.simhash_set.as_raw_slice())?;
+        Ok(())
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    fn load(path: impl AsRef<std::path::Path>, device: Device) -> Result<Self, TchError> {
+        let mut nn = Self::new(device, None);
+        nn.vs_mut().load(&path)?;
+
+        let mut file = std::fs::OpenOptions::new().read(true).open(
+            path.as_ref()
+                .parent()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_default()
+                .join("bitvec.bin"),
+        )?;
+        let mut vec = vec![];
+        file.read_to_end(&mut vec)?;
+        nn.simhash_set = BitVec::from_vec(vec).into_boxed_bitslice();
+        assert!(nn.simhash_set.len() == 1 << HASH_BITS);
+
+        Ok(nn)
     }
 }
 
@@ -157,32 +199,42 @@ impl HashNetwork<Env> for Net {
         (policy, value, ube)
     }
 
-    fn get_indices(&self, xs: &Tensor) -> Tensor {
+    fn get_indices(&self, xs: &Tensor) -> Vec<usize> {
         let options = (Kind::Int64, self.vs().device());
         let powers_of_two =
             Tensor::scalar_tensor(2, options).pow(&Tensor::arange(HASH_BITS as i64, options));
         let dots = xs
             .view([-1, input_size::<N>() as i64])
             .matmul(&self.simhash_matrix.detach());
-        powers_of_two
+        let ints: Vec<i64> = powers_of_two
             .masked_fill(&dots.lt(0.0), 0.0)
             .sum_dim_intlist(1, false, None)
+            .try_into()
+            .unwrap();
+        #[allow(clippy::cast_sign_loss)]
+        ints.into_iter().map(|x| x as usize).collect()
     }
 
     fn update_counts(&mut self, xs: &Tensor) {
-        let indices = self.get_indices(xs);
-        let _ = self.simhash_set.index_put_(
-            &[Some(&indices)],
-            &Tensor::ones_like(&indices).to_kind(Kind::Float),
-            true,
-        );
+        let indices = tch::no_grad(|| self.get_indices(xs));
+        for index in indices {
+            self.simhash_set.set(index, true);
+        }
     }
 
     fn forward_hash(&self, xs: &Tensor) -> Tensor {
-        let indices = self.get_indices(xs);
-        let counts = self.simhash_set.detach().index_select(0, &indices);
-        // MAXIMUM_VARIANCE / (1 + counts.sqrt()) // smooth
-        MAXIMUM_VARIANCE * counts.eq(0) // binary
+        let indices = tch::no_grad(|| self.get_indices(xs));
+        let counts: Vec<_> = indices
+            .into_iter()
+            .map(|index| {
+                if self.simhash_set[index] {
+                    0.0
+                } else {
+                    MAXIMUM_VARIANCE
+                }
+            })
+            .collect();
+        Tensor::from_slice(&counts).to(self.vs().device())
     }
 }
 
@@ -325,5 +377,37 @@ mod tests {
         let after = net.forward_hash(&xs);
         println!("{after}");
         assert!(bool::try_from(before.gt_tensor(&after).all()).unwrap());
+    }
+
+    #[test]
+    fn saving_works() {
+        const BATCH_SIZE: usize = 128;
+        const SEED: u64 = 456;
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut net = Net::new(Device::cuda_if_available(), Some(rng.gen()));
+
+        let xs = Tensor::cat(
+            &(0..BATCH_SIZE)
+                .map(|_| {
+                    game_to_tensor(
+                        &Game::<N, HALF_KOMI>::new_opening_with_random_steps(
+                            &mut rng,
+                            &mut vec![],
+                            5,
+                        ),
+                        Device::cuda_if_available(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            0,
+        );
+
+        net.update_counts(&xs);
+        net.save("delete-me.ot").unwrap();
+        drop(net);
+
+        let net = Net::load("delete-me.ot", Device::Cuda(0)).unwrap();
+        let after = net.forward_hash(&xs);
+        assert!(bool::try_from(after.eq(0.0).all()).unwrap());
     }
 }
