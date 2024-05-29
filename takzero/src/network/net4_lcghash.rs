@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Write;
 
 use bitvec::prelude::*;
 use fast_tak::{takparse::Move, Game};
@@ -36,7 +36,7 @@ pub struct Net {
     value_net: nn::SequentialT,
     ube_net: nn::SequentialT,
     lcghash_init: Tensor,
-    lcghash_set: BitBox<u8>,
+    lcghash_set: BitBox,
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
@@ -136,7 +136,7 @@ impl Network for Net {
                 -100.0,
                 100.0,
             ),
-            lcghash_set: bitbox![u8, Lsb0; 0; 1 << HASH_BITS],
+            lcghash_set: bitbox![0; 1 << HASH_BITS],
             vs,
         }
     }
@@ -163,7 +163,7 @@ impl Network for Net {
                     .unwrap_or_default()
                     .join("bitvec.bin"),
             )?;
-        file.write_all(self.lcghash_set.as_raw_slice())?;
+        file.write_all(bytemuck::cast_slice(self.lcghash_set.as_raw_slice()))?;
         Ok(())
     }
 
@@ -179,10 +179,10 @@ impl Network for Net {
                 .unwrap_or_default()
                 .join("bitvec.bin"),
         )?;
-        let mut vec = vec![];
-        file.read_to_end(&mut vec)?;
-        nn.lcghash_set = BitVec::from_vec(vec).into_boxed_bitslice();
-        assert!(nn.lcghash_set.len() == 1 << HASH_BITS);
+        std::io::copy(
+            &mut file,
+            &mut bytemuck::cast_slice_mut::<_, u8>(nn.lcghash_set.as_raw_mut_slice()),
+        )?;
 
         Ok(nn)
     }

@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Write;
 
 use bitvec::prelude::*;
 use fast_tak::{takparse::Move, Game};
@@ -39,7 +39,7 @@ pub struct Net {
     value_net: nn::SequentialT,
     ube_net: nn::SequentialT,
     simhash_matrix: Tensor,
-    simhash_set: BitBox<u8>,
+    simhash_set: BitBox,
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
@@ -137,7 +137,7 @@ impl Network for Net {
                 input_size::<N>() as i64,
                 HASH_BITS as i64,
             ]),
-            simhash_set: bitbox![u8, Lsb0; 0; 1 << HASH_BITS],
+            simhash_set: bitbox![0; 1 << HASH_BITS],
             vs,
         }
     }
@@ -164,7 +164,7 @@ impl Network for Net {
                     .unwrap_or_default()
                     .join("bitvec.bin"),
             )?;
-        file.write_all(self.simhash_set.as_raw_slice())?;
+        file.write_all(bytemuck::cast_slice(self.simhash_set.as_raw_slice()))?;
         Ok(())
     }
 
@@ -180,10 +180,10 @@ impl Network for Net {
                 .unwrap_or_default()
                 .join("bitvec.bin"),
         )?;
-        let mut vec = vec![];
-        file.read_to_end(&mut vec)?;
-        nn.simhash_set = BitVec::from_vec(vec).into_boxed_bitslice();
-        assert!(nn.simhash_set.len() == 1 << HASH_BITS);
+        std::io::copy(
+            &mut file,
+            &mut bytemuck::cast_slice_mut::<_, u8>(nn.simhash_set.as_raw_mut_slice()),
+        )?;
 
         Ok(nn)
     }

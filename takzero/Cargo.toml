@@ -14,6 +14,7 @@ tch.workspace = true
 thiserror.workspace = true
 ordered-float.workspace = true
 bitvec = "1.0.1"
+bytemuck = "1.16.0"
 
 [lints]
 workspace = true
