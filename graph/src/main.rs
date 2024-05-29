@@ -17,20 +17,18 @@ use takzero::{network::net4_neurips::Env, search::env::Environment, target::Repl
 
 fn main() {
     let replays = [
-        // "neurips_undirected_00",
-        // "neurips_undirected_01",
-        // "neurips_undirected_02",
-        // "neurips_directed_00",
-        // "neurips_restart_undirected_00",
-        // "neurips_restart_undirected_01",
-        // "neurips_restart_directed_00",
-        "simhash_directed_00",
+        "undirected_greedy",
+        "undirected_sampled",
+        "undirected_filtered",
+        "rnd_sampled",
+        "lcghash_filtered",
+        "simhash_filtered",
     ];
 
     let mut chart = Chart::new()
         .title(
             Title::new()
-                .text("Ratio of Unique Positions Seen in 500k Chunks")
+                .text("Ratio of Unique Positions Seen During Training")
                 .subtext("Accounting for Symmetries")
                 .left("center")
                 .top(0),
@@ -42,7 +40,7 @@ fn main() {
     for r in replays {
         chart = chart.series(
             Line::new()
-                .data(get_unique_positions(format!("4x4_{r}_replays.txt")))
+                .data(get_unique_positions(format!("4x4_{r}.txt")))
                 .name(r)
                 .symbol(Symbol::None),
         );
@@ -62,7 +60,10 @@ fn get_unique_positions(path: impl AsRef<Path>) -> Vec<Vec<f64>> {
                 i as f64,
                 positions.keys().len() as f64 / positions.values().sum::<u64>() as f64,
             ]);
-            positions.clear();
+            // positions.clear();
+        }
+        if points.len() > 60 {
+            break;
         }
         let Ok(replay): Result<Replay<Env>, _> = line.unwrap().parse() else {
             println!("skipping line while at {i} positions");
