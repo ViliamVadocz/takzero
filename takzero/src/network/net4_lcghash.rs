@@ -207,10 +207,10 @@ impl HashNetwork<Env> for Net {
         let options = (Kind::Int64, self.vs().device());
 
         let (batch_size, channels, rows, _cols) = xs.size4().unwrap();
-        let input =
-            (self.lcghash_init.detach() + xs * (1 << 20)).to_dtype(Kind::Int64, false, false);
 
-        let xs = input.split(1, 3);
+        let xs = (xs * self.lcghash_init.detach())
+            .view_dtype(Kind::Int)
+            .split(1, 3);
         let mut acc = Tensor::zeros([batch_size, channels, rows], options);
         for x in xs {
             acc *= MULTIPLIER;
