@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    // collections::VecDeque,
     fmt,
     fs::{read_dir, OpenOptions},
     io::Write,
@@ -20,7 +20,7 @@ use takzero::{
         env::Environment,
         eval::Eval,
         node::batched::BatchedMCTS,
-        DISCOUNT_FACTOR,
+        // DISCOUNT_FACTOR,
     },
     target::{Augment, Replay, Target},
 };
@@ -40,8 +40,8 @@ const BATCH_SIZE: usize = 128;
 const WEIGHTED_RANDOM_PLIES: u16 = 10;
 // const NOISE_ALPHA: f32 = 0.05;
 // const NOISE_RATIO: f32 = 0.2;
-const BETA: f32 = 2.0;
-const UBE_TARGET_WINDOW: usize = 20;
+const BETA: f32 = 0.5;
+// const UBE_TARGET_WINDOW: usize = 20;
 const MAX_SELFPLAY_BUFFER_LEN: usize = 32_000;
 
 const SAMPLED_ACTIONS: usize = 64;
@@ -293,7 +293,7 @@ fn restart_envs_and_complete_targets(
 
                 // Create targets.
                 let mut value = Eval::from(terminal);
-                let mut ube_window = VecDeque::from([NotNan::default(); UBE_TARGET_WINDOW]);
+                // let mut ube_window = VecDeque::from([NotNan::default(); UBE_TARGET_WINDOW]);
                 for IncompleteTarget {
                     env,
                     policy,
@@ -301,15 +301,15 @@ fn restart_envs_and_complete_targets(
                 } in policy_targets.drain(..).rev()
                 {
                     // Update window.
-                    if ube_window.len() >= UBE_TARGET_WINDOW {
-                        ube_window.truncate(UBE_TARGET_WINDOW - 1);
-                    }
-                    ube_window.push_front(root_ube_metric);
+                    // if ube_window.len() >= UBE_TARGET_WINDOW {
+                    //     ube_window.truncate(UBE_TARGET_WINDOW - 1);
+                    // }
+                    // ube_window.push_front(root_ube_metric);
 
-                    // Apply discount.
-                    ube_window
-                        .iter_mut()
-                        .for_each(|ube| *ube *= DISCOUNT_FACTOR * DISCOUNT_FACTOR);
+                    // // Apply discount.
+                    // ube_window
+                    //     .iter_mut()
+                    //     .for_each(|ube| *ube *= DISCOUNT_FACTOR * DISCOUNT_FACTOR);
 
                     value = value.negate();
                     // Only generate targets from non-exploratory episodes.
@@ -319,7 +319,8 @@ fn restart_envs_and_complete_targets(
                             env,
                             value: f32::from(value),
                             // average_std_dev * average_std_dev
-                            ube: ube_window.iter().last().copied().unwrap_or_default().into(),
+                            // ube_window.iter().last().copied().unwrap_or_default().into(),
+                            ube: root_ube_metric.into_inner(),
                             policy,
                         });
                     }
