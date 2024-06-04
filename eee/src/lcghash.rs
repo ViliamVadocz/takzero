@@ -26,7 +26,7 @@ fn main() {
     let mut positions = Vec::new();
     let mut seen_positions = HashSet::new();
     let mut unique_positions = Vec::new();
-    for replay in get_replays("4x4_lcghash_filtered.txt")
+    for replay in get_replays("4x4_lcghash_filtered_replays.txt")
         .unwrap()
         .take(STEPS * BATCH_SIZE / 10)
     {

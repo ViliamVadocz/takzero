@@ -12,10 +12,10 @@ use fast_tak::takparse::{Move, Tps};
 use rand::prelude::*;
 use takzero::{
     network::{
-        net4_neurips::{Env, Net},
+        net4_lcghash::{Env, Net},
         repr::game_to_tensor,
+        HashNetwork,
         Network,
-        RndNetwork,
     },
     search::{
         env::Environment,
@@ -84,7 +84,7 @@ fn gather_policy_data(agent: &Net, rng: &mut impl Rng) {
 fn main() {
     let args = Args::parse();
 
-    let agent = Net::load_partial(args.model_path, DEVICE).unwrap();
+    let agent = Net::load(args.model_path, DEVICE).unwrap();
     let mut rng = StdRng::seed_from_u64(123);
 
     let mut env = args.tps.map(Env::from).unwrap_or_default();
@@ -117,14 +117,14 @@ fn main() {
                 0,
             )
             .to(DEVICE);
-            let rnd_out: Vec<f32> = agent.normalized_rnd(&xs).try_into().unwrap();
+            let local_unc: Vec<f32> = agent.forward_hash(&xs).try_into().unwrap();
             let (_policy, value, ube) = agent.forward_t(&xs, false);
             let value_out: Vec<Vec<f32>> = value.try_into().unwrap();
             let ube_out: Vec<Vec<f32>> = ube.exp().try_into().unwrap();
 
             println!("network output:");
-            println!("[action]  [value]  [ rnd ]  [ ube ]");
-            let mut network_output = rnd_out
+            println!("[action]  [value]  [local]  [ ube ]");
+            let mut network_output = local_unc
                 .into_iter()
                 .zip(value_out)
                 .zip(ube_out)
@@ -132,9 +132,9 @@ fn main() {
                 .collect::<Vec<_>>();
             network_output.sort_by_key(|(_, (_, n))| n.visit_count);
             network_output.reverse();
-            for (((rnd, value), ube), (action, _)) in network_output {
+            for (((local, value), ube), (action, _)) in network_output {
                 println!(
-                    "{: ^8}  {:+.4}  {rnd:+.4}  {:+.4}",
+                    "{: ^8}  {:+.4}  {local:+.4}  {:+.4}",
                     action.to_string(),
                     value[0],
                     ube[0]
