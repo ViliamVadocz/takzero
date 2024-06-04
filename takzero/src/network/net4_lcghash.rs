@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use bitvec::prelude::*;
 use fast_tak::{takparse::Move, Game};
 use ordered_float::NotNan;
@@ -163,7 +161,10 @@ impl Network for Net {
                     .unwrap_or_default()
                     .join("bitvec.bin"),
             )?;
-        file.write_all(bytemuck::cast_slice(self.lcghash_set.as_raw_slice()))?;
+        std::io::copy(
+            &mut bytemuck::cast_slice(self.lcghash_set.as_raw_slice()),
+            &mut file,
+        )?;
         Ok(())
     }
 
