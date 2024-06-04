@@ -40,7 +40,7 @@ const BATCH_SIZE: usize = 128;
 const WEIGHTED_RANDOM_PLIES: u16 = 10;
 // const NOISE_ALPHA: f32 = 0.05;
 // const NOISE_RATIO: f32 = 0.2;
-const UBE_TARGET_BETA: f32 = 0.5;
+const BETA: f32 = 2.0;
 const UBE_TARGET_WINDOW: usize = 20;
 const MAX_SELFPLAY_BUFFER_LEN: usize = 32_000;
 
@@ -82,7 +82,7 @@ fn main() {
     let mut batched_mcts = BatchedMCTS::new(&mut rng);
     let betas: [f32; BATCH_SIZE] = std::array::from_fn(|i| {
         if cfg!(feature = "exploration") && i < BATCH_SIZE / 2 {
-            0.5
+            BETA
         } else {
             0.0
         }
@@ -252,7 +252,7 @@ fn take_a_step(
                     .zip(node.children.iter())
                     .map(|(p, (a, _))| (*a, p))
                     .collect(), // policy_target_from_proportional_visits(node),
-                root_ube_metric: node.ube_target(UBE_TARGET_BETA),
+                root_ube_metric: node.ube_target(BETA),
             });
         });
     batched_mcts.step(selected_actions);
