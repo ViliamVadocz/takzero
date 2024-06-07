@@ -204,6 +204,23 @@ impl HashNetwork<Env> for Net {
         let options = (Kind::Int64, self.vs().device());
         let powers_of_two =
             Tensor::scalar_tensor(2, options).pow(&Tensor::arange(HASH_BITS as i64, options));
+
+        // Zero-out the color channel which otherwise has too much of an impact.
+        let (batch_size, _channels, rows, cols) = xs.size4().unwrap();
+        let xs = xs.index_put(
+            &[
+                None,
+                Some(
+                    Tensor::from_slice(&[input_channels::<N>() as i64 - 2]).to(self.vs().device()),
+                ),
+            ],
+            &Tensor::zeros(
+                [batch_size, 1, rows, cols],
+                (Kind::Float, self.vs().device()),
+            ),
+            false,
+        );
+
         let dots = xs
             .view([-1, input_size::<N>() as i64])
             .matmul(&self.simhash_matrix.detach());

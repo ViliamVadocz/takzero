@@ -23,7 +23,11 @@ fn random_env(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> Env {
     env
 }
 
-fn reference_envs(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> (Vec<Env>, Tensor) {
+pub fn reference_envs(
+    ply: usize,
+    actions: &mut Vec<Move>,
+    rng: &mut impl Rng,
+) -> (Vec<Env>, Tensor) {
     let games: Vec<_> = (0..BATCH_SIZE)
         .map(|_| random_env(ply, actions, rng))
         .collect();
@@ -38,7 +42,7 @@ fn reference_envs(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> (V
     (games, tensor)
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, dead_code)]
 pub fn reference_batches(
     unique_positions: &[Env],
     rng: &mut impl Rng,
