@@ -10,7 +10,7 @@ target/
 *.ot
 
 _data/
-out/
+_models/
 
 graph.html
-match_results.csv
+notes.txt
