@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    fs::OpenOptions,
-    io::{BufRead, BufReader},
-    path::Path,
-};
+use std::{collections::HashMap, path::Path};
 
 use charming::{
     component::{Axis, Grid, Legend, Title},
@@ -13,14 +8,20 @@ use charming::{
     Chart,
     HtmlRenderer,
 };
-use takzero::{network::net4_neurips::Env, search::env::Environment, target::Replay};
+use takzero::{
+    network::net4_neurips::{HALF_KOMI, N},
+    search::env::Environment,
+    target::get_replays,
+};
 
 fn main() {
     let replays = [
         "undirected_greedy",
         "undirected_sampled",
         "undirected_filtered",
-        "rnd_sampled",
+        // "rnd_sampled",
+        // "lcghash_filtered_00",
+        // "simhash_filtered_00",
         "lcghash_filtered",
         "simhash_filtered",
     ];
@@ -50,34 +51,33 @@ fn main() {
 }
 
 fn get_unique_positions(path: impl AsRef<Path>) -> Vec<Vec<f64>> {
-    let file = OpenOptions::new().read(true).open(path).unwrap();
     let mut positions: HashMap<_, u64> = HashMap::new();
-    let mut points = Vec::with_capacity(4096);
+    let mut points = vec![vec![0.0, 1.0]];
     let mut i = 0;
-    for line in BufReader::new(file).lines() {
-        if i / 500_000 > points.len() {
+
+    for replay in get_replays::<N, HALF_KOMI>(path).unwrap() {
+        if i / 250_000 > points.len() {
+            println!("{i} positions");
             points.push(vec![
                 i as f64,
                 positions.keys().len() as f64 / positions.values().sum::<u64>() as f64,
             ]);
             // positions.clear();
         }
-        if points.len() > 60 {
+        if points.len() > 80 {
             break;
         }
-        let Ok(replay): Result<Replay<Env>, _> = line.unwrap().parse() else {
-            println!("skipping line while at {i} positions");
-            continue;
-        };
+
         let mut env = replay.env;
-        *positions.entry(env.clone().canonical()).or_default() += 1;
+        *positions.entry(env.clone() /* .canonical() */).or_default() += 1;
         i += 1;
         for action in replay.actions {
             env.step(action);
-            *positions.entry(env.clone().canonical()).or_default() += 1;
+            *positions.entry(env.clone() /* .canonical() */).or_default() += 1;
             i += 1;
         }
     }
+
     // println!("unique positions: {}", positions.keys().len());
     // println!("total positions: {}", positions.values().sum::<u64>());
     points
