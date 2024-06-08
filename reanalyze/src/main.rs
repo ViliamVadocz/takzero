@@ -9,7 +9,7 @@ use clap::Parser;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net4_lcghash::{Env, Net},
+        net4_simhash::{Env, Net},
         Network,
     },
     search::{
