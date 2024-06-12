@@ -11,6 +11,7 @@ use std::{
 use fast_tak::{
     takparse::{GameResult, ParseMoveError, ParsePtnError, ParseTpsError, Ptn, Tps},
     Game,
+    PlayError,
     Reserves,
     Symmetry,
 };
@@ -91,6 +92,8 @@ pub enum ParseTargetError {
     Float(#[from] ParseFloatError),
     #[error("{0}")]
     PolicyNan(#[from] FloatIsNan),
+    #[error("the policy does not contain the right actions")]
+    PolicyWrongActions,
 }
 
 impl<const N: usize, const HALF_KOMI: i8> FromStr for Target<Game<N, HALF_KOMI>>
@@ -105,7 +108,7 @@ where
         let tps: Tps = iter.next().ok_or(ParseTargetError::MissingTps)?.parse()?;
         let value = iter.next().ok_or(ParseTargetError::MissingValue)?.parse()?;
         let ube = iter.next().ok_or(ParseTargetError::MissingUbe)?.parse()?;
-        let policy = iter
+        let policy: Box<_> = iter
             .next()
             .ok_or(ParseTargetError::MissingPolicy)?
             .split(',')
@@ -115,9 +118,23 @@ where
                     .and_then(|(a, p)| Ok((a.parse()?, NotNan::new(p.parse()?)?)))
             })
             .collect::<Result<_, _>>()?;
+        let env: Game<N, HALF_KOMI> = tps.into();
+
+        // Check that all actions that should be in the policy are in the policy,
+        // and that there are no extras.
+        let mut actions = vec![];
+        env.populate_actions(&mut actions);
+        if actions.len() != policy.len() {
+            return Err(ParseTargetError::PolicyWrongActions);
+        }
+        for action in actions {
+            if !policy.iter().any(|(a, _)| *a == action) {
+                return Err(ParseTargetError::PolicyWrongActions);
+            }
+        }
 
         Ok(Self {
-            env: tps.into(),
+            env,
             policy,
             value,
             ube,
@@ -215,6 +232,8 @@ pub enum ParseReplayError {
     Tps(#[from] ParseTpsError),
     #[error("{0}")]
     Action(#[from] ParseMoveError),
+    #[error("invalid action")]
+    Invalid(#[from] PlayError),
 }
 
 impl<const N: usize, const HALF_KOMI: i8> FromStr for Replay<Game<N, HALF_KOMI>>
@@ -225,11 +244,17 @@ where
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let ptn: Ptn = s.parse()?;
-        let env = ptn.tps().ok_or(ParseReplayError::MissingTps)?.into();
-        Ok(Self {
-            env,
-            actions: ptn.moves().iter().copied().collect(),
-        })
+        let env: Game<N, HALF_KOMI> = ptn.tps().ok_or(ParseReplayError::MissingTps)?.into();
+
+        let actions: VecDeque<_> = ptn.moves().iter().copied().collect();
+
+        // Verify that the actions are valid.
+        let mut test_env = env.clone();
+        for &action in &actions {
+            test_env.play(action)?;
+        }
+
+        Ok(Self { env, actions })
     }
 }
 
