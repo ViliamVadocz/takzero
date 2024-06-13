@@ -12,7 +12,7 @@ use ordered_float::NotNan;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net4_lcghash::{Env, Net},
+        net4_simhash::{Env, Net},
         Network,
     },
     search::{
@@ -40,7 +40,7 @@ const BATCH_SIZE: usize = 128;
 const WEIGHTED_RANDOM_PLIES: u16 = 10;
 // const NOISE_ALPHA: f32 = 0.05;
 // const NOISE_RATIO: f32 = 0.2;
-const BETA: f32 = 0.1;
+const BETA: f32 = 0.5;
 // const UBE_TARGET_WINDOW: usize = 20;
 const MAX_SELFPLAY_BUFFER_LEN: usize = 32_000;
 

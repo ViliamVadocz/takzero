@@ -12,7 +12,7 @@ use ordered_float::NotNan;
 use rand::prelude::*;
 use takzero::{
     network::{
-        net4_lcghash::{Env, Net, MAXIMUM_VARIANCE, N},
+        net4_simhash::{Env, Net, MAXIMUM_VARIANCE, N},
         repr::{game_to_tensor, move_mask, output_size, policy_tensor},
         HashNetwork,
         Network,
