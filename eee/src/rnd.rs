@@ -95,8 +95,8 @@ fn rnd(path: &nn::Path, _target: bool) -> nn::SequentialT {
 
 #[allow(clippy::too_many_lines)]
 fn main() {
-    fn normalize(xs: &Tensor, min: &Tensor, max: &Tensor) -> Tensor {
-        MAXIMUM_VARIANCE * ((xs - min) / (max - min))
+    fn normalize(xs: &Tensor, stdev: &Tensor) -> Tensor {
+        MAXIMUM_VARIANCE * (xs / stdev)
     }
 
     let seed: u64 = 432;
@@ -119,7 +119,10 @@ fn main() {
     let mut positions = Vec::new();
     let mut seen_positions = HashSet::new();
     let mut unique_positions = Vec::new();
-    for replay in get_replays("4x4_neurips_undirected_00_replays.txt").unwrap() {
+    for replay in get_replays("_replays/undirected_01_replay.txt")
+        .unwrap()
+        .take(STEPS * BATCH_SIZE / 10)
+    {
         let mut env = replay.env;
         for action in replay.actions {
             positions.push(env.clone());
@@ -247,35 +250,14 @@ fn main() {
         let target_out = target.forward_t(input, false).detach();
         let predictor_out = predictor.forward_t(input, false).detach();
         let random_early_diff = (target_out - predictor_out).square();
-        let min = random_early_diff.mean(None) - random_early_diff.std(false);
+        // let min = random_early_diff.mean(None) - random_early_diff.std(false);
 
         // Compute loss for random late batch.
         let input = &random_late_tensor;
         let target_out = target.forward_t(input, false).detach();
         let predictor_out = predictor.forward_t(input, false).detach();
         let random_late_diff = (target_out - predictor_out).square();
-        let max = random_late_diff.mean(None) + random_late_diff.std(false);
-
-        early_losses.push(
-            normalize(&early_diff.mean(None), &min, &max)
-                .try_into()
-                .unwrap(),
-        );
-        late_losses.push(
-            normalize(&late_diff.mean(None), &min, &max)
-                .try_into()
-                .unwrap(),
-        );
-        random_early_losses.push(
-            normalize(&random_early_diff.mean(None), &min, &max)
-                .try_into()
-                .unwrap(),
-        );
-        random_late_losses.push(
-            normalize(&random_late_diff.mean(None), &min, &max)
-                .try_into()
-                .unwrap(),
-        );
+        // let max = random_late_diff.mean(None) + random_late_diff.std(false);
 
         // Compute loss for impossible early batch
         let input = &impossible_early_tensor;
@@ -283,23 +265,58 @@ fn main() {
         // running_variance.sqrt()).clip(-5, 5);
         let target_out = target.forward_t(input, false).detach();
         let predictor_out = predictor.forward_t(input, false).detach();
-        let loss = (target_out - predictor_out).square().mean(None);
-        impossible_losses.push(normalize(&loss, &min, &max).try_into().unwrap());
+        let impossible_diff = (target_out - predictor_out).square();
 
         // Do a training step.
         let input = tensor; // ((tensor - &running_mean) / running_variance.sqrt()).clip(-5, 5);
         let target_out = target.forward_t(&input, false).detach();
         let predictor_out = predictor.forward_t(&input, true);
-        let loss = (target_out - predictor_out).square().mean(None);
+        let square_diff = (target_out - predictor_out).square();
+        let stdev = square_diff.std(true);
+        let loss = square_diff.mean(None);
         opt.backward_step(&loss);
 
-        // Save the normalized loss.
-        current.push(normalize(&loss, &min, &max).try_into().unwrap());
+        // Save the normalized losses.
+        impossible_losses.push(
+            normalize(&impossible_diff, &stdev)
+                .mean(None)
+                .try_into()
+                .unwrap(),
+        );
+        early_losses.push(
+            normalize(&early_diff, &stdev)
+                .mean(None)
+                .try_into()
+                .unwrap(),
+        );
+        late_losses.push(normalize(&late_diff, &stdev).mean(None).try_into().unwrap());
+        random_early_losses.push(
+            normalize(&random_early_diff, &stdev)
+                .mean(None)
+                .try_into()
+                .unwrap(),
+        );
+        random_late_losses.push(
+            normalize(&random_late_diff, &stdev)
+                .mean(None)
+                .try_into()
+                .unwrap(),
+        );
+        current.push(
+            normalize(&square_diff, &stdev)
+                .mean(None)
+                .try_into()
+                .unwrap(),
+        );
 
         let target_out = target.forward_t(&input, false).detach();
         let predictor_out = predictor.forward_t(&input, false).detach();
-        let loss = (target_out - predictor_out).square().mean(None);
-        after.push(normalize(&loss, &min, &max).try_into().unwrap());
+        after.push(
+            normalize(&(target_out - predictor_out).square(), &stdev)
+                .mean(None)
+                .try_into()
+                .unwrap(),
+        );
     }
 
     let mut file = OpenOptions::new()
