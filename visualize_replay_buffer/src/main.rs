@@ -1,11 +1,11 @@
 use std::{
-    cmp::Reverse,
+    // cmp::Reverse,
     collections::{HashMap, HashSet, VecDeque},
     path::Path,
 };
 
 use fast_tak::takparse::{Move, MoveKind, Piece, Square};
-use image::RgbImage;
+// use image::RgbImage;
 use takzero::{
     network::net4_neurips::{Env, N},
     search::env::Environment,
