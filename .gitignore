@@ -11,6 +11,8 @@ target/
 
 _data/
 _models/
+_eval/
+_replays/
 
 graph.html
 notes.txt
