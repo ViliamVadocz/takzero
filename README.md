@@ -71,7 +71,7 @@ Did **not** work:
 - Stable (2.2.2), CUDA 11.8, Pre-cxx11 ABI
 
 
-# Experiments
+# Reproducing the Plots
 
 ![Local novelty per depth](local_novelty_per_depth.png)
 
@@ -80,6 +80,19 @@ To generate the local novelty per depth graph follow these steps:
 2. Run `cargo run -p eee -r --bin seen_ratio` for each agent.
 3. Take the output and place it into `python/novelty_per_depth.py`.
 4. Run `python python/novelty_per_depth.py`.
+
+![Generalization behaviour for SimHash and LCGHash](generalization_behaviour.png)
+
+1. Acquire a replay buffer by running an undirected agent. (See elo graph instructions.)
+2. Edit the import in `eee/src/generalization.rs` for the model that you want to test.
+3. Run `cargo run -p eee -r --bin generalization` for each agent, rename the output file `eee_data.csv` for each.
+4. Edit `plot_eee.py` to plot hashes and run `python python/plot_eee.py`
+
+![RND Behaviour](rnd_behaviour.png)
+
+1. Acquire a replay buffer by running an undirected agent. (See elo graph instructions.)
+2. Run `cargo run -p eee -r --bin rnd`
+3. Edit `plot_eee.py` to plot RND and run `python python/plot_eee.py`
 
 ![Elo ratings for different agents throughout training](elo.png)
 

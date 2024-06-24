@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt::Write as FmtWrite, fs::OpenOptions, io::Wri
 
 use rand::{seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
-    network::{net4_lcghash::Net, repr::game_to_tensor, HashNetwork, Network},
+    network::{net4_simhash::Net, repr::game_to_tensor, HashNetwork, Network},
     search::env::Environment,
     target::get_replays,
 };
@@ -48,7 +48,13 @@ fn main() {
         impossible_early_tensor,
     ) = reference_batches(&unique_positions, &mut rng, BATCH_SIZE);
 
+    println!("early");
     for (game, hash) in early_game.iter().zip(net.get_indices(&early_tensor)) {
+        let tps: fast_tak::takparse::Tps = game.clone().into();
+        println!("{tps} \t:\t {hash}");
+    }
+    println!("late");
+    for (game, hash) in late_game.iter().zip(net.get_indices(&early_tensor)) {
         let tps: fast_tak::takparse::Tps = game.clone().into();
         println!("{tps} \t:\t {hash}");
     }

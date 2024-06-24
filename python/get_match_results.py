@@ -20,8 +20,12 @@ files = Path(sys.argv[1]).glob("eval-*.err")
 for path in files:
     print(path)
     with open(path, "r") as file:
+        eval_directory = file.readline()
         contents = file.read()
-
+        if eval_directory.split("/")[0] == "runs":
+            model_name = eval_directory.split("/")[1].replace("_", "-")[4:-1]
+            print(model_name)
+            contents = contents.replace("model", model_name)
     with open(SAVE_FILE, "a") as file:
         results = [
             # f"{int(x[1])}, {int(x[2])}, {x[3]}, {x[4]}, {x[5]}\n"

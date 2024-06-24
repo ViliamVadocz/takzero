@@ -116,14 +116,33 @@ model_steps = {
     for model in models
 }
 
+# color_map = {
+#     "undirected-delayed": "#c1232b",
+#     "lcghash-larger-beta": "#27727b",
+#     "lcghash-no-window": "#fcce11",
+#     "lcghash-no-window-smaller-beta": "#e87c25",
+#     "simhash-no-window-smaller-beta": "#b5c334",
+# }
+
 for model, steps in model_steps.items():
+    # if color_map.get(model) is None:
+    #     continue
     steps_sorted = sorted(steps)
     model_elo_and_bounds = [elo[name(model, step)] for step in steps_sorted]
     model_elo = [x[0] for x in model_elo_and_bounds]
     lower_bound = [x[0] - x[1] for x in model_elo_and_bounds]
     upper_bound = [x[0] + x[1] for x in model_elo_and_bounds]
-    plt.fill_between(steps_sorted, lower_bound, upper_bound, alpha=0.2)
-    plt.plot(steps_sorted, model_elo, label=model)
+    plt.fill_between(
+        steps_sorted,
+        lower_bound,
+        upper_bound,
+        alpha=0.2,  # color=color_map[model]
+    )
+    plt.plot(
+        steps_sorted,
+        model_elo,
+        label=model,  # color=color_map[model]
+    )
 
 plt.legend()
 plt.grid()
