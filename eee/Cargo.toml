@@ -21,12 +21,12 @@ name = "rnd"
 path = "src/rnd.rs"
 
 [[bin]]
-name = "simhash"
-path = "src/simhash.rs"
+name = "seen_ratio"
+path = "src/seen_ratio.rs"
 
 [[bin]]
-name = "lcghash"
-path = "src/lcghash.rs"
+name = "generalization_behaviour"
+path = "src/generalization_behaviour.rs"
 
 [[bin]]
 name = "ensemble"

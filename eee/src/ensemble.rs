@@ -69,7 +69,7 @@ fn main() {
         (_random_early_batch, random_early_tensor),
         (_random_late_batch, random_late_tensor),
         impossible_early_tensor,
-    ) = reference_batches(&unique_positions, &mut rng);
+    ) = reference_batches(&unique_positions, &mut rng, BATCH_SIZE);
 
     let mut current: Vec<f64> = Vec::new();
     let mut after: Vec<f64> = Vec::new();

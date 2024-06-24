@@ -9,27 +9,16 @@ use takzero::{
 };
 use tch::{Device, Tensor};
 
-use super::{BATCH_SIZE, DEVICE};
-
-fn random_env(ply: usize, actions: &mut Vec<Move>, rng: &mut impl Rng) -> Env {
-    let mut env = Env::default();
-    for _ in 0..ply {
-        env.populate_actions(actions);
-        let Some(action) = actions.drain(..).choose(rng) else {
-            break;
-        };
-        env.step(action);
-    }
-    env
-}
+use super::DEVICE;
 
 pub fn reference_envs(
     ply: usize,
     actions: &mut Vec<Move>,
     rng: &mut impl Rng,
+    batch_size: usize,
 ) -> (Vec<Env>, Tensor) {
-    let games: Vec<_> = (0..BATCH_SIZE)
-        .map(|_| random_env(ply, actions, rng))
+    let games: Vec<_> = (0..batch_size)
+        .map(|_| Env::new_opening_with_random_steps(rng, actions, ply))
         .collect();
     let tensor = Tensor::cat(
         &games
@@ -46,6 +35,7 @@ pub fn reference_envs(
 pub fn reference_batches(
     unique_positions: &[Env],
     rng: &mut impl Rng,
+    batch_size: usize,
 ) -> (
     (Vec<Env>, Tensor),
     (Vec<Env>, Tensor),
@@ -57,7 +47,7 @@ pub fn reference_batches(
         .iter()
         .filter(|s| s.ply == 8)
         .cloned()
-        .choose_multiple(rng, BATCH_SIZE);
+        .choose_multiple(rng, batch_size);
     let early_tensor = Tensor::concat(
         &early_game
             .iter()
@@ -70,7 +60,7 @@ pub fn reference_batches(
         .iter()
         .filter(|s| s.ply == 60)
         .cloned()
-        .choose_multiple(rng, BATCH_SIZE);
+        .choose_multiple(rng, batch_size);
     let late_tensor = Tensor::concat(
         &late_game
             .iter()
@@ -81,10 +71,11 @@ pub fn reference_batches(
     .to(DEVICE);
 
     let mut actions = vec![];
-    let (random_early_batch, random_early_tensor) = reference_envs(8, &mut actions, rng);
-    let (random_late_batch, random_late_tensor) = reference_envs(60, &mut actions, rng);
+    let (random_early_batch, random_early_tensor) =
+        reference_envs(8, &mut actions, rng, batch_size);
+    let (random_late_batch, random_late_tensor) = reference_envs(60, &mut actions, rng, batch_size);
 
-    let (_, impossible_early_tensor) = reference_envs(8, &mut actions, rng);
+    let (_, impossible_early_tensor) = reference_envs(8, &mut actions, rng, batch_size);
     let impossible_early_tensor = impossible_early_tensor.index_select(
         1,
         &Tensor::from_slice(

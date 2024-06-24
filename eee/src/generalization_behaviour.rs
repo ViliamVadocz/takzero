@@ -46,7 +46,7 @@ fn main() {
         (random_early_batch, random_early_tensor),
         (random_late_batch, random_late_tensor),
         impossible_early_tensor,
-    ) = reference_batches(&unique_positions, &mut rng);
+    ) = reference_batches(&unique_positions, &mut rng, BATCH_SIZE);
 
     for (game, hash) in early_game.iter().zip(net.get_indices(&early_tensor)) {
         let tps: fast_tak::takparse::Tps = game.clone().into();

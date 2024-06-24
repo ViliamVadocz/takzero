@@ -16,12 +16,16 @@ use takzero::{
 
 fn main() {
     let replays = [
-        // "undirected",
-        "lcghash",
-        // "lcghash_larger_beta",
-        "lcghash_no_window",
-        // "lcghash_no_window_smaller_beta",
-        // "simhash_no_window_smaller_beta",
+        "undirected_00",
+        "undirected_01",
+        "lcghash_low_beta_00",
+        "lcghash_low_beta_02",
+        "lcghash_low_beta_03",
+        "lcghash_mid_beta_00",
+        "simhash_low_beta_00",
+        "simhash_low_beta_01",
+        "simhash_mid_beta_01",
+        "simhash_mid_beta_02",
     ];
 
     let mut chart = Chart::new()
@@ -37,12 +41,13 @@ fn main() {
         .grid(Grid::new())
         .legend(Legend::new().data(replays.to_vec()).bottom(10).left(10));
     for r in replays {
-        chart = chart.series(
-            Line::new()
-                .data(get_unique_positions(format!("4x4_{r}_replays.txt")))
-                .name(r)
-                .symbol(Symbol::None),
-        );
+        let data = get_unique_positions(format!("_replays/{r}_replay.txt"));
+        println!("{r} = [");
+        for p in &data {
+            println!("    ({}, {}),", p[0], p[1]);
+        }
+        println!("]");
+        chart = chart.series(Line::new().data(data).name(r).symbol(Symbol::None));
     }
     let mut renderer = HtmlRenderer::new("graph", 1200, 800).theme(Theme::Infographic);
     renderer.save(&chart, "graph.html").unwrap();
@@ -57,7 +62,7 @@ fn get_unique_positions(path: impl AsRef<Path>) -> Vec<Vec<f64>> {
 
     for replay in get_replays::<N, HALF_KOMI>(path).unwrap() {
         if positions_count / 250_000 >= points.len() {
-            println!("{positions_count} positions");
+            // println!("{positions_count} positions");
 
             let unique_positions = positions.keys().len();
             points.push(vec![
