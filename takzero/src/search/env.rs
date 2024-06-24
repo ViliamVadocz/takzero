@@ -86,7 +86,10 @@ where
         let mut game = Self::new_opening(rng, actions);
         for _ in 0..steps {
             game.populate_actions(actions);
-            game.step(actions.drain(..).choose(rng).unwrap());
+            let Some(action) = actions.drain(..).choose(rng) else {
+                break;
+            };
+            game.step(action);
         }
         game
     }
