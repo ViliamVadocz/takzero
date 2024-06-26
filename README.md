@@ -73,7 +73,7 @@ Did **not** work:
 
 # Reproducing the Plots
 
-![Local novelty per depth](local_novelty_per_depth.png)
+![Local novelty per depth](figures/local_novelty_per_depth.png)
 
 To generate the local novelty per depth graph follow these steps:
 1. Edit `eee/src/seen_ratio.rs` with the path to a trained model, and adjust the imports based on whether it is a SimHash or LCGHash model.
@@ -81,20 +81,20 @@ To generate the local novelty per depth graph follow these steps:
 3. Take the output and place it into `python/novelty_per_depth.py`.
 4. Run `python python/novelty_per_depth.py`.
 
-![Generalization behaviour for SimHash and LCGHash](generalization_behaviour.png)
+![Generalization behaviour for SimHash and LCGHash](figures/generalization_behaviour.png)
 
 1. Acquire a replay buffer by running an undirected agent. (See elo graph instructions.)
 2. Edit the import in `eee/src/generalization.rs` for the model that you want to test.
 3. Run `cargo run -p eee -r --bin generalization` for each agent, rename the output file `eee_data.csv` for each.
 4. Edit `plot_eee.py` to plot hashes and run `python python/plot_eee.py`
 
-![RND Behaviour](rnd_behaviour.png)
+![RND Behaviour](figures/rnd_behaviour.png)
 
 1. Acquire a replay buffer by running an undirected agent. (See elo graph instructions.)
 2. Run `cargo run -p eee -r --bin rnd`
 3. Edit `plot_eee.py` to plot RND and run `python python/plot_eee.py`
 
-![Elo ratings for different agents throughout training](elo.png)
+![Elo ratings for different agents throughout training](figures/elo.png)
 
 To generate the elo ratings for agents throughout training follow these steps:
 1. Edit `selfplay/src/main.rs`, `reanalyze/src/main.rs`, and `learn/src/main.rs` for the agent and value of beta that is desired.
@@ -106,7 +106,7 @@ To generate the elo ratings for agents throughout training follow these steps:
 7. Place the match results into `match_results/` and run `python python/elo.py` to plot the elo.
 8. For an easier to edit plot, copy the bayeselo output from `elo.py` into `plot_elo_data.py` in the expected format. 
 
-![Replay buffer uniqueness](replay_buffer_uniqueness.png)
+![Replay buffer uniqueness](figures/replay_buffer_uniqueness.png)
 
 To generate the replay uniqueness graphs follow these steps:
 1. Train agents using steps 1-3 from the elo graph instructions.
