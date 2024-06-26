@@ -46,7 +46,7 @@ const EXPLORATION_POSITIONS_IN_BATCH: usize = 0;
 #[cfg(feature = "exploration")]
 const _: () = assert!(EXPLORATION_POSITIONS_IN_BATCH <= BATCH_SIZE);
 
-const UBE_TARGET_BETA: f32 = 0.1;
+const UBE_TARGET_BETA: f32 = 0.25;
 
 #[derive(Parser, Debug)]
 struct Args {
