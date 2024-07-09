@@ -72,7 +72,7 @@ struct Args {
     directory: PathBuf,
     /// Targets to use for resuming after restart.
     #[arg(long)]
-    resume_targets: Option<PathBuf>,
+    restart_targets: Option<PathBuf>,
 }
 
 struct TargetWithContext {
@@ -104,17 +104,26 @@ fn main() {
     log::info!("seed = {seed}");
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
-    // Initialize a network.
-    log::info!("Initializing a network model");
-    let mut net = Net::new(DEVICE, Some(rng.gen()));
-    net.save(args.directory.join("model_0000000.ot")).unwrap();
-    let mut starting_steps = 0;
+    let (mut net, mut starting_steps) =
+        if let Some((resume_steps, path)) = get_model_path_with_most_steps(&args.directory) {
+            log::info!("Resuming with model at {}", path.display());
+            (
+                Net::load(path, DEVICE).expect("Could not load network model"),
+                resume_steps,
+            )
+        } else {
+            // Initialize a network.
+            log::info!("Initializing a network model");
+            let net = Net::new(DEVICE, Some(rng.gen()));
+            net.save(args.directory.join("model_0000000.ot")).unwrap();
+            (net, 0)
+        };
 
     let mut opt = Adam::default().build(net.vs_mut(), LEARNING_RATE).unwrap();
     // Load RND reference games.
     // let (early_reference, late_reference) = reference_games(DEVICE, &mut rng);
 
-    if let Some(target_file) = &args.resume_targets {
+    if let Some(target_file) = &args.restart_targets {
         // Resuming after restarting.
         let mut targets = BufReader::new(OpenOptions::new().read(true).open(target_file).unwrap())
             .lines()
@@ -136,7 +145,7 @@ fn main() {
                 .join(format!("model_{starting_steps:0>7}.ot")),
         )
         .unwrap();
-    } else {
+    } else if starting_steps == 0 {
         // Pre-training.
         pre_training(
             &mut net,
@@ -167,7 +176,7 @@ fn main() {
     let mut last_loaded = Instant::now();
     for model_steps in (starting_steps + 1).. {
         let using_reanalyze =
-            args.resume_targets.is_some() || model_steps >= STEPS_BEFORE_REANALYZE;
+            args.restart_targets.is_some() || model_steps >= STEPS_BEFORE_REANALYZE;
 
         // Make sure there are enough targets before sampling a batch.
         loop {
@@ -261,7 +270,6 @@ fn main() {
 /// Get the path to the model file (ending with ".ot")
 /// which has the highest number of steps (number after '_')
 /// in the given directory.
-#[allow(unused)]
 fn get_model_path_with_most_steps(directory: &PathBuf) -> Option<(usize, PathBuf)> {
     read_dir(directory)
         .unwrap()
