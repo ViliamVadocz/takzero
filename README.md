@@ -15,8 +15,8 @@ The repository contains several libraries and binaries:
 - `graph` computes the ratio of unique states seen throughout training
 - `tei` a [TEI](https://github.com/MortenLohne/racetrack#tei) implementation
 - `eee` is a collection of binaries to run Epistemic uncertainty Estimation Experiments (EEE)
-    - `generalization_behaviour` trains a hash-based uncertainty estimator
-    - `rnd` is the same as `generalization_behaviour`, but specifically for `rnd`
+    - `generalization` trains a hash-based uncertainty estimator
+    - `rnd` is the same as `generalization`, but specifically for `rnd`
     - `seen_ratio` analyzes the ratio of seen states according to a filled hash-set
     - `ensemble` trains an ensemble network
     - `utils` utility functions for running experiments
