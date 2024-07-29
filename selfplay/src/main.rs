@@ -78,13 +78,7 @@ fn main() {
     let mut exploration_replays = Vec::new();
 
     let mut batched_mcts = BatchedMCTS::new(&mut rng);
-    let betas: [f32; BATCH_SIZE] = std::array::from_fn(|i| {
-        if cfg!(feature = "exploration") && i < BATCH_SIZE / 2 {
-            BETA
-        } else {
-            0.0
-        }
-    });
+    let betas: [f32; BATCH_SIZE] = [BETA; BATCH_SIZE];
 
     for steps in 0.. {
         log::info!("Step: {steps}");

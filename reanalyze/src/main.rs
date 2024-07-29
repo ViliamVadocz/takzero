@@ -40,9 +40,9 @@ const _: () = assert!(MIN_POSITIONS > BATCH_SIZE);
 const MAX_REANALYZE_BUFFER_LEN: usize = 32_000;
 
 #[cfg(feature = "exploration")]
-const MAX_EXPLORATION_BUFFER_SIZE: usize = 0;
+const MAX_EXPLORATION_BUFFER_SIZE: usize = 100_000;
 #[cfg(feature = "exploration")]
-const EXPLORATION_POSITIONS_IN_BATCH: usize = 0;
+const EXPLORATION_POSITIONS_IN_BATCH: usize = 32;
 #[cfg(feature = "exploration")]
 const _: () = assert!(EXPLORATION_POSITIONS_IN_BATCH <= BATCH_SIZE);
 
