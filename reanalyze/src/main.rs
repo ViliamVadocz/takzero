@@ -90,7 +90,7 @@ fn main() {
             }
             log::debug!("Checked that there more reanalyze targets are needed.");
 
-            match Net::load(&args.directory.join("model_latest.ot"), DEVICE) {
+            match Net::load(args.directory.join("model_latest.ot"), DEVICE) {
                 Ok(new_net) => {
                     net = new_net;
                     break;

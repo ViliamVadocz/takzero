@@ -171,7 +171,7 @@ pub struct Replay<E: Environment> {
 
 impl<E: Environment> Replay<E> {
     /// Start a new replay from an initial position.
-    pub fn new(env: E) -> Self {
+    pub const fn new(env: E) -> Self {
         Self {
             env,
             actions: VecDeque::new(),

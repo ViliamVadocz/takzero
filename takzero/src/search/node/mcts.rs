@@ -360,12 +360,12 @@ mod tests {
 
         for k in KEY {
             println!("eval: {}", root.evaluation);
-            for (action, child) in root.children.iter() {
+            for (action, child) in &root.children {
                 println!("\t{}: eval: {}", action.unwrap(), child.evaluation);
             }
             assert!(f32::from(root.evaluation) > 0.0);
 
-            for (action, child) in root.children.iter() {
+            for (action, child) in &root.children {
                 if action.is_some_and(|x| x == k) {
                     assert!(f32::from(child.evaluation) < 0.0);
                 } else {
