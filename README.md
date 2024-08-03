@@ -56,8 +56,7 @@ If you find some version works, please let me know so I can add it here.
 ### Windows
 
 Worked:
-- Stable (2.1.2), CUDA 11.8, Release
-- Stable (2.1.2), CUDA 11.8, Debug
+- Stable (2.4.0), CUDA 12.4, Release
 
 Did **not** work:
 - TODO
@@ -65,11 +64,10 @@ Did **not** work:
 ### Linux
 
 Worked:
-- Stable (2.1.2), CUDA 11.8, Pre-cxx11 ABI
+- TODO
 
 Did **not** work:
-- Stable (2.2.2), CUDA 11.8, Pre-cxx11 ABI
-
+- TODO
 
 # Reproducing the Plots
 

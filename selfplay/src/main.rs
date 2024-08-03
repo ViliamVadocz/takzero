@@ -10,11 +10,12 @@ use clap::Parser;
 use fast_tak::takparse::Move;
 use ordered_float::NotNan;
 use rand::prelude::*;
+#[cfg(not(feature = "exploration"))]
+use takzero::network::net4::{Env, Net};
+#[cfg(feature = "exploration")]
+use takzero::network::net4_simhash::{Env, Net};
 use takzero::{
-    network::{
-        net4_simhash::{Env, Net},
-        Network,
-    },
+    network::Network,
     search::{
         agent::Agent,
         env::Environment,
