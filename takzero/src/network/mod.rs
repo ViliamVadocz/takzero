@@ -1,10 +1,9 @@
-pub mod net4;
-pub mod net4_big;
 pub mod net4_ensemble;
 pub mod net4_lcghash;
-pub mod net4_neurips;
+pub mod net4_rnd;
 pub mod net4_simhash;
 pub mod net5;
+pub mod net6_simhash;
 pub mod repr;
 pub mod residual;
 

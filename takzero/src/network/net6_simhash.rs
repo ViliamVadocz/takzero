@@ -1,23 +1,30 @@
+use bitvec::prelude::*;
 use fast_tak::{takparse::Move, Game};
 use ordered_float::NotNan;
 use tch::{
     nn::{self, ModuleT},
     Device,
+    Kind,
+    TchError,
     Tensor,
 };
 
 use super::{
-    repr::{game_to_tensor, input_channels, input_size, move_index, output_channels},
+    repr::{game_to_tensor, input_channels, move_index, output_channels},
     residual::ResidualBlock,
+    HashNetwork,
     Network,
-    RndNetwork,
 };
-use crate::{network::repr::output_size, search::agent::Agent};
+use crate::{
+    network::repr::{input_size, output_size},
+    search::agent::Agent,
+};
 
-pub const N: usize = 4;
+pub const N: usize = 6;
 pub const HALF_KOMI: i8 = 4;
 pub type Env = Game<N, HALF_KOMI>;
 const FILTERS: i64 = 256;
+const HASH_BITS: usize = 32;
 
 // Value is [-1, 1], which is size 2, so variance can be 2*2 = 4.
 pub const MAXIMUM_VARIANCE: f64 = 4.0;
@@ -29,20 +36,12 @@ pub struct Net {
     policy_net: nn::SequentialT,
     value_net: nn::SequentialT,
     ube_net: nn::SequentialT,
-    rnd: Rnd,
-}
-
-#[derive(Debug)]
-struct Rnd {
-    target: nn::SequentialT,
-    learning: nn::SequentialT,
-    // Normalization variables
-    min: Tensor,
-    max: Tensor,
+    simhash_matrix: Tensor,
+    simhash_set: BitBox,
 }
 
 fn core(path: &nn::Path) -> nn::SequentialT {
-    const CORE_RES_BLOCKS: u32 = 20;
+    const CORE_RES_BLOCKS: u32 = 16;
     let mut core = nn::seq_t()
         .add(nn::conv2d(
             path / "input_conv2d",
@@ -119,34 +118,6 @@ fn ube_net(path: &nn::Path) -> nn::SequentialT {
         ))
 }
 
-fn rnd(path: &nn::Path) -> nn::SequentialT {
-    const HIDDEN_LAYER: i64 = 1024;
-    const OUTPUT: i64 = 512;
-    nn::seq_t()
-        .add_fn(|x| x.view([-1, input_size::<N>() as i64]))
-        .add_fn(|x| x / x.square().sum_dim_intlist(1, true, None))
-        .add(nn::linear(
-            path / "input_linear",
-            input_size::<N>() as i64,
-            HIDDEN_LAYER,
-            nn::LinearConfig::default(),
-        ))
-        .add_fn(Tensor::relu)
-        .add(nn::linear(
-            path / "hidden_linear",
-            HIDDEN_LAYER,
-            HIDDEN_LAYER,
-            nn::LinearConfig::default(),
-        ))
-        .add_fn(Tensor::relu)
-        .add(nn::linear(
-            path / "final_linear",
-            HIDDEN_LAYER,
-            OUTPUT,
-            nn::LinearConfig::default(),
-        ))
-}
-
 impl Network for Net {
     fn new(device: Device, seed: Option<i64>) -> Self {
         if let Some(seed) = seed {
@@ -160,13 +131,11 @@ impl Network for Net {
             policy_net: policy_net(&(&root / "policy")),
             value_net: value_net(&(&root / "value")),
             ube_net: ube_net(&(&root / "ube")),
-            rnd: Rnd {
-                learning: rnd(&(&root / "rnd_learning")),
-                target: rnd(&(&root / "rnd_target")),
-                min: root.var("min", &[1], nn::Init::Const(0.0)),
-                // TODO: Think about a good default
-                max: root.var("max", &[1], nn::Init::Const(1.0)),
-            },
+            simhash_matrix: root.randn_standard("simhash_matrix", &[
+                input_size::<N>() as i64,
+                HASH_BITS as i64,
+            ]),
+            simhash_set: bitbox![0; 1 << HASH_BITS],
             vs,
         }
     }
@@ -178,9 +147,50 @@ impl Network for Net {
     fn vs_mut(&mut self) -> &mut nn::VarStore {
         &mut self.vs
     }
+
+    #[allow(clippy::missing_errors_doc)]
+    fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), TchError> {
+        self.vs().save(&path)?;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(
+                path.as_ref()
+                    .parent()
+                    .map(std::path::Path::to_path_buf)
+                    .unwrap_or_default()
+                    .join("bitvec.bin"),
+            )?;
+        std::io::copy(
+            &mut bytemuck::cast_slice(self.simhash_set.as_raw_slice()),
+            &mut file,
+        )?;
+        Ok(())
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    fn load(path: impl AsRef<std::path::Path>, device: Device) -> Result<Self, TchError> {
+        let mut nn = Self::new(device, None);
+        nn.vs_mut().load(&path)?;
+
+        let mut file = std::fs::OpenOptions::new().read(true).open(
+            path.as_ref()
+                .parent()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_default()
+                .join("bitvec.bin"),
+        )?;
+        std::io::copy(
+            &mut file,
+            &mut bytemuck::cast_slice_mut::<_, u8>(nn.simhash_set.as_raw_mut_slice()),
+        )?;
+
+        Ok(nn)
+    }
 }
 
-impl RndNetwork for Net {
+impl HashNetwork<Env> for Net {
     fn forward_t(&self, xs: &Tensor, train: bool) -> (Tensor, Tensor, Tensor) {
         let core = self.core.forward_t(xs, train);
         let policy = self.policy_net.forward_t(&core, train);
@@ -190,30 +200,59 @@ impl RndNetwork for Net {
         (policy, value, ube)
     }
 
-    fn forward_rnd(&self, xs: &Tensor, train: bool) -> Tensor {
-        let learning = self
-            .rnd
-            .learning
-            .forward_t(&xs.set_requires_grad(false), train);
-        let target = self
-            .rnd
-            .target
-            .forward_t(&xs.set_requires_grad(false), false)
-            .detach();
-        (learning - target).square().sum_dim_intlist(1, false, None)
+    fn get_indices(&self, xs: &Tensor) -> Vec<usize> {
+        let options = (Kind::Int64, self.vs().device());
+        let powers_of_two =
+            Tensor::scalar_tensor(2, options).pow(&Tensor::arange(HASH_BITS as i64, options));
+
+        // Zero-out the color channel which otherwise has too much of an impact.
+        let (batch_size, _channels, rows, cols) = xs.size4().unwrap();
+        let xs = xs.index_put(
+            &[
+                None,
+                Some(
+                    Tensor::from_slice(&[input_channels::<N>() as i64 - 2]).to(self.vs().device()),
+                ),
+            ],
+            &Tensor::zeros(
+                [batch_size, 1, rows, cols],
+                (Kind::Float, self.vs().device()),
+            ),
+            false,
+        );
+
+        let dots = xs
+            .view([-1, input_size::<N>() as i64])
+            .matmul(&self.simhash_matrix.detach());
+        let ints: Vec<i64> = powers_of_two
+            .masked_fill(&dots.lt(0.0), 0.0)
+            .sum_dim_intlist(1, false, None)
+            .try_into()
+            .unwrap();
+        #[allow(clippy::cast_sign_loss)]
+        ints.into_iter().map(|x| x as usize).collect()
     }
 
-    fn normalized_rnd(&self, xs: &Tensor) -> Tensor {
-        let min = self.rnd.min.detach();
-        let max = self.rnd.max.detach();
-        let normalized = (self.forward_rnd(xs, false) - &min) / (max - min);
-        normalized.clamp(0.0, 1.0) * MAXIMUM_VARIANCE
+    fn update_counts(&mut self, xs: &Tensor) {
+        let indices = tch::no_grad(|| self.get_indices(xs));
+        for index in indices {
+            self.simhash_set.set(index, true);
+        }
     }
 
-    fn update_rnd_normalization(&mut self, min: &Tensor, max: &Tensor) {
-        log::debug!("Updating RND normalization to min: {min:?} and max: {max:?}");
-        self.rnd.min.set_data(min);
-        self.rnd.max.set_data(max);
+    fn forward_hash(&self, xs: &Tensor) -> Tensor {
+        let indices = tch::no_grad(|| self.get_indices(xs));
+        let counts: Vec<_> = indices
+            .into_iter()
+            .map(|index| {
+                if self.simhash_set[index] {
+                    0.0
+                } else {
+                    MAXIMUM_VARIANCE
+                }
+            })
+            .collect();
+        Tensor::from_slice(&counts).to(self.vs().device())
     }
 }
 
@@ -268,10 +307,10 @@ impl Agent<Env> for Net {
         let values: Vec<_> = values.view([-1]).try_into().unwrap();
 
         // Uncertainty.
-        let rnd_uncertainties = self.normalized_rnd(&xs);
+        let local_uncertainties = self.forward_hash(&xs);
         let uncertainties: Vec<_> = ube_uncertainties
             .exp() // Exponent because UBE prediction is log(variance)
-            .maximum(&rnd_uncertainties)
+            .maximum(&local_uncertainties)
             .clamp(0.0, MAXIMUM_VARIANCE)
             .view([-1])
             .try_into()
@@ -289,11 +328,12 @@ mod tests {
     use std::array;
 
     use fast_tak::Game;
-    use tch::Device;
+    use rand::{rngs::StdRng, Rng, SeedableRng};
+    use tch::{Device, Tensor};
 
-    use super::{Env, Net};
+    use super::{Env, Net, HALF_KOMI, N};
     use crate::{
-        network::{Network, RndNetwork},
+        network::{repr::game_to_tensor, HashNetwork, Network},
         search::{agent::Agent, env::Environment},
     };
 
@@ -312,8 +352,11 @@ mod tests {
     #[test]
     fn evaluate_batch() {
         const BATCH_SIZE: usize = 128;
-        let net = Net::new(Device::cuda_if_available(), Some(456));
-        let mut games: [Env; BATCH_SIZE] = array::from_fn(|_| Game::default());
+        const SEED: u64 = 456;
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let net = Net::new(Device::cuda_if_available(), Some(rng.gen()));
+        let mut games: [Env; BATCH_SIZE] =
+            array::from_fn(|_| Game::new_opening_with_random_steps(&mut rng, &mut vec![], 10));
         let mut actions_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
         games
             .iter_mut()
@@ -324,25 +367,65 @@ mod tests {
     }
 
     #[test]
-    fn update_rnd_persistance() {
-        const NEW_MIN: f32 = 123.456;
-        const NEW_MAX: f32 = 789.987;
+    fn counts_work() {
+        const BATCH_SIZE: usize = 128;
+        const SEED: u64 = 456;
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut net = Net::new(Device::cuda_if_available(), Some(rng.gen()));
 
-        let mut net = Net::new(Device::cuda_if_available(), Some(456));
-        println!("init: {:?} {:?}", net.rnd.min, net.rnd.max);
-        assert!(f32::try_from(&net.rnd.min).unwrap().abs() < f32::EPSILON);
-        assert!((f32::try_from(&net.rnd.max).unwrap() - 1.0).abs() < f32::EPSILON);
+        let xs = Tensor::cat(
+            &(0..BATCH_SIZE)
+                .map(|_| {
+                    game_to_tensor(
+                        &Game::<N, HALF_KOMI>::new_opening_with_random_steps(
+                            &mut rng,
+                            &mut vec![],
+                            5,
+                        ),
+                        Device::cuda_if_available(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            0,
+        );
 
-        net.update_rnd_normalization(&NEW_MIN.into(), &NEW_MAX.into());
-        println!("set: {:?} {:?}", net.rnd.min, net.rnd.max);
-        assert!((f32::try_from(&net.rnd.min).unwrap() - NEW_MIN).abs() < f32::EPSILON);
-        assert!((f32::try_from(&net.rnd.max).unwrap() - NEW_MAX).abs() < f32::EPSILON);
+        let before = net.forward_hash(&xs);
+        println!("{before}");
+        net.update_counts(&xs);
+        let after = net.forward_hash(&xs);
+        println!("{after}");
+        assert!(bool::try_from(before.gt_tensor(&after).all()).unwrap());
+    }
 
-        net.save("temp-remove-me.ot").unwrap();
+    #[test]
+    fn saving_works() {
+        const BATCH_SIZE: usize = 128;
+        const SEED: u64 = 456;
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut net = Net::new(Device::cuda_if_available(), Some(rng.gen()));
+
+        let xs = Tensor::cat(
+            &(0..BATCH_SIZE)
+                .map(|_| {
+                    game_to_tensor(
+                        &Game::<N, HALF_KOMI>::new_opening_with_random_steps(
+                            &mut rng,
+                            &mut vec![],
+                            5,
+                        ),
+                        Device::cuda_if_available(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            0,
+        );
+
+        net.update_counts(&xs);
+        net.save("delete-me.ot").unwrap();
         drop(net);
 
-        let net = Net::load("temp-remove-me.ot", Device::cuda_if_available()).unwrap();
-        assert!((f32::try_from(&net.rnd.min).unwrap() - NEW_MIN).abs() < f32::EPSILON);
-        assert!((f32::try_from(&net.rnd.max).unwrap() - NEW_MAX).abs() < f32::EPSILON);
+        let net = Net::load("delete-me.ot", Device::Cuda(0)).unwrap();
+        let after = net.forward_hash(&xs);
+        assert!(bool::try_from(after.eq(0.0).all()).unwrap());
     }
 }

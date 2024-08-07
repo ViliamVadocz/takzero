@@ -7,12 +7,11 @@ use std::{
 
 use clap::Parser;
 use rand::prelude::*;
-#[cfg(not(feature = "exploration"))]
-use takzero::network::net4::{Env, Net};
-#[cfg(feature = "exploration")]
-use takzero::network::net4_simhash::{Env, Net};
 use takzero::{
-    network::Network,
+    network::{
+        net6_simhash::{Env, Net},
+        Network,
+    },
     search::{
         agent::Agent,
         env::Environment,
