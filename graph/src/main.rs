@@ -9,30 +9,19 @@ use charming::{
     HtmlRenderer,
 };
 use takzero::{
-    network::net4_neurips::{HALF_KOMI, N},
+    network::net4_rnd::{HALF_KOMI, N},
     search::env::Environment,
     target::get_replays,
 };
 
 fn main() {
-    let replays = [
-        "undirected_00",
-        "undirected_01",
-        "lcghash_low_beta_00",
-        "lcghash_low_beta_02",
-        "lcghash_low_beta_03",
-        "lcghash_mid_beta_00",
-        "simhash_low_beta_00",
-        "simhash_low_beta_01",
-        "simhash_mid_beta_01",
-        "simhash_mid_beta_02",
-    ];
+    let replays = ["undirected_02", "simhash_02", "naive_00"];
 
     let mut chart = Chart::new()
         .title(
             Title::new()
                 .text("Ratio of Unique Positions in Chunk Seen During Training")
-                .subtext("Accounting for Symmetries")
+                // .subtext("Accounting for Symmetries")
                 .left("center")
                 .top(0),
         )
@@ -41,7 +30,7 @@ fn main() {
         .grid(Grid::new())
         .legend(Legend::new().data(replays.to_vec()).bottom(10).left(10));
     for r in replays {
-        let data = get_unique_positions(format!("_replays/{r}_replay.txt"));
+        let data = get_unique_positions(format!("_replays/{r}.txt"));
         println!("{r} = [");
         for p in &data {
             println!("    ({}, {}),", p[0], p[1]);
@@ -75,7 +64,7 @@ fn get_unique_positions(path: impl AsRef<Path>) -> Vec<Vec<f64>> {
 
             // positions.clear();
         }
-        if points.len() > 80 {
+        if points.len() > 160 {
             break;
         }
 
