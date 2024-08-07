@@ -6,8 +6,7 @@ use clap::Parser;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
-        net4_big,
-        net4_neurips::{self, Env, Net},
+        net4_rnd::{Env, Net},
         Network,
     },
     search::{
@@ -36,51 +35,51 @@ struct Args {
     step: usize,
 }
 
-#[allow(unused)]
-fn compare_mid_big(
-    path_1: impl AsRef<std::path::Path>,
-    path_2: impl AsRef<std::path::Path>,
-    games: &[Env],
-    rng: &mut impl Rng,
-) -> Evaluation {
-    let big_1 = path_1
-        .as_ref()
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .split_once('_')
-        .is_some_and(|(f, _)| f == "big");
-    let big_2 = path_2
-        .as_ref()
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .split_once('_')
-        .is_some_and(|(f, _)| f == "big");
+// #[allow(unused)]
+// fn compare_mid_big(
+//     path_1: impl AsRef<std::path::Path>,
+//     path_2: impl AsRef<std::path::Path>,
+//     games: &[Env],
+//     rng: &mut impl Rng,
+// ) -> Evaluation {
+//     let big_1 = path_1
+//         .as_ref()
+//         .file_name()
+//         .unwrap()
+//         .to_string_lossy()
+//         .split_once('_')
+//         .is_some_and(|(f, _)| f == "big");
+//     let big_2 = path_2
+//         .as_ref()
+//         .file_name()
+//         .unwrap()
+//         .to_string_lossy()
+//         .split_once('_')
+//         .is_some_and(|(f, _)| f == "big");
 
-    match (big_1, big_2) {
-        (true, true) => {
-            let a = net4_big::Net::load(path_1, DEVICE).unwrap();
-            let b = net4_big::Net::load(path_2, DEVICE).unwrap();
-            compete(&a, &b, games, rng)
-        }
-        (true, false) => {
-            let a = net4_big::Net::load(path_1, DEVICE).unwrap();
-            let b = net4_neurips::Net::load(path_2, DEVICE).unwrap();
-            compete(&a, &b, games, rng)
-        }
-        (false, true) => {
-            let a = net4_neurips::Net::load(path_1, DEVICE).unwrap();
-            let b = net4_big::Net::load(path_2, DEVICE).unwrap();
-            compete(&a, &b, games, rng)
-        }
-        (false, false) => {
-            let a = net4_neurips::Net::load(path_1, DEVICE).unwrap();
-            let b = net4_neurips::Net::load(path_2, DEVICE).unwrap();
-            compete(&a, &b, games, rng)
-        }
-    }
-}
+//     match (big_1, big_2) {
+//         (true, true) => {
+//             let a = net4_big::Net::load(path_1, DEVICE).unwrap();
+//             let b = net4_big::Net::load(path_2, DEVICE).unwrap();
+//             compete(&a, &b, games, rng)
+//         }
+//         (true, false) => {
+//             let a = net4_big::Net::load(path_1, DEVICE).unwrap();
+//             let b = net4_rnd::Net::load(path_2, DEVICE).unwrap();
+//             compete(&a, &b, games, rng)
+//         }
+//         (false, true) => {
+//             let a = net4_rnd::Net::load(path_1, DEVICE).unwrap();
+//             let b = net4_big::Net::load(path_2, DEVICE).unwrap();
+//             compete(&a, &b, games, rng)
+//         }
+//         (false, false) => {
+//             let a = net4_rnd::Net::load(path_1, DEVICE).unwrap();
+//             let b = net4_rnd::Net::load(path_2, DEVICE).unwrap();
+//             compete(&a, &b, games, rng)
+//         }
+//     }
+// }
 
 fn main() {
     env_logger::init();

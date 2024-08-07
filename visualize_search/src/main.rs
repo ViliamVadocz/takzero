@@ -8,7 +8,7 @@ use svg::{
 };
 use takzero::{
     network::{
-        net4_neurips::{Env, Net},
+        net4_rnd::{Env, Net},
         Network,
     },
     search::{env::Environment, node::Node},

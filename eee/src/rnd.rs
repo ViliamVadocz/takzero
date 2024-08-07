@@ -8,7 +8,7 @@ use rand::{
 };
 use takzero::{
     network::{
-        net4_neurips::{Env, MAXIMUM_VARIANCE, N},
+        net4_rnd::{Env, MAXIMUM_VARIANCE, N},
         repr::{game_to_tensor, input_channels},
         residual::{ResidualBlock, SmallBlock},
     },

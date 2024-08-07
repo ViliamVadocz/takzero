@@ -7,7 +7,7 @@ use std::{
 use fast_tak::takparse::{Move, MoveKind, Piece, Square};
 // use image::RgbImage;
 use takzero::{
-    network::net4_neurips::{Env, N},
+    network::net4_rnd::{Env, N},
     search::env::Environment,
     target::get_replays,
 };
