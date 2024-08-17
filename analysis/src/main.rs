@@ -12,7 +12,7 @@ use fast_tak::takparse::{Move, Tps};
 use rand::prelude::*;
 use takzero::{
     network::{
-        net4_lcghash::{Env, Net},
+        net6_simhash::{Env, Net},
         repr::game_to_tensor,
         HashNetwork,
         Network,
@@ -83,8 +83,7 @@ fn gather_policy_data(agent: &Net, rng: &mut impl Rng) {
 
 fn main() {
     let args = Args::parse();
-
-    let agent = Net::load(args.model_path, DEVICE).unwrap();
+    let agent = Net::load_partial(args.model_path, DEVICE).unwrap();
     let mut rng = StdRng::seed_from_u64(123);
 
     let mut env = args.tps.map(Env::from).unwrap_or_default();

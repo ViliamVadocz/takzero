@@ -4,7 +4,7 @@ use fast_tak::takparse::Color;
 use protocol::{GoOption, Id, Input, Output, ParseInputError, Position, ValueType};
 use takzero::{
     network::{
-        net5::{Env, Net, HALF_KOMI, N},
+        net6_simhash::{Env, Net, HALF_KOMI, N},
         Network,
     },
     search::node::Node,

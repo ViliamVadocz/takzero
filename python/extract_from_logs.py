@@ -493,8 +493,8 @@ if __name__ == "__main__":
         case ["ube-bf", path]:
             plot_ube_vs_bf(path)
         case ["game-stats", path]:
-            plot_all_game_lengths(path, max_len=130)
-            plot_all_game_lengths_per_color(path, max_len=130)
+            plot_all_game_lengths(path, max_len=160)
+            plot_all_game_lengths_per_color(path, max_len=160)
             plot_win_rate(get_wins(path), 1000)
         case ["wins-split", path, ply]:
             max_ply = 100
