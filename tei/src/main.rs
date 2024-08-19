@@ -86,7 +86,7 @@ fn main() {
     };
 
     // Load engine / model.
-    let net = match Net::load(model_path, tch::Device::Cuda(0)) {
+    let net = match Net::load_partial(model_path, tch::Device::Cuda(0)) {
         Ok(net) => net,
         Err(err) => {
             log::error!("failed to load model: {}", err);
