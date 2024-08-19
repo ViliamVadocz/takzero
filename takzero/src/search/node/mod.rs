@@ -46,7 +46,7 @@ impl<'a, E: Environment> Iterator for PrincipalVariation<'a, E> {
     type Item = E::Action;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.node.needs_initialization() {
+        if self.node.needs_initialization() || self.node.is_terminal() {
             return None;
         }
         let best_action = self.node.select_best_action();
