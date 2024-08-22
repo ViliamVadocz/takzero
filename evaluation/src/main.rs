@@ -6,7 +6,7 @@ use clap::Parser;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
-        net4_rnd::{Env, Net},
+        net6_simhash::{Env, Net},
         Network,
     },
     search::{
@@ -20,7 +20,6 @@ use tch::Device;
 const DEVICE: Device = Device::Cuda(0);
 
 const BATCH_SIZE: usize = 64;
-const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const MAX_MOVES: usize = 200;
 const SAMPLED_ACTIONS: usize = 64;
 const SEARCH_BUDGET: u32 = 768;
@@ -81,10 +80,45 @@ struct Args {
 //     }
 // }
 
+fn negative_beta_range_test() {
+    const BETA: [f32; 7] = [0.25, 0.0, -0.01, -0.1, -0.25, -0.5, -1.0];
+    log::info!("negative beta experiments with BETA = {BETA:?}");
+
+    let args = Args::parse();
+    let seed: u64 = thread_rng().gen();
+    log::info!("seed: {seed}");
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    let net = Net::load(args.model_path, DEVICE).expect("model path should be valid");
+
+    loop {
+        let mut betas = BETA.choose_multiple(&mut rng, 2);
+        let beta_1 = *betas.next().expect("Exactly two betas should be chosen");
+        let beta_2 = *betas.next().expect("Exactly two betas should be chosen");
+
+        let mut actions = Vec::new();
+        let games: [Env; BATCH_SIZE] = array::from_fn(|_| {
+            let steps = rng.gen_range(2..=3);
+            Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
+        });
+
+        let a_as_white = compete(&net, &net, beta_1, beta_2, &games, &mut rng);
+        log::info!(
+            "{beta_1} vs. {beta_2}: {a_as_white:?} {:.1}%",
+            a_as_white.win_rate() * 100.0
+        );
+        let b_as_white = compete(&net, &net, beta_2, beta_1, &games, &mut rng);
+        log::info!(
+            "{beta_2} vs. {beta_1}: {b_as_white:?} {:.1}%",
+            b_as_white.win_rate() * 100.0
+        );
+    }
+}
+
 fn main() {
     env_logger::init();
     log::info!("Begin.");
-    tch::no_grad(real_main);
+    tch::no_grad(negative_beta_range_test);
 }
 
 #[allow(unused)]
@@ -133,13 +167,13 @@ fn real_main() {
             Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
         });
 
-        let a_as_white = compete(&a, &b, &games, &mut rng);
+        let a_as_white = compete(&a, &b, 0.0, 0.0, &games, &mut rng);
         // let a_as_white = compare_mid_big(path_a, path_b, &games, &mut rng);
         log::info!(
             "{name_a} vs. {name_b}: {a_as_white:?} {:.1}%",
             a_as_white.win_rate() * 100.0
         );
-        let b_as_white = compete(&b, &a, &games, &mut rng);
+        let b_as_white = compete(&b, &a, 0.0, 0.0, &games, &mut rng);
         // let b_as_white = compare_mid_big(path_b, path_a, &games, &mut rng);
         log::info!(
             "{name_b} vs. {name_a}: {b_as_white:?} {:.1}%",
@@ -150,7 +184,14 @@ fn real_main() {
 /// Pit two networks against each other in the given games. Evaluation is from
 /// the perspective of white.
 #[allow(dead_code)]
-fn compete<W, B>(white: &W, black: &B, games: &[Env], rng: &mut impl Rng) -> Evaluation
+fn compete<W, B>(
+    white: &W,
+    black: &B,
+    white_beta: f32,
+    black_beta: f32,
+    games: &[Env],
+    rng: &mut impl Rng,
+) -> Evaluation
 where
     W: Network + Agent<Env>,
     B: Network + Agent<Env>,
@@ -159,6 +200,8 @@ where
 
     let mut white_mcts = BatchedMCTS::from_envs(games.to_owned().try_into().unwrap());
     let mut black_mcts = BatchedMCTS::from_envs(games.to_owned().try_into().unwrap());
+    let white_beta = [white_beta; BATCH_SIZE];
+    let black_beta = [black_beta; BATCH_SIZE];
 
     let mut done = [false; BATCH_SIZE];
 
@@ -178,7 +221,7 @@ where
             let top_actions: [_; BATCH_SIZE] = if is_white {
                 current.gumbel_sequential_halving(
                     white,
-                    &ZERO_BETA,
+                    &white_beta,
                     SAMPLED_ACTIONS,
                     SEARCH_BUDGET,
                     rng,
@@ -186,7 +229,7 @@ where
             } else {
                 current.gumbel_sequential_halving(
                     black,
-                    &ZERO_BETA,
+                    &black_beta,
                     SAMPLED_ACTIONS,
                     SEARCH_BUDGET,
                     rng,
