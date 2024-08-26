@@ -15,7 +15,7 @@ use fast_tak::takparse::{Move, Tps};
 use sqlite::{Connection, Statement, Value};
 use takzero::{
     network::{
-        net5::{Env, Net, N},
+        net6_simhash::{Env, Net, N},
         Network,
     },
     search::node::{batched::BatchedMCTS, Node},
@@ -37,8 +37,6 @@ struct Args {
     #[arg(long, default_value_t = 1)]
     step: usize,
 }
-
-const _: () = assert!(N == 5, "Tilpaz is only supported for 5x5");
 
 const BATCH_SIZE: usize = 128;
 const VISITS: u32 = 1024;
@@ -131,12 +129,14 @@ impl PuzzleResult {
 
 fn tinue(connection: &Connection, depth: i64, limit: i64) -> Statement {
     let query = r#"SELECT * FROM puzzles
-    WHERE instr(tps, "1C") > 0
+    JOIN games ON puzzles.game_id = games.id
+    WHERE games.size = 6 
+        AND instr(tps, "1C") > 0
         AND instr(tps, "2C") > 0
-        AND tinue_length = :depth
-        AND tinue_avoidance_length IS NULL
-        AND tiltak_second_move_eval < 0.6
-    ORDER BY game_id ASC
+        AND puzzles.tinue_length = :depth
+        AND puzzles.tinue_avoidance_length IS NULL
+        AND puzzles.tiltak_2komi_second_move_eval < 0.7
+    ORDER BY puzzles.game_id ASC
     LIMIT :limit"#;
     let mut statement = connection.prepare(query).unwrap();
     statement
@@ -152,11 +152,13 @@ fn tinue(connection: &Connection, depth: i64, limit: i64) -> Statement {
 
 fn avoidance(connection: &Connection, depth: i64, limit: i64) -> Statement {
     let query = r#"SELECT * FROM puzzles
-    WHERE instr(tps, "1C") > 0
+    JOIN games ON puzzles.game_id = games.id
+    WHERE games.size = 6 
+        AND instr(tps, "1C") > 0
         AND instr(tps, "2C") > 0
-        AND tinue_avoidance_length = :depth
-        AND tinue_length IS NULL
-        AND tiltak_eval > 0.6
+        AND puzzles.tinue_avoidance_length = :depth
+        AND puzzles.tinue_length IS NULL
+        AND puzzles.tiltak_2komi_eval > 0.7
     ORDER BY game_id ASC
     LIMIT :limit"#;
     let mut statement = connection.prepare(query).unwrap();
@@ -178,6 +180,7 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
             let row = row.unwrap();
             let tps: Tps = row.read::<&str, _>("tps").parse().unwrap();
             let solution: Move = row.read::<&str, _>("solution").parse().unwrap();
+            log::debug!("{tps}");
             let game: Env = tps.into();
             (game, solution)
         })
