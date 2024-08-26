@@ -1,21 +1,12 @@
-use std::{
-    fs::read_dir,
-    path::{Path, PathBuf},
-};
+use std::path::PathBuf;
 
-use charming::{
-    component::{Axis, Legend, Title},
-    series::Line,
-    theme::Theme,
-    Chart,
-    HtmlRenderer,
-};
 use clap::Parser;
 use fast_tak::takparse::{Move, Tps};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use sqlite::{Connection, Statement, Value};
 use takzero::{
     network::{
-        net6_simhash::{Env, Net, N},
+        net6_simhash::{Env, Net},
         Network,
     },
     search::node::{batched::BatchedMCTS, Node},
@@ -24,7 +15,7 @@ use tch::Device;
 
 #[derive(Parser, Debug)]
 struct Args {
-    /// Path where models are stored
+    /// Path where the model is stored
     #[arg(long)]
     model: PathBuf,
     /// Path to puzzle database
@@ -33,13 +24,17 @@ struct Args {
     /// Path to save graph
     #[arg(long)]
     graph: PathBuf,
-    /// How many models to skip between benchmarks
-    #[arg(long, default_value_t = 1)]
-    step: usize,
+
+    /// Sampled actions
+    #[arg(long, default_value_t = 64)]
+    sampled_actions: usize,
+    /// Search budget
+    #[arg(long, default_value_t = 768)]
+    search_budget: u32,
 }
 
-const BATCH_SIZE: usize = 128;
-const VISITS: u32 = 1024;
+const BATCH_SIZE: usize = 64;
+const SEED: u64 = 12345;
 const ZERO_BETA: [f32; BATCH_SIZE] = [0.0; BATCH_SIZE];
 const DEVICE: Device = Device::Cuda(0);
 
@@ -51,69 +46,80 @@ fn main() {
 
 fn real_main() {
     let args = Args::parse();
-    let connection = sqlite::open(&args.puzzle_db).unwrap();
-    let mut paths: Vec<_> = read_dir(args.model)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "ot"))
-        .filter(|p| {
-            p.file_stem()
-                .and_then(|s| {
-                    let lossy = s.to_string_lossy();
-                    let (model, steps) = lossy.split_once('_')?;
-                    steps.parse::<u32>().ok()?;
-                    Some(model == "model")
-                })
-                .unwrap_or_default()
-        })
-        .collect();
-    paths.sort();
-    let paths: Vec<_> = paths.into_iter().step_by(args.step).collect();
+    let connection = sqlite::open(&args.puzzle_db)
+        .expect("Puzzle database should be located at path specified by `puzzle-db`.");
 
-    let mut points = Vec::new();
-    for path in paths {
-        let Ok(net) = Net::load_partial(&path, DEVICE) else {
-            log::warn!("Cannot load {}", path.display());
-            continue;
-        };
-        let Some(model_steps) = path
-            .file_stem()
-            .and_then(|p| p.to_str()?.split_once('_')?.1.parse().ok())
-        else {
-            log::warn!("Cannot parse model steps in {}", path.display());
-            continue;
-        };
-        log::info!("Benchmarking {}", path.display());
+    log::info!("Benchmarking {}", args.model.display());
+    let net = Net::load_partial(&args.model, DEVICE)
+        .expect("Network should be located at path specified by `model`.");
 
-        log::info!("Depth 3");
-        let depth_3 = benchmark(&net, tinue(&connection, 3), true);
-        log::info!("Depth 5");
-        let depth_5 = benchmark(&net, tinue(&connection, 5), true);
-        log::info!("Depth 7");
-        let depth_7 = benchmark(&net, tinue(&connection, 7), true);
-        log::info!("Depth 9");
-        let depth_9 = benchmark(&net, tinue(&connection, 9), true);
-        
-        log::info!("Depth 2");
-        let depth_2 = benchmark(&net, avoidance(&connection, 2), false);
-        log::info!("Depth 4");
-        let depth_4 = benchmark(&net, avoidance(&connection, 4), false);
-        log::info!("Depth 6");
-        let depth_6 = benchmark(&net, avoidance(&connection, 6), false);
+    let mut rng = StdRng::seed_from_u64(SEED);
 
-        points.push(Point {
-            model_steps,
-            depth_3_solved: depth_3.solve_rate(),
-            depth_5_solved: depth_5.solve_rate(),
-            depth_7_solved: depth_7.solve_rate(),
-            depth_9_solved: depth_9.solve_rate(),
-            depth_2_solved: depth_2.solve_rate(),
-            depth_4_solved: depth_4.solve_rate(),
-            depth_6_solved: depth_6.solve_rate(),
-        });
-    }
+    let depth_3 = benchmark(
+        &net,
+        tinue(&connection, 3),
+        true,
+        args.sampled_actions,
+        args.search_budget,
+        &mut rng,
+    );
+    let depth_5 = benchmark(
+        &net,
+        tinue(&connection, 5),
+        true,
+        args.sampled_actions,
+        args.search_budget,
+        &mut rng,
+    );
+    let depth_7 = benchmark(
+        &net,
+        tinue(&connection, 7),
+        true,
+        args.sampled_actions,
+        args.search_budget,
+        &mut rng,
+    );
+    let depth_9 = benchmark(
+        &net,
+        tinue(&connection, 9),
+        true,
+        args.sampled_actions,
+        args.search_budget,
+        &mut rng,
+    );
 
-    graph(points, &args.graph);
+    let depth_2 = benchmark(
+        &net,
+        avoidance(&connection, 2),
+        false,
+        args.sampled_actions,
+        args.search_budget,
+        &mut rng,
+    );
+    let depth_4 = benchmark(
+        &net,
+        avoidance(&connection, 4),
+        false,
+        args.sampled_actions,
+        args.search_budget,
+        &mut rng,
+    );
+    let depth_6 = benchmark(
+        &net,
+        avoidance(&connection, 6),
+        false,
+        args.sampled_actions,
+        args.search_budget,
+        &mut rng,
+    );
+
+    log::info!("depth 3: {}", depth_3.solve_rate());
+    log::info!("depth 5: {}", depth_5.solve_rate());
+    log::info!("depth 7: {}", depth_7.solve_rate());
+    log::info!("depth 9: {}", depth_9.solve_rate());
+    log::info!("depth 2: {}", depth_2.solve_rate());
+    log::info!("depth 4: {}", depth_4.solve_rate());
+    log::info!("depth 6: {}", depth_6.solve_rate());
 }
 
 #[derive(Debug)]
@@ -137,7 +143,7 @@ impl PuzzleResult {
 fn tinue(connection: &Connection, depth: i64) -> Statement {
     let query = r#"SELECT * FROM puzzles
     JOIN games ON puzzles.game_id = games.id
-    WHERE games.size = 6 
+    WHERE games.size = 6
         -- AND instr(tps, "1C") > 0
         -- AND instr(tps, "2C") > 0
         AND puzzles.tinue_length = :depth
@@ -154,7 +160,7 @@ fn tinue(connection: &Connection, depth: i64) -> Statement {
 fn avoidance(connection: &Connection, depth: i64) -> Statement {
     let query = r#"SELECT * FROM puzzles
     JOIN games ON puzzles.game_id = games.id
-    WHERE games.size = 6 
+    WHERE games.size = 6
         -- AND instr(tps, "1C") > 0
         -- AND instr(tps, "2C") > 0
         AND puzzles.tinue_avoidance_length = :depth
@@ -168,7 +174,14 @@ fn avoidance(connection: &Connection, depth: i64) -> Statement {
     statement
 }
 
-fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
+fn benchmark(
+    agent: &Net,
+    statement: Statement,
+    win: bool,
+    sampled_actions: usize,
+    search_budget: u32,
+    rng: &mut impl Rng,
+) -> PuzzleResult {
     let (puzzles, solutions): (Vec<_>, Vec<_>) = statement
         .into_iter()
         .map(|row| {
@@ -198,9 +211,13 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
                 *env = puzzle.clone();
             });
 
-        for _ in 0..VISITS {
-            batched_mcts.simulate(agent, &ZERO_BETA);
-        }
+        batched_mcts.gumbel_sequential_halving(
+            agent,
+            &ZERO_BETA,
+            sampled_actions,
+            search_budget,
+            rng,
+        );
 
         attempted += puzzle_batch.len();
         let selected_actions: [_; BATCH_SIZE] = batched_mcts.select_best_actions();
@@ -255,96 +272,4 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
     };
     log::info!("{result:?}");
     result
-}
-
-struct Point {
-    model_steps: u32,
-    // tinue
-    depth_3_solved: f64,
-    depth_5_solved: f64,
-    depth_7_solved: f64,
-    depth_9_solved: f64,
-    // avoidance
-    depth_2_solved: f64,
-    depth_4_solved: f64,
-    depth_6_solved: f64,
-}
-
-fn graph(mut points: Vec<Point>, path: &Path) {
-    points.sort_by_key(|p| p.model_steps);
-    let chart = Chart::new()
-        .title(
-            Title::new()
-                .text(format!("Puzzle solve rate ({N}x{N}, {VISITS} visits)"))
-                .left("center")
-                .top(0),
-        )
-        .x_axis(Axis::new().name("training steps"))
-        .y_axis(
-            Axis::new()
-                .name("ratio of puzzles solved")
-                .min(0.0)
-                .max(1.0),
-        )
-        .legend(Legend::new().top("bottom"))
-        .series(
-            Line::new().name("tinue in 3").data(
-                points
-                    .iter()
-                    .map(|p| vec![f64::from(p.model_steps), p.depth_3_solved])
-                    .collect(),
-            ),
-        )
-        .series(
-            Line::new().name("tinue in 5").data(
-                points
-                    .iter()
-                    .map(|p| vec![f64::from(p.model_steps), p.depth_5_solved])
-                    .collect(),
-            ),
-        )
-        .series(
-            Line::new().name("tinue in 7").data(
-                points
-                    .iter()
-                    .map(|p| vec![f64::from(p.model_steps), p.depth_7_solved])
-                    .collect(),
-            ),
-        )
-        .series(
-            Line::new().name("tinue in 9").data(
-                points
-                    .iter()
-                    .map(|p| vec![f64::from(p.model_steps), p.depth_9_solved])
-                    .collect(),
-            ),
-        )
-        .series(
-            Line::new().name("avoid in 2").data(
-                points
-                    .iter()
-                    .map(|p| vec![f64::from(p.model_steps), p.depth_2_solved])
-                    .collect(),
-            ),
-        )
-        .series(
-            Line::new().name("avoid in 4").data(
-                points
-                    .iter()
-                    .map(|p| vec![f64::from(p.model_steps), p.depth_4_solved])
-                    .collect(),
-            ),
-        )
-        .series(
-            Line::new().name("avoid in 6").data(
-                points
-                    .iter()
-                    .map(|p| vec![f64::from(p.model_steps), p.depth_6_solved])
-                    .collect(),
-            ),
-        );
-    let mut renderer = HtmlRenderer::new("graph", 1200, 650).theme(Theme::Default);
-    renderer
-        .save(&chart, path.join("puzzle-graph.html"))
-        .unwrap();
 }
