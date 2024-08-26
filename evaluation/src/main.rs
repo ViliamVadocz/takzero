@@ -1,8 +1,14 @@
 #![warn(clippy::pedantic, clippy::style)]
 
-use std::{array, fs::read_dir, path::PathBuf};
+use std::{
+    array,
+    fs::{read_dir, OpenOptions},
+    io::{BufRead, BufReader},
+    path::PathBuf,
+};
 
 use clap::Parser;
+use fast_tak::takparse::Tps;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
@@ -32,6 +38,8 @@ struct Args {
     /// How many models to skip when creating match-ups
     #[arg(long, default_value_t = 1)]
     step: usize,
+    /// Path to starting positions
+    opening_book: Option<PathBuf>,
 }
 
 // #[allow(unused)]
@@ -80,45 +88,47 @@ struct Args {
 //     }
 // }
 
-fn negative_beta_range_test() {
-    const BETA: [f32; 7] = [0.25, 0.0, -0.01, -0.1, -0.25, -0.5, -1.0];
-    log::info!("negative beta experiments with BETA = {BETA:?}");
+// fn negative_beta_range_test() {
+//     const BETA: [f32; 7] = [0.25, 0.0, -0.01, -0.1, -0.25, -0.5, -1.0];
+//     log::info!("negative beta experiments with BETA = {BETA:?}");
 
-    let args = Args::parse();
-    let seed: u64 = thread_rng().gen();
-    log::info!("seed: {seed}");
-    let mut rng = StdRng::seed_from_u64(seed);
+//     let args = Args::parse();
+//     let seed: u64 = thread_rng().gen();
+//     log::info!("seed: {seed}");
+//     let mut rng = StdRng::seed_from_u64(seed);
 
-    let net = Net::load(args.model_path, DEVICE).expect("model path should be valid");
+//     let net = Net::load(args.model_path, DEVICE).expect("model path should be
+// valid");
 
-    loop {
-        let mut betas = BETA.choose_multiple(&mut rng, 2);
-        let beta_1 = *betas.next().expect("Exactly two betas should be chosen");
-        let beta_2 = *betas.next().expect("Exactly two betas should be chosen");
+//     loop {
+//         let mut betas = BETA.choose_multiple(&mut rng, 2);
+//         let beta_1 = *betas.next().expect("Exactly two betas should be
+// chosen");         let beta_2 = *betas.next().expect("Exactly two betas should
+// be chosen");
 
-        let mut actions = Vec::new();
-        let games: [Env; BATCH_SIZE] = array::from_fn(|_| {
-            let steps = rng.gen_range(2..=3);
-            Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
-        });
+//         let mut actions = Vec::new();
+//         let games: [Env; BATCH_SIZE] = array::from_fn(|_| {
+//             let steps = rng.gen_range(2..=3);
+//             Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
+//         });
 
-        let a_as_white = compete(&net, &net, beta_1, beta_2, &games, &mut rng);
-        log::info!(
-            "{beta_1} vs. {beta_2}: {a_as_white:?} {:.1}%",
-            a_as_white.win_rate() * 100.0
-        );
-        let b_as_white = compete(&net, &net, beta_2, beta_1, &games, &mut rng);
-        log::info!(
-            "{beta_2} vs. {beta_1}: {b_as_white:?} {:.1}%",
-            b_as_white.win_rate() * 100.0
-        );
-    }
-}
+//         let a_as_white = compete(&net, &net, beta_1, beta_2, &games, &mut
+// rng);         log::info!(
+//             "{beta_1} vs. {beta_2}: {a_as_white:?} {:.1}%",
+//             a_as_white.win_rate() * 100.0
+//         );
+//         let b_as_white = compete(&net, &net, beta_2, beta_1, &games, &mut
+// rng);         log::info!(
+//             "{beta_2} vs. {beta_1}: {b_as_white:?} {:.1}%",
+//             b_as_white.win_rate() * 100.0
+//         );
+//     }
+// }
 
 fn main() {
     env_logger::init();
     log::info!("Begin.");
-    tch::no_grad(negative_beta_range_test);
+    tch::no_grad(real_main);
 }
 
 #[allow(unused)]
@@ -127,6 +137,22 @@ fn real_main() {
     let seed: u64 = thread_rng().gen();
     log::info!("seed: {seed}");
     let mut rng = StdRng::seed_from_u64(seed);
+
+    let opening_book: Option<Vec<Env>> = args.opening_book.map(|path| {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .open(path)
+            .expect("Path to opening book should be valid");
+        BufReader::new(file)
+            .lines()
+            .map(|line| {
+                line.expect("Line should be fine to read")
+                    .parse()
+                    .map(|tps: Tps| tps.into())
+            })
+            .collect::<Result<_, _>>()
+            .expect("Opening book should be valid TPS, one per line")
+    });
 
     loop {
         let mut paths: Vec<_> = read_dir(&args.model_path)
@@ -161,11 +187,21 @@ fn real_main() {
         let name_a = path_a.file_name().unwrap().to_string_lossy().to_string();
         let name_b = path_b.file_name().unwrap().to_string_lossy().to_string();
 
-        let mut actions = Vec::new();
-        let games: [Env; BATCH_SIZE] = array::from_fn(|_| {
-            let steps = rng.gen_range(2..=3);
-            Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
-        });
+        let games: [Env; BATCH_SIZE] = if let Some(openings) = &opening_book {
+            openings
+                .choose_multiple(&mut rng, BATCH_SIZE)
+                .cloned()
+                .collect::<Vec<_>>()
+                .try_into()
+                .expect("There should be enough games in the opening book to form a unique batch")
+        } else {
+            let mut actions = Vec::new();
+
+            array::from_fn(|_| {
+                let steps = rng.gen_range(2..=3);
+                Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
+            })
+        };
 
         let a_as_white = compete(&a, &b, 0.0, 0.0, &games, &mut rng);
         // let a_as_white = compare_mid_big(path_a, path_b, &games, &mut rng);
