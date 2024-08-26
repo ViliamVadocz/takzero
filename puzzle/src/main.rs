@@ -21,9 +21,6 @@ struct Args {
     /// Path to puzzle database
     #[arg(long)]
     puzzle_db: PathBuf,
-    /// Path to save graph
-    #[arg(long)]
-    graph: PathBuf,
 
     /// Sampled actions
     #[arg(long, default_value_t = 64)]
