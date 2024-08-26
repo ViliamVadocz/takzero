@@ -281,19 +281,7 @@ fn fill_buffer_with_positions_from_replays(
             .by_ref()
             .lines()
             .filter_map(|line| line.unwrap().parse().ok())
-            .flat_map(|replay: Replay<Env>| {
-                let mut env = replay.env;
-                replay
-                    .actions
-                    .into_iter()
-                    .map(|a| {
-                        let ret = env.clone();
-                        env.step(a);
-                        ret
-                    })
-                    .collect::<Vec<_>>()
-                    .into_iter()
-            }),
+            .flat_map(|replay: Replay<Env>| replay.states().collect::<Vec<_>>()),
     );
     *replays_seek = reader
         .stream_position()

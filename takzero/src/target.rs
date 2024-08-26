@@ -201,6 +201,15 @@ impl<E: Environment> Replay<E> {
             self.env.step(self.actions.pop_front().unwrap());
         }
     }
+
+    pub fn states(&self) -> impl Iterator<Item = E> + '_ {
+        let mut env = self.env.clone();
+        self.actions.iter().map(move |a| {
+            let ret = env.clone();
+            env.step(a.clone());
+            ret
+        })
+    }
 }
 
 impl<const N: usize, const HALF_KOMI: i8> fmt::Display for Replay<Game<N, HALF_KOMI>>
