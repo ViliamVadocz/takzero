@@ -55,7 +55,7 @@ fn real_main() {
 
     let mut rng = StdRng::seed_from_u64(SEED);
 
-    let depth_3 = benchmark(
+    benchmark(
         &net,
         tinue(&connection, 3),
         true,
@@ -63,7 +63,7 @@ fn real_main() {
         args.search_budget,
         &mut rng,
     );
-    let depth_5 = benchmark(
+    benchmark(
         &net,
         tinue(&connection, 5),
         true,
@@ -71,7 +71,7 @@ fn real_main() {
         args.search_budget,
         &mut rng,
     );
-    let depth_7 = benchmark(
+    benchmark(
         &net,
         tinue(&connection, 7),
         true,
@@ -79,7 +79,7 @@ fn real_main() {
         args.search_budget,
         &mut rng,
     );
-    let depth_9 = benchmark(
+    benchmark(
         &net,
         tinue(&connection, 9),
         true,
@@ -88,7 +88,7 @@ fn real_main() {
         &mut rng,
     );
 
-    let depth_2 = benchmark(
+    benchmark(
         &net,
         avoidance(&connection, 2),
         false,
@@ -96,7 +96,7 @@ fn real_main() {
         args.search_budget,
         &mut rng,
     );
-    let depth_4 = benchmark(
+    benchmark(
         &net,
         avoidance(&connection, 4),
         false,
@@ -104,7 +104,7 @@ fn real_main() {
         args.search_budget,
         &mut rng,
     );
-    let depth_6 = benchmark(
+    benchmark(
         &net,
         avoidance(&connection, 6),
         false,
@@ -112,14 +112,6 @@ fn real_main() {
         args.search_budget,
         &mut rng,
     );
-
-    log::info!("depth 3: {}", depth_3.solve_rate());
-    log::info!("depth 5: {}", depth_5.solve_rate());
-    log::info!("depth 7: {}", depth_7.solve_rate());
-    log::info!("depth 9: {}", depth_9.solve_rate());
-    log::info!("depth 2: {}", depth_2.solve_rate());
-    log::info!("depth 4: {}", depth_4.solve_rate());
-    log::info!("depth 6: {}", depth_6.solve_rate());
 }
 
 #[derive(Debug)]
@@ -154,6 +146,7 @@ fn tinue(connection: &Connection, depth: i64) -> Statement {
     statement
         .bind::<&[(_, Value)]>(&[(":depth", depth.into())])
         .unwrap();
+    log::info!("tinue {depth}");
     statement
 }
 
@@ -171,6 +164,7 @@ fn avoidance(connection: &Connection, depth: i64) -> Statement {
     statement
         .bind::<&[(_, Value)]>(&[(":depth", depth.into())])
         .unwrap();
+    log::info!("avoidance {depth}");
     statement
 }
 
@@ -199,15 +193,16 @@ fn benchmark(
     let mut attempted = 0;
     let mut solved = 0;
     let mut proven = 0;
-    for (puzzle_batch, solution_batch) in puzzles
-        .chunks_exact(BATCH_SIZE)
-        .zip(solutions.chunks_exact(BATCH_SIZE))
+    for (puzzle_batch, solution_batch) in
+        puzzles.chunks(BATCH_SIZE).zip(solutions.chunks(BATCH_SIZE))
     {
+        batched_mcts.nodes_and_envs_mut().for_each(|(node, _env)| {
+            *node = Node::default();
+        });
         batched_mcts
             .nodes_and_envs_mut()
             .zip(puzzle_batch)
-            .for_each(|((node, env), puzzle)| {
-                *node = Node::default();
+            .for_each(|((_node, env), puzzle)| {
                 *env = puzzle.clone();
             });
 
@@ -247,6 +242,7 @@ fn benchmark(
             // Count how many nodes have been solved to a win.
             batched_mcts
                 .nodes_and_envs()
+                .take(solution_batch.len())
                 .filter(|(node, _)| node.evaluation.is_win())
                 .count()
         } else {
@@ -254,6 +250,7 @@ fn benchmark(
             // (i.e. found the tinue for all other moves).
             batched_mcts
                 .nodes_and_envs()
+                .take(solution_batch.len())
                 .filter(|(node, _)| {
                     node.children
                         .iter()
@@ -270,6 +267,6 @@ fn benchmark(
         solved,
         proven,
     };
-    log::info!("{result:?}");
+    log::info!("{result:?} {}", result.solve_rate());
     result
 }
