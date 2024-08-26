@@ -10,7 +10,7 @@ use clap::Parser;
 use fast_tak::takparse::Move;
 use ordered_float::NotNan;
 use rand::prelude::*;
-use takzero::network::net6_simhash::{Env, Net};
+use takzero::network::net4_simhash::{Env, Net};
 use takzero::{
     network::Network,
     search::{
@@ -35,7 +35,7 @@ const _: () = assert_net::<Net>();
 
 const DEVICE: Device = Device::Cuda(0);
 const BATCH_SIZE: usize = 128;
-const WEIGHTED_RANDOM_PLIES: u16 = 10;
+const UNIFORM_RANDOM_PLIES: u16 = 10;
 // const NOISE_ALPHA: f32 = 0.05;
 // const NOISE_RATIO: f32 = 0.2;
 const BETA: f32 = 0.25;
@@ -90,6 +90,7 @@ fn main() {
         log::info!("Step: {steps}");
         let start = std::time::Instant::now();
         loop {
+            // Synchronization.
             let exploitation = match read_buffer_lengths(&args.directory) {
                 Ok((exploitation, _)) => exploitation,
                 Err(err) => {
@@ -104,6 +105,7 @@ fn main() {
             }
             log::debug!("Checked that there more selfplay targets are needed.");
 
+            // Load new network weights if available.
             match Net::load(args.directory.join("model_latest.ot"), DEVICE) {
                 Ok(new_net) => {
                     net = new_net;
@@ -146,7 +148,7 @@ fn main() {
             .iter_mut()
             .zip(batched_mcts.nodes_and_envs())
             .for_each(|(selected_action, (node, env))| {
-                if env.steps() < WEIGHTED_RANDOM_PLIES {
+                if env.steps() < UNIFORM_RANDOM_PLIES {
                     *selected_action = node.select_selfplay_action(true, &mut rng);
                 }
             });
@@ -283,7 +285,7 @@ fn restart_envs_and_complete_targets(
                             .actions
                             .iter()
                             .copied()
-                            .take(usize::from(WEIGHTED_RANDOM_PLIES))
+                            .take(usize::from(UNIFORM_RANDOM_PLIES))
                             .collect(),
                     });
                 }
@@ -312,7 +314,7 @@ fn restart_envs_and_complete_targets(
                     value = value.negate();
                     // Only generate targets from non-exploratory episodes.
                     // (Or after the initial exploration.)
-                    if *beta == 0.0 || env.ply > WEIGHTED_RANDOM_PLIES {
+                    if *beta == 0.0 || env.ply > UNIFORM_RANDOM_PLIES {
                         targets.push(Target {
                             env,
                             value: f32::from(value),

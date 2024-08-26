@@ -1,6 +1,5 @@
 use ordered_float::NotNan;
-use rand::Rng;
-use rand_distr::{Distribution, WeightedIndex};
+use rand::prelude::*;
 
 use super::{env::Environment, eval::Eval};
 
@@ -166,27 +165,16 @@ impl<E: Environment> Node<E> {
     /// # Panics
     ///
     /// Panics if there are no children.
-    pub fn select_selfplay_action(
-        &self,
-        proportional_sample: bool,
-        rng: &mut impl Rng,
-    ) -> E::Action {
-        const THRESHOLD_VISITS: u32 = 32;
-
+    pub fn select_selfplay_action(&self, uniform_sample: bool, rng: &mut impl Rng) -> E::Action {
         if self.evaluation.is_known() {
             // The node is solved, pick the best action.
             self.select_best_action()
-        } else if proportional_sample {
-            // Select an action randomly, proportional to visits.
-            let weighted_index = WeightedIndex::new(self.children.iter().map(|(_, child)| {
-                if child.visit_count < THRESHOLD_VISITS {
-                    0
-                } else {
-                    child.visit_count
-                }
-            }))
-            .expect("there should be at least one child and visits cannot be negative");
-            self.children[weighted_index.sample(rng)].0.clone()
+        } else if uniform_sample {
+            self.children
+                .choose(rng)
+                .expect("there should be at least one child")
+                .0
+                .clone()
         } else {
             // Select the action with the most visits.
             self.children
