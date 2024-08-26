@@ -1,13 +1,12 @@
 use std::{
-    // cmp::Reverse,
     collections::{HashMap, HashSet, VecDeque},
     path::Path,
 };
 
 use fast_tak::takparse::{Move, MoveKind, Piece, Square};
-// use image::RgbImage;
+use rand::prelude::*;
 use takzero::{
-    network::net4_rnd::{Env, N},
+    network::net6_simhash::{Env, N},
     search::env::Environment,
     target::get_replays,
 };
@@ -28,7 +27,8 @@ fn load_positions(all_positions: &mut HashSet<Env>, path: impl AsRef<Path>) -> H
     positions
 }
 
-fn main() {
+#[allow(unused)]
+fn count_state_space_at_depths() {
     let mut args = std::env::args();
     let _process = args.next();
 
@@ -49,32 +49,6 @@ fn main() {
             )
         })
         .collect();
-
-    // let mut positions: Vec<Env> = all_positions.into_iter().collect();
-    // positions.sort_by_key(|p| Reverse(p.white_reserves.stones +
-    // p.black_reserves.stones));
-
-    // println!("There are {} unique positions.", positions.len());
-    // #[allow(clippy::cast_sign_loss)]
-    // let size = (positions.len() as f64).sqrt().ceil() as usize;
-    // println!("The image will be {size}x{size}.");
-
-    // let mut pixel_data = vec![0u8; size * size * 3];
-    // for (i, position) in positions.into_iter().enumerate() {
-    //     let r = if d0.contains_key(&position) { 255 } else { 0 };
-    //     let g = if d1.contains_key(&position) { 255 } else { 0 };
-    //     let b = if u0.contains_key(&position) { 255 } else { 0 };
-
-    //     let offset = i * 3;
-    //     pixel_data[offset] = r;
-    //     pixel_data[offset + 1] = g;
-    //     pixel_data[offset + 2] = b;
-    // }
-
-    // let img = RgbImage::from_raw(size as u32, size as u32, pixel_data).unwrap();
-    // img.save("test.png").unwrap();
-
-    // ---
 
     let mut queue = VecDeque::new();
 
@@ -117,4 +91,66 @@ fn main() {
             println!("{}: {}", ii + 2, layer.len());
         }
     }
+}
+
+// let mut positions: Vec<Env> = all_positions.into_iter().collect();
+// positions.sort_by_key(|p| Reverse(p.white_reserves.stones +
+// p.black_reserves.stones));
+
+// println!("There are {} unique positions.", positions.len());
+// #[allow(clippy::cast_sign_loss)]
+// let size = (positions.len() as f64).sqrt().ceil() as usize;
+// println!("The image will be {size}x{size}.");
+
+// let mut pixel_data = vec![0u8; size * size * 3];
+// for (i, position) in positions.into_iter().enumerate() {
+//     let r = if d0.contains_key(&position) { 255 } else { 0 };
+//     let g = if d1.contains_key(&position) { 255 } else { 0 };
+//     let b = if u0.contains_key(&position) { 255 } else { 0 };
+
+//     let offset = i * 3;
+//     pixel_data[offset] = r;
+//     pixel_data[offset + 1] = g;
+//     pixel_data[offset + 2] = b;
+// }
+
+// let img = RgbImage::from_raw(size as u32, size as u32, pixel_data).unwrap();
+// img.save("test.png").unwrap();
+
+fn get_positions(path: impl AsRef<Path>) -> Result<impl Iterator<Item = Env>, std::io::Error> {
+    get_replays(path).map(|replays| replays.flat_map(|replay| replay.states().collect::<Vec<_>>()))
+}
+
+fn sample_positions_into_set(
+    path: impl AsRef<Path>,
+    amount: usize,
+    rng: &mut impl Rng,
+) -> HashSet<Env> {
+    get_positions(path)
+        .expect("Path to replays should be valid")
+        .choose_multiple(rng, amount)
+        .into_iter()
+        .collect()
+}
+
+fn main() {
+    const AMOUNT: usize = 1_000_000;
+    const SEED: u64 = 12345;
+    let mut rng = StdRng::seed_from_u64(SEED);
+
+    let positions_a = sample_positions_into_set("undirected_replays.txt", AMOUNT, &mut rng);
+    let positions_b = sample_positions_into_set("naive_replays.txt", AMOUNT, &mut rng);
+
+    let positions_both = positions_a.intersection(&positions_b);
+    let positions_unique_a = positions_a.difference(&positions_b);
+    let positions_unique_b = positions_b.difference(&positions_a);
+
+    println!(
+        "{} {} {} {} {}",
+        positions_a.len(),          // 949082
+        positions_b.len(),          // 967876
+        positions_both.count(),     // 7660
+        positions_unique_a.count(), // 941422
+        positions_unique_b.count()  // 960216
+    );
 }
