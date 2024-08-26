@@ -1223,7 +1223,6 @@ dependencies = [
 name = "puzzle"
 version = "0.1.0"
 dependencies = [
- "charming",
  "clap",
  "env_logger",
  "fast-tak",
