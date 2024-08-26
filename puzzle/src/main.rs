@@ -137,7 +137,7 @@ fn tinue(connection: &Connection, depth: i64) -> Statement {
         -- AND instr(tps, "2C") > 0
         AND puzzles.tinue_length = :depth
         AND puzzles.tinue_avoidance_length IS NULL
-        -- AND puzzles.tiltak_2komi_second_move_eval < 0.7
+        AND puzzles.tiltak_2komi_second_move_eval < 0.9
     ORDER BY puzzles.game_id ASC"#;
     let mut statement = connection.prepare(query).unwrap();
     statement
@@ -155,7 +155,7 @@ fn avoidance(connection: &Connection, depth: i64) -> Statement {
         -- AND instr(tps, "2C") > 0
         AND puzzles.tinue_avoidance_length = :depth
         AND puzzles.tinue_length IS NULL
-        -- AND puzzles.tiltak_2komi_eval > 0.7
+        AND puzzles.tiltak_2komi_eval > 0.9
     ORDER BY game_id ASC"#;
     let mut statement = connection.prepare(query).unwrap();
     statement
