@@ -1,9 +1,5 @@
-#![feature(iter_array_chunks)]
-
 use std::{
-    fmt::Write,
-    fs::OpenOptions,
-    io::{BufRead, BufReader, Write as _},
+    io::{BufRead, Write as _},
     path::PathBuf,
 };
 
@@ -21,13 +17,12 @@ use takzero::{
         env::Environment,
         node::{batched::BatchedMCTS, Node},
     },
-    target::Replay,
 };
 use tch::Device;
 
 const DEVICE: Device = Device::Cuda(0);
 const BETA: f32 = 0.0;
-const BATCH_SIZE: usize = 128;
+// const BATCH_SIZE: usize = 128;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -42,44 +37,45 @@ struct Args {
     tps: Option<Tps>,
 }
 
-#[allow(unused)]
-fn gather_policy_data(agent: &Net, rng: &mut impl Rng) {
-    let file = OpenOptions::new().read(true).open("replays.txt").unwrap();
-    let env_batches = BufReader::new(file)
-        .lines()
-        .filter_map(|line| line.ok()?.parse::<Replay<Env>>().ok())
-        .choose_multiple(rng, 1024)
-        .into_iter()
-        .map(|mut replay| {
-            replay.advance(rng.gen_range(0..replay.len()));
-            replay.env
-        })
-        .array_chunks::<BATCH_SIZE>()
-        .collect::<Vec<_>>();
+// #[allow(unused)]
+// fn gather_policy_data(agent: &Net, rng: &mut impl Rng) {
+//     let file = OpenOptions::new().read(true).open("replays.txt").unwrap();
+//     let env_batches = BufReader::new(file)
+//         .lines()
+//         .filter_map(|line| line.ok()?.parse::<Replay<Env>>().ok())
+//         .choose_multiple(rng, 1024)
+//         .into_iter()
+//         .map(|mut replay| {
+//             replay.advance(rng.gen_range(0..replay.len()));
+//             replay.env
+//         })
+//         .array_chunks::<BATCH_SIZE>()
+//         .collect::<Vec<_>>();
 
-    let mut line = String::new();
-    for envs in env_batches {
-        let mut batched_mcts = BatchedMCTS::from_envs(envs);
+//     let mut line = String::new();
+//     for envs in env_batches {
+//         let mut batched_mcts = BatchedMCTS::from_envs(envs);
 
-        // for _ in 0..800 {
-        //     batched_mcts.simulate(&agent, &[BETA; 128]);
-        // }
-        batched_mcts.gumbel_sequential_halving(agent, &[BETA; 128], 64, 768, rng);
+//         // for _ in 0..800 {
+//         //     batched_mcts.simulate(&agent, &[BETA; 128]);
+//         // }
+//         batched_mcts.gumbel_sequential_halving(agent, &[BETA; 128], 64, 768,
+// rng);
 
-        for (node, _) in batched_mcts.nodes_and_envs() {
-            line.clear();
-            node.children.iter().for_each(|(a, child)| {
-                write!(
-                    &mut line,
-                    "{a}:{}:{}:{}:{},",
-                    child.visit_count, child.evaluation, child.std_dev, child.logit
-                )
-                .unwrap();
-            });
-            println!("{line}");
-        }
-    }
-}
+//         for (node, _) in batched_mcts.nodes_and_envs() {
+//             line.clear();
+//             node.children.iter().for_each(|(a, child)| {
+//                 write!(
+//                     &mut line,
+//                     "{a}:{}:{}:{}:{},",
+//                     child.visit_count, child.evaluation, child.std_dev,
+// child.logit                 )
+//                 .unwrap();
+//             });
+//             println!("{line}");
+//         }
+//     }
+// }
 
 fn main() {
     let args = Args::parse();
