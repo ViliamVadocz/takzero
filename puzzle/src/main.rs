@@ -72,7 +72,7 @@ fn real_main() {
 
     let mut points = Vec::new();
     for path in paths {
-        let Ok(net) = Net::load(&path, DEVICE) else {
+        let Ok(net) = Net::load_partial(&path, DEVICE) else {
             log::warn!("Cannot load {}", path.display());
             continue;
         };
@@ -85,14 +85,21 @@ fn real_main() {
         };
         log::info!("Benchmarking {}", path.display());
 
-        let depth_3 = benchmark(&net, tinue(&connection, 3, 512), true);
-        let depth_5 = benchmark(&net, tinue(&connection, 5, 384), true);
-        let depth_7 = benchmark(&net, tinue(&connection, 7, 128), true);
-        let depth_9 = benchmark(&net, tinue(&connection, 9, 128), true);
-
-        let depth_2 = benchmark(&net, avoidance(&connection, 2, 256), false);
-        let depth_4 = benchmark(&net, avoidance(&connection, 4, 128), false);
-        let depth_6 = benchmark(&net, avoidance(&connection, 6, 128), false);
+        log::info!("Depth 3");
+        let depth_3 = benchmark(&net, tinue(&connection, 3), true);
+        log::info!("Depth 5");
+        let depth_5 = benchmark(&net, tinue(&connection, 5), true);
+        log::info!("Depth 7");
+        let depth_7 = benchmark(&net, tinue(&connection, 7), true);
+        log::info!("Depth 9");
+        let depth_9 = benchmark(&net, tinue(&connection, 9), true);
+        
+        log::info!("Depth 2");
+        let depth_2 = benchmark(&net, avoidance(&connection, 2), false);
+        log::info!("Depth 4");
+        let depth_4 = benchmark(&net, avoidance(&connection, 4), false);
+        log::info!("Depth 6");
+        let depth_6 = benchmark(&net, avoidance(&connection, 6), false);
 
         points.push(Point {
             model_steps,
@@ -127,49 +134,37 @@ impl PuzzleResult {
     }
 }
 
-fn tinue(connection: &Connection, depth: i64, limit: i64) -> Statement {
+fn tinue(connection: &Connection, depth: i64) -> Statement {
     let query = r#"SELECT * FROM puzzles
     JOIN games ON puzzles.game_id = games.id
     WHERE games.size = 6 
-        AND instr(tps, "1C") > 0
-        AND instr(tps, "2C") > 0
+        -- AND instr(tps, "1C") > 0
+        -- AND instr(tps, "2C") > 0
         AND puzzles.tinue_length = :depth
         AND puzzles.tinue_avoidance_length IS NULL
-        AND puzzles.tiltak_2komi_second_move_eval < 0.7
-    ORDER BY puzzles.game_id ASC
-    LIMIT :limit"#;
+        -- AND puzzles.tiltak_2komi_second_move_eval < 0.7
+    ORDER BY puzzles.game_id ASC"#;
     let mut statement = connection.prepare(query).unwrap();
     statement
-        .bind::<&[(_, Value)]>(&[(":depth", depth.into()), (":limit", limit.into())])
+        .bind::<&[(_, Value)]>(&[(":depth", depth.into())])
         .unwrap();
-    assert_eq!(
-        statement.iter().count() as i64,
-        limit,
-        "incorrect amount of puzzles"
-    );
     statement
 }
 
-fn avoidance(connection: &Connection, depth: i64, limit: i64) -> Statement {
+fn avoidance(connection: &Connection, depth: i64) -> Statement {
     let query = r#"SELECT * FROM puzzles
     JOIN games ON puzzles.game_id = games.id
     WHERE games.size = 6 
-        AND instr(tps, "1C") > 0
-        AND instr(tps, "2C") > 0
+        -- AND instr(tps, "1C") > 0
+        -- AND instr(tps, "2C") > 0
         AND puzzles.tinue_avoidance_length = :depth
         AND puzzles.tinue_length IS NULL
-        AND puzzles.tiltak_2komi_eval > 0.7
-    ORDER BY game_id ASC
-    LIMIT :limit"#;
+        -- AND puzzles.tiltak_2komi_eval > 0.7
+    ORDER BY game_id ASC"#;
     let mut statement = connection.prepare(query).unwrap();
     statement
-        .bind::<&[(_, Value)]>(&[(":depth", depth.into()), (":limit", limit.into())])
+        .bind::<&[(_, Value)]>(&[(":depth", depth.into())])
         .unwrap();
-    assert_eq!(
-        statement.iter().count() as i64,
-        limit,
-        "incorrect amount of puzzles"
-    );
     statement
 }
 
@@ -180,7 +175,6 @@ fn benchmark(agent: &Net, statement: Statement, win: bool) -> PuzzleResult {
             let row = row.unwrap();
             let tps: Tps = row.read::<&str, _>("tps").parse().unwrap();
             let solution: Move = row.read::<&str, _>("solution").parse().unwrap();
-            log::debug!("{tps}");
             let game: Env = tps.into();
             (game, solution)
         })
