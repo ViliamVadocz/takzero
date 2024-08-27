@@ -12,7 +12,7 @@ use fast_tak::takparse::Tps;
 use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use takzero::{
     network::{
-        net6_simhash::{Env, Net},
+        net4_simhash::{Env, Net},
         Network,
     },
     search::{
