@@ -39,6 +39,7 @@ struct Args {
     #[arg(long, default_value_t = 1)]
     step: usize,
     /// Path to starting positions
+    #[arg(long)]
     opening_book: Option<PathBuf>,
 }
 
