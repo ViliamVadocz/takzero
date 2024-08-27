@@ -1,12 +1,14 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    fs::OpenOptions,
+    io::{BufWriter, Write},
     path::Path,
 };
 
-use fast_tak::takparse::{Move, MoveKind, Piece, Square};
+use fast_tak::takparse::{Move, MoveKind, Piece, Square, Tps};
 use rand::prelude::*;
 use takzero::{
-    network::net6_simhash::{Env, N},
+    network::net4_simhash::{Env, N},
     search::env::Environment,
     target::get_replays,
 };
@@ -133,24 +135,67 @@ fn sample_positions_into_set(
         .collect()
 }
 
+fn save_positions_to_file(
+    path: impl AsRef<Path>,
+    mut positions: impl Iterator<Item = Env>,
+) -> Result<(), std::io::Error> {
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(false)
+        .truncate(true)
+        .open(path)?;
+    positions
+        .try_fold(BufWriter::new(file), |mut w, p| {
+            let tps: Tps = p.into();
+            writeln!(w, "{tps}")?;
+            Ok(w)
+        })
+        .map(drop)
+}
+
 fn main() {
-    const AMOUNT: usize = 1_000_000;
+    const INITIAL_SAMPLE: usize = 1_000_000;
+    const SECONDARY_SAMPLE: usize = 2000;
     const SEED: u64 = 12345;
     let mut rng = StdRng::seed_from_u64(SEED);
 
-    let positions_a = sample_positions_into_set("undirected_replays.txt", AMOUNT, &mut rng);
-    let positions_b = sample_positions_into_set("naive_replays.txt", AMOUNT, &mut rng);
+    let positions_a =
+        sample_positions_into_set("4x4_undirected_replays.txt", INITIAL_SAMPLE, &mut rng);
+    let positions_b = sample_positions_into_set("4x4_naive_replays.txt", INITIAL_SAMPLE, &mut rng);
 
     let positions_both = positions_a.intersection(&positions_b);
     let positions_unique_a = positions_a.difference(&positions_b);
     let positions_unique_b = positions_b.difference(&positions_a);
 
-    println!(
-        "{} {} {} {} {}",
-        positions_a.len(),          // 949082
-        positions_b.len(),          // 967876
-        positions_both.count(),     // 7660
-        positions_unique_a.count(), // 941422
-        positions_unique_b.count()  // 960216
-    );
+    // dbg!(positions_a.len());
+    // dbg!(positions_b.len());
+    // dbg!(positions_both.count());
+    // dbg!(positions_unique_a.count());
+    // dbg!(positions_unique_b.count());
+
+    save_positions_to_file(
+        "positions_both.opening_book",
+        positions_both
+            .choose_multiple(&mut rng, SECONDARY_SAMPLE)
+            .into_iter()
+            .cloned(),
+    )
+    .unwrap();
+    save_positions_to_file(
+        "positions_only_undirected.opening_book",
+        positions_unique_a
+            .choose_multiple(&mut rng, SECONDARY_SAMPLE)
+            .into_iter()
+            .cloned(),
+    )
+    .unwrap();
+    save_positions_to_file(
+        "positions_only_naive.opening_book",
+        positions_unique_b
+            .choose_multiple(&mut rng, SECONDARY_SAMPLE)
+            .into_iter()
+            .cloned(),
+    )
+    .unwrap();
 }
