@@ -237,7 +237,7 @@ struct IncompleteTarget {
 fn take_a_step(
     batched_mcts: &mut BatchedMCTS<BATCH_SIZE, Env>,
     policy_targets: &mut [Vec<IncompleteTarget>],
-    selected_actions: &[Move],
+    selected_actions: &[Move; BATCH_SIZE],
 ) {
     batched_mcts
         .nodes_and_envs()
