@@ -190,7 +190,10 @@ fn go(net: &Net, env: &Env, node: &mut Node<Env>, go_options: Vec<GoOption>) {
         let visits = node.visit_count as _;
         let elapsed = start.elapsed();
 
-        if batch % BATCHES_PER_INFO == 0 {
+        let done = nodes.is_some_and(|amount| visits >= amount)
+            || move_time.is_some_and(|duration| elapsed >= duration);
+
+        if batch % BATCHES_PER_INFO == 0 || done {
             println!("{}", Output::Info {
                 time: elapsed,
                 nodes: visits,
@@ -199,9 +202,7 @@ fn go(net: &Net, env: &Env, node: &mut Node<Env>, go_options: Vec<GoOption>) {
             });
         }
 
-        if nodes.is_some_and(|amount| visits >= amount)
-            || move_time.is_some_and(|duration| elapsed >= duration)
-        {
+        if done {
             break;
         }
     }
