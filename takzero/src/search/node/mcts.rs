@@ -304,6 +304,11 @@ impl<E: Environment> Node<E> {
             }
         }
 
+        // Ensure we don't call `policy_value_uncertainty` with empty inputs
+        if trajectories.is_empty() {
+            return;
+        }
+
         for ((policy, value, uncertainty), trajectory) in agent
             .policy_value_uncertainty(&envs, &actionss)
             .zip(trajectories)
