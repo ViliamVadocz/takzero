@@ -143,15 +143,15 @@ impl<E: Environment> Node<E> {
         mut trajectory: impl Iterator<Item = usize>,
         eval: Eval,
     ) -> Propagated {
+        #[cfg(feature = "virtual")]
+        {
+            self.virtual_visits -= 1;
+        }
         if let Some(index) = trajectory.next() {
             let Propagated {
                 eval: child_eval,
                 variance: child_variance,
             } = self.children[index].1.backward_known_eval(trajectory, eval);
-            #[cfg(feature = "virtual")]
-            {
-                self.virtual_visits -= 1;
-            }
             self.propagate_child_eval(child_eval, child_variance)
         } else {
             // Leaf reached, time to propagate upwards.
@@ -175,6 +175,10 @@ impl<E: Environment> Node<E> {
         value: f32,
         variance: f32,
     ) -> Propagated {
+        #[cfg(feature = "virtual")]
+        {
+            self.virtual_visits -= 1;
+        }
         if let Some(index) = trajectory.next() {
             let Propagated {
                 eval: child_eval,
@@ -182,10 +186,6 @@ impl<E: Environment> Node<E> {
             } = self.children[index]
                 .1
                 .backward_network_eval(trajectory, policy, value, variance);
-            #[cfg(feature = "virtual")]
-            {
-                self.virtual_visits -= 1;
-            }
             self.propagate_child_eval(child_eval, child_variance)
         } else {
             // Update mean value and standard deviation.
@@ -260,6 +260,70 @@ impl<E: Environment> Node<E> {
                     uncertainty,
                 )
             }
+        }
+    }
+
+    /// A batched version of simulate that does both forward
+    /// and backward steps of MCTS on a single node.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the agent does not return a prediction
+    /// when needed.
+    pub fn simulate_batch<A: Agent<E>>(
+        &mut self,
+        agent: &A,
+        env: &E,
+        beta: f32,
+        batch_size: usize,
+    ) {
+        let mut trajectories = Vec::with_capacity(64);
+        let mut actionss = Vec::with_capacity(64);
+        let mut envs = Vec::with_capacity(64);
+
+        // Limit forward passes to some arbitrary number larger than batch_size to
+        // ensure hitting known nodes doesn't usually make the batch smaller.
+        for _ in 0..batch_size * 4 {
+            let mut trajectory = Vec::new();
+            match self.forward(&mut trajectory, env.clone(), beta) {
+                Forward::Known(eval) => _ = self.backward_known_eval(trajectory.into_iter(), eval),
+                Forward::NeedsNetwork(env) => {
+                    trajectories.push(trajectory);
+
+                    let mut actions = Vec::new();
+                    env.populate_actions(&mut actions);
+                    actionss.push(actions);
+
+                    envs.push(env);
+                }
+            }
+
+            // Cut the loop short if we filled our batch (typical termination condition).
+            if trajectories.len() == batch_size {
+                break;
+            }
+        }
+
+        for ((policy, value, uncertainty), trajectory) in agent
+            .policy_value_uncertainty(&envs, &actionss)
+            .zip(trajectories)
+        {
+            // Calculate probabilities from logits.
+            let probabilities = softmax(policy.clone().into_iter().map(|(_, p)| p));
+            // Do backwards pass.
+            self.backward_network_eval(
+                trajectory.into_iter(),
+                policy
+                    .into_iter()
+                    .zip(probabilities)
+                    .map(|((action, logit), probability)| ActionPolicy {
+                        action,
+                        logit,
+                        probability,
+                    }),
+                value,
+                uncertainty,
+            );
         }
     }
 }
