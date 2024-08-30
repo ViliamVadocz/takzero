@@ -14,7 +14,8 @@ use thiserror::Error;
 mod protocol;
 
 const MAX_ERRORS_IN_A_ROW: usize = 5;
-const BATCHES_PER_INFO: usize = 100;
+const BATCHES_PER_INFO: usize = 20;
+const BATCH_SIZE: usize = 128;
 
 #[allow(clippy::too_many_lines)]
 fn main() {
@@ -184,7 +185,7 @@ fn go(net: &Net, env: &Env, node: &mut Node<Env>, go_options: Vec<GoOption>) {
 
     let start = Instant::now();
     for batch in 1.. {
-        node.simulate_batch(net, env, BETA, 128);
+        node.simulate_batch(net, env, BETA, BATCH_SIZE);
 
         let visits = node.visit_count as _;
         let elapsed = start.elapsed();
