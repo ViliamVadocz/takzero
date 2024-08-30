@@ -277,9 +277,9 @@ impl<E: Environment> Node<E> {
         beta: f32,
         batch_size: usize,
     ) {
-        let mut trajectories = Vec::with_capacity(64);
-        let mut actionss = Vec::with_capacity(64);
-        let mut envs = Vec::with_capacity(64);
+        let mut trajectories = Vec::with_capacity(batch_size);
+        let mut actionss = Vec::with_capacity(batch_size);
+        let mut envs = Vec::with_capacity(batch_size);
 
         // Limit forward passes to some arbitrary number larger than batch_size to
         // ensure hitting known nodes doesn't usually make the batch smaller.
