@@ -126,14 +126,7 @@ impl<E: Environment> Node<E> {
     #[inline]
     #[must_use]
     pub fn q_value(&self) -> NotNan<f32> {
-        #[cfg(feature = "virtual")]
-        {
-            let negated_eval: NotNan<f32> = self.evaluation.negate().into();
-            let multiplied_by_count = negated_eval * self.visit_count as f32;
-            let including_virtual_losses = multiplied_by_count + self.virtual_visits as f32;
-            including_virtual_losses / self.visit_count() as f32
-        }
-        #[cfg(not(feature = "virtual"))]
+        // FIXME: Implement virtual losses
         self.evaluation.negate().into()
     }
 
