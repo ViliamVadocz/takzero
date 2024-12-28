@@ -14,7 +14,7 @@ pub mod policy;
 #[rustfmt::skip]
 pub struct Node<E: Environment> {
     pub evaluation: Eval,         // V(s_t) or Q(s_prev, a)
-    pub visit_count: u32,         // N(s_prev, a)
+    pub visit_count: u32,         // N(s_prev, a), incremented in forward pass
     #[cfg(feature = "virtual")]
     pub virtual_visits: u32,      // count number of unevaluated trajectories through this node
     pub logit: NotNan<f32>,       // log(P(s_prev, a)) (network output)
@@ -108,25 +108,23 @@ impl<E: Environment> Node<E> {
         self.evaluation.ply().is_some_and(|ply| ply == 0)
     }
 
-    /// Returns the visit count, accounting for virtual visits
-    /// if the feature is enabled.
-    #[inline]
-    #[must_use]
-    pub const fn visit_count(&self) -> u32 {
-        #[cfg(feature = "virtual")]
-        {
-            self.visit_count + self.virtual_visits
-        }
-        #[cfg(not(feature = "virtual"))]
-        self.visit_count
-    }
-
     /// Returns the negated value of this node.
     /// When using virtual visits, they are counted as losses.
     #[inline]
     #[must_use]
     pub fn q_value(&self) -> NotNan<f32> {
-        // FIXME: Implement virtual losses
+        #[cfg(feature = "virtual")]
+        {
+            // v' = (v (n* - L) - L) / n*
+            // v' = v ((n* - L) / n*) - (L / n*)
+            let negated_eval: NotNan<f32> = self.evaluation.negate().into();
+            let completed_visits =
+                (self.visit_count - self.virtual_visits) as f32 / self.visit_count as f32;
+            let real_eval_scale = completed_visits / self.visit_count as f32;
+            let virtual_losses_term = self.virtual_visits as f32 / self.visit_count as f32;
+            negated_eval * real_eval_scale - virtual_losses_term
+        }
+        #[cfg(not(feature = "virtual"))]
         self.evaluation.negate().into()
     }
 
