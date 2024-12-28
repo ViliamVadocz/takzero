@@ -265,11 +265,6 @@ impl<E: Environment> Node<E> {
 
     /// A batched version of simulate that does both forward
     /// and backward steps of MCTS on a single node.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the agent does not return a prediction
-    /// when needed.
     pub fn simulate_batch<A: Agent<E>>(
         &mut self,
         agent: &A,
