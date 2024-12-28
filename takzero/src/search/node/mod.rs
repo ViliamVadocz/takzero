@@ -42,7 +42,7 @@ struct PrincipalVariation<'a, E: Environment> {
     node: &'a Node<E>,
 }
 
-impl<'a, E: Environment> Iterator for PrincipalVariation<'a, E> {
+impl<E: Environment> Iterator for PrincipalVariation<'_, E> {
     type Item = E::Action;
 
     fn next(&mut self) -> Option<Self::Item> {

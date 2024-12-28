@@ -3,6 +3,7 @@ use ordered_float::NotNan;
 use super::env::Environment;
 
 pub trait Agent<E: Environment> {
+    #[allow(clippy::type_complexity)]
     /// Always batched.
     /// The policy does not have to be normalized (returning logits).
     fn policy_value_uncertainty(
