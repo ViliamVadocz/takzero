@@ -56,7 +56,7 @@ If you find some version works, please let me know so I can add it here.
 ### Windows
 
 Worked:
-- Stable (2.4.0), CUDA 12.4, Release
+- Stable (2.5.1), CUDA 12.4, Release
 
 Did **not** work:
 - TODO
