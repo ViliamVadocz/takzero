@@ -115,14 +115,10 @@ impl<E: Environment> Node<E> {
     pub fn q_value(&self) -> NotNan<f32> {
         #[cfg(feature = "virtual")]
         {
-            // v' = (v (n* - L) - L) / n*
-            // v' = v ((n* - L) / n*) - (L / n*)
-            let negated_eval: NotNan<f32> = self.evaluation.negate().into();
-            let completed_visits =
-                (self.visit_count - self.virtual_visits) as f32 / self.visit_count as f32;
-            let real_eval_scale = completed_visits / self.visit_count as f32;
-            let virtual_losses_term = self.virtual_visits as f32 / self.visit_count as f32;
-            negated_eval * real_eval_scale - virtual_losses_term
+            // https://discord.com/channels/176389490762448897/361023655465058307/1322698913328791724
+            const COEFFICIENT: f32 = 1.0;
+            let loss_frac = COEFFICIENT * self.virtual_visits as f32 / self.visit_count as f32; 
+            self.evaluation.map(|v| v * (1.0 - loss_frac) - loss_frac).negate().into()
         }
         #[cfg(not(feature = "virtual"))]
         self.evaluation.negate().into()
