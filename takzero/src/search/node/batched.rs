@@ -132,8 +132,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
     /// # Panics
     ///
     /// Panics if there are fewer or more actions than `BATCH_SIZE`.
-    pub fn step(&mut self, actions: &[E::Action]) {
-        assert_eq!(actions.len(), BATCH_SIZE);
+    pub fn step(&mut self, actions: &[E::Action; BATCH_SIZE]) {
         self.nodes
             .iter_mut()
             .zip(&mut self.envs)

@@ -1,4 +1,4 @@
-use std::{cmp::Reverse, fmt};
+use std::fmt;
 
 use ordered_float::NotNan;
 
@@ -14,26 +14,25 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut action_info = self.action_info();
-        action_info.sort_by_key(|a| Reverse(a.visit_count));
-        writeln!(
-            f,
-            "((node))  [count: {}]  [std_dev: {:.4}]  [eval: {:+.4}]",
-            self.visit_count, self.std_dev, self.evaluation
-        )?;
+        action_info.sort_by_key(|a| a.visit_count);
         if self.needs_initialization() {
             writeln!(f, "--- This node still needs to be initialized! ---")?;
         } else {
+            for a in action_info {
+                writeln!(f, "{a}")?;
+            }
             // Header for action info
             writeln!(
                 f,
                 "[ action ] [ count ] [ logit ] [ proba ] [ impol ] [ puct ] [ stdev ] [ \
                  evaluation ]"
             )?;
-            for a in action_info {
-                writeln!(f, "{a}")?;
-            }
         }
-        Ok(())
+        writeln!(
+            f,
+            "((node))  [count: {}]  [std_dev: {:.4}]  [eval: {:+.4}]",
+            self.visit_count, self.std_dev, self.evaluation
+        )
     }
 }
 
