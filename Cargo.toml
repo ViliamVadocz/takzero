@@ -27,7 +27,7 @@ debug = true
 # core
 fast-tak = "0.4.1"
 takzero = { path = "takzero" }
-tch = { version = "0.18.1" }
+tch = "0.18.1"
 # rand
 rand = "0.8.5"
 rand_distr = "0.4.3"

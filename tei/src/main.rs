@@ -67,7 +67,7 @@ fn main() {
                     };
                     if half_komi != HALF_KOMI {
                         log::error!(
-                            "half komi of {half_komi} was request, but only {HALF_KOMI} is \
+                            "half komi of {half_komi} was requested, but only {HALF_KOMI} is \
                              supported"
                         );
                         return;
@@ -87,7 +87,11 @@ fn main() {
     };
 
     // Load engine / model.
-    let net = match Net::load_partial(model_path, tch::Device::Cuda(0)) {
+    let device = tch::Device::cuda_if_available();
+    if !device.is_cuda() {
+        log::warn!("CUDA is not available, running on CPU");
+    }
+    let net = match Net::load_partial(model_path, device) {
         Ok(net) => net,
         Err(err) => {
             log::error!("failed to load model: {}", err);
