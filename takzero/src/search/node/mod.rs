@@ -117,11 +117,11 @@ impl<E: Environment> Node<E> {
         {
             // https://discord.com/channels/176389490762448897/361023655465058307/1322698913328791724
             const COEFFICIENT: f32 = 1.0;
-            let loss_frac = COEFFICIENT * self.virtual_visits as f32 / self.visit_count as f32; 
-            self.evaluation.map(|v| v * (1.0 - loss_frac) - loss_frac).negate().into()
+            let loss_frac = NotNan::new(self.virtual_visits as f32 / self.visit_count as f32).unwrap_or_default() * COEFFICIENT; 
+            self.evaluation.map(|v| v * (-loss_frac + 1.0) - loss_frac).negate()
         }
         #[cfg(not(feature = "virtual"))]
-        self.evaluation.negate().into()
+        self.evaluation.negate()
     }
 
     /// Return the best action after search.
