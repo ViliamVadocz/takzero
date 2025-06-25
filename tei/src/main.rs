@@ -1,4 +1,11 @@
-use std::time::Instant;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::TryRecvError,
+        Arc,
+    },
+    time::Instant,
+};
 
 use fast_tak::takparse::Color;
 use protocol::{GoOption, Id, Input, Output, ParseInputError, Position, ValueType};
@@ -15,9 +22,12 @@ mod protocol;
 
 const MAX_ERRORS_IN_A_ROW: usize = 5;
 const BATCHES_PER_INFO: usize = 20;
+const BATCHES_BEFORE_CHECKING_INPUT: usize = 50;
 const BATCH_SIZE: usize = 128;
+const BETA: f32 = 0.0;
 
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::cognitive_complexity)]
 fn main() {
     env_logger::init();
     let mut line = String::new();
@@ -98,19 +108,55 @@ fn main() {
             return;
         }
     };
+
+    // Start thread to parse user input and send it over.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let should_stop = Arc::new(AtomicBool::new(false));
+    let should_stop_2 = should_stop.clone();
+    let input_thread = std::thread::spawn(move || {
+        let should_stop = should_stop_2;
+        let mut errors_in_a_row = 0;
+        while !should_stop.load(Ordering::Relaxed) {
+            match get_input(&stdin, &mut line) {
+                Ok(x) => tx.send(x).expect("Main thread should still be alive."),
+                Err(err) => {
+                    log::error!("{err}");
+                    errors_in_a_row += 1;
+                    if errors_in_a_row >= MAX_ERRORS_IN_A_ROW {
+                        log::error!("there were {MAX_ERRORS_IN_A_ROW} errors in a row");
+                        should_stop.store(true, Ordering::Relaxed);
+                    }
+                    continue;
+                }
+            }
+            errors_in_a_row = 0;
+        }
+    });
+
+    // Ready!
     println!("{}", Output::ReadyOk);
 
     let mut node = Node::default();
     let mut env = Env::default();
     node.simulate_simple(&net, env.clone(), 0.0);
+    let mut going = GoStatus::Stopped;
+    let mut go_options = Vec::new();
 
-    let mut errors_in_a_row = 0;
-    loop {
-        match get_input(&stdin, &mut line) {
+    let mut nodes = None;
+    let mut move_time = None;
+    let mut my_time = None;
+    let mut my_inc = None;
+    let mut visits_at_start = 0;
+    let mut start = Instant::now();
+
+    // Process user input
+    'main_loop: while !should_stop.load(Ordering::Relaxed) {
+        match rx.try_recv() {
             Ok(Input::IsReady) => println!("{}", Output::ReadyOk),
             Ok(Input::NewGame { size }) => {
                 if size != N {
                     log::error!("the engine is compiled only for size {N}");
+                    break 'main_loop;
                 }
                 node = Node::default();
                 env = Env::default();
@@ -128,88 +174,108 @@ fn main() {
                     }
                 }
             }
-            Ok(Input::Quit) => break,
-            Ok(Input::Go(go_options)) => {
-                go(&net, &env, &mut node, go_options);
-                println!("{}", Output::BestMove(node.select_best_action()));
+            Ok(Input::Stop) => {
+                going = GoStatus::Stopping;
             }
-
-            Ok(_) => log::warn!("unhandled message"),
-            Err(err) => {
-                log::error!("{err}");
-                errors_in_a_row += 1;
-                if errors_in_a_row >= MAX_ERRORS_IN_A_ROW {
-                    log::error!("there were {MAX_ERRORS_IN_A_ROW} errors in a row");
-                    return;
-                }
-                continue;
+            Ok(Input::Go(options)) => {
+                go_options.clear();
+                go_options.extend(options);
+                going = GoStatus::Starting;
             }
-        };
-        errors_in_a_row = 0;
-    }
-}
-
-fn go(net: &Net, env: &Env, node: &mut Node<Env>, go_options: Vec<GoOption>) {
-    const BETA: f32 = 0.0;
-
-    let mut nodes = None;
-    let mut move_time = None;
-
-    let mut my_time = None;
-    let mut my_inc = None;
-
-    for option in go_options {
-        match option {
-            GoOption::Nodes(amount) => nodes = Some(amount),
-            GoOption::MoveTime(duration) => move_time = Some(duration),
-            GoOption::WhiteTime(duration) if env.to_move == Color::White => {
-                my_time = Some(duration);
-            }
-            GoOption::BlackTime(duration) if env.to_move == Color::Black => {
-                my_time = Some(duration);
-            }
-            GoOption::WhiteIncrement(duration) if env.to_move == Color::White => {
-                my_inc = Some(duration);
-            }
-            GoOption::BlackIncrement(duration) if env.to_move == Color::Black => {
-                my_inc = Some(duration);
-            }
-            _ => log::warn!("ignored `go` option {option:?}"),
+            Ok(Input::Option { .. }) => log::warn!("it's too late to specify options"),
+            Ok(Input::Tei) => log::warn!("tei does not make sense here"),
+            Ok(Input::Quit) | Err(TryRecvError::Disconnected) => break 'main_loop,
+            Err(TryRecvError::Empty) => {}
         }
-    }
 
-    if nodes.is_none() && move_time.is_none() && (my_time.is_none() || my_inc.is_none()) {
-        log::error!("no understood stopping condition given");
-        return;
-    }
-    // Very basic time management.
-    if let (None, Some(my_time), Some(my_inc)) = (move_time, my_time, my_inc) {
-        move_time = Some(my_time / 10 + 3 * my_inc / 4);
-    }
+        if matches!(going, GoStatus::Starting) {
+            for option in go_options.drain(..) {
+                match option {
+                    GoOption::Nodes(amount) => nodes = Some(amount),
+                    GoOption::MoveTime(duration) => move_time = Some(duration),
+                    GoOption::WhiteTime(duration) if env.to_move == Color::White => {
+                        my_time = Some(duration);
+                    }
+                    GoOption::BlackTime(duration) if env.to_move == Color::Black => {
+                        my_time = Some(duration);
+                    }
+                    GoOption::WhiteIncrement(duration) if env.to_move == Color::White => {
+                        my_inc = Some(duration);
+                    }
+                    GoOption::BlackIncrement(duration) if env.to_move == Color::Black => {
+                        my_inc = Some(duration);
+                    }
+                    GoOption::Infinite => nodes = Some(usize::MAX), // HACK
+                    _ => log::warn!("ignored `go` option {option:?}"),
+                }
+            }
+            if nodes.is_none() && move_time.is_none() && (my_time.is_none() || my_inc.is_none()) {
+                log::warn!("no understood stopping condition given");
+            }
+            // Very basic time management.
+            if let (None, Some(my_time), Some(my_inc)) = (move_time, my_time, my_inc) {
+                move_time = Some(my_time / 10 + 3 * my_inc / 4);
+            }
+            visits_at_start = node.visit_count;
+            start = Instant::now();
+            going = GoStatus::Going;
+        }
 
-    let start = Instant::now();
-    for batch in 1.. {
-        node.simulate_batch(net, env, BETA, BATCH_SIZE);
+        if matches!(going, GoStatus::Going) {
+            for batch in 1.. {
+                node.simulate_batch(&net, &env, BETA, BATCH_SIZE);
+                let visits = (node.visit_count - visits_at_start) as _;
+                let elapsed = start.elapsed();
 
-        let visits = node.visit_count as _;
-        let elapsed = start.elapsed();
+                let done = nodes.is_some_and(|amount| visits >= amount)
+                    || move_time.is_some_and(|duration| elapsed >= duration);
 
-        let done = nodes.is_some_and(|amount| visits >= amount)
-            || move_time.is_some_and(|duration| elapsed >= duration);
+                if batch % BATCHES_PER_INFO == 0 {
+                    println!("{}", Output::Info {
+                        time: elapsed,
+                        nodes: visits,
+                        score: node.evaluation,
+                        principal_variation: node.principal_variation().collect(),
+                    });
+                }
+                if done {
+                    going = GoStatus::Stopping;
+                    break;
+                }
+                // Go check for `stop`.
+                if batch >= BATCHES_BEFORE_CHECKING_INPUT {
+                    continue 'main_loop;
+                }
+            }
+        }
 
-        if batch % BATCHES_PER_INFO == 0 || done {
+        if matches!(going, GoStatus::Stopping) {
             println!("{}", Output::Info {
-                time: elapsed,
-                nodes: visits,
+                time: start.elapsed(),
+                nodes: (node.visit_count - visits_at_start) as _,
                 score: node.evaluation,
                 principal_variation: node.principal_variation().collect(),
             });
-        }
-
-        if done {
-            break;
+            println!("{}", Output::BestMove(node.select_best_action()));
+            nodes = None;
+            move_time = None;
+            my_time = None;
+            my_inc = None;
+            going = GoStatus::Stopped;
         }
     }
+
+    should_stop.store(true, Ordering::Relaxed);
+    input_thread
+        .join()
+        .expect("Input thread should shut down gracefully.");
+}
+
+enum GoStatus {
+    Stopped,
+    Starting,
+    Going,
+    Stopping,
 }
 
 #[derive(Debug, Error)]

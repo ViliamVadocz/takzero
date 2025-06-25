@@ -22,7 +22,7 @@ pub enum Input {
         moves: Vec<Move>,
     },
     Go(Vec<GoOption>),
-    // Stop,
+    Stop,
     Quit,
 }
 
@@ -37,7 +37,7 @@ pub enum GoOption {
     BlackTime(Duration),
     WhiteIncrement(Duration),
     BlackIncrement(Duration),
-    // Infinite,
+    Infinite,
     MoveTime(Duration),
     Nodes(usize),
 }
@@ -145,13 +145,13 @@ impl FromStr for Input {
                                 .parse()?;
                             GoOption::Nodes(amount)
                         }
-                        // "infinite" => GoOption::Infinite,
+                        "infinite" => GoOption::Infinite,
                         _ => return Err(ParseInputError::Unrecognized),
                     });
                 }
                 Ok(Self::Go(go_options))
             }
-            // "stop" => Ok(Self::Stop),
+            "stop" => Ok(Self::Stop),
             "quit" => Ok(Self::Quit),
             _ => Err(ParseInputError::Unrecognized),
         }
