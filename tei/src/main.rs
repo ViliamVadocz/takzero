@@ -26,8 +26,8 @@ const BATCHES_BEFORE_CHECKING_INPUT: usize = 50;
 const BATCH_SIZE: usize = 128;
 const BETA: f32 = 0.0;
 
-#[allow(clippy::too_many_lines)]
-#[allow(clippy::cognitive_complexity)]
+#[allow(clippy::too_many_lines)] // FIXME
+#[allow(clippy::cognitive_complexity)] // FIXME
 fn main() {
     env_logger::init();
     let mut line = String::new();
@@ -139,7 +139,7 @@ fn main() {
     let mut node = Node::default();
     let mut env = Env::default();
     node.simulate_simple(&net, env.clone(), 0.0);
-    let mut going = GoStatus::Stopped;
+    let mut go_status = GoStatus::Stopped;
     let mut go_options = Vec::new();
 
     let mut nodes = None;
@@ -175,12 +175,12 @@ fn main() {
                 }
             }
             Ok(Input::Stop) => {
-                going = GoStatus::Stopping;
+                go_status = GoStatus::Stopping;
             }
             Ok(Input::Go(options)) => {
                 go_options.clear();
                 go_options.extend(options);
-                going = GoStatus::Starting;
+                go_status = GoStatus::Starting;
             }
             Ok(Input::Option { .. }) => log::warn!("it's too late to specify options"),
             Ok(Input::Tei) => log::warn!("tei does not make sense here"),
@@ -188,7 +188,7 @@ fn main() {
             Err(TryRecvError::Empty) => {}
         }
 
-        if matches!(going, GoStatus::Starting) {
+        if matches!(go_status, GoStatus::Starting) {
             for option in go_options.drain(..) {
                 match option {
                     GoOption::Nodes(amount) => nodes = Some(amount),
@@ -218,10 +218,10 @@ fn main() {
             }
             visits_at_start = node.visit_count;
             start = Instant::now();
-            going = GoStatus::Going;
+            go_status = GoStatus::Going;
         }
 
-        if matches!(going, GoStatus::Going) {
+        if matches!(go_status, GoStatus::Going) {
             for batch in 1.. {
                 node.simulate_batch(&net, &env, BETA, BATCH_SIZE);
                 let visits = (node.visit_count - visits_at_start) as _;
@@ -239,7 +239,7 @@ fn main() {
                     });
                 }
                 if done {
-                    going = GoStatus::Stopping;
+                    go_status = GoStatus::Stopping;
                     break;
                 }
                 // Go check for `stop`.
@@ -249,7 +249,7 @@ fn main() {
             }
         }
 
-        if matches!(going, GoStatus::Stopping) {
+        if matches!(go_status, GoStatus::Stopping) {
             println!("{}", Output::Info {
                 time: start.elapsed(),
                 nodes: (node.visit_count - visits_at_start) as _,
@@ -261,7 +261,7 @@ fn main() {
             move_time = None;
             my_time = None;
             my_inc = None;
-            going = GoStatus::Stopped;
+            go_status = GoStatus::Stopped;
         }
     }
 
