@@ -242,7 +242,7 @@ impl fmt::Display for Output {
                 score,
                 principal_variation,
             } => {
-                let centipawns = (f32::from(*score) * 100.0) as i32;
+                let centipawns = (f32::from(*score) * 100.0).round() as i32;
                 write!(
                     f,
                     "info time {} nodes {nodes} nps {}",
