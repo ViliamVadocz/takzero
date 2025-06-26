@@ -21,7 +21,7 @@ use thiserror::Error;
 mod protocol;
 
 const MAX_ERRORS_IN_A_ROW: usize = 5;
-const DURATION_BETWEEN_INFO_PRINTS: Duration = Duration::from_millis(200);
+const DURATION_BETWEEN_INFO_PRINTS: Duration = Duration::from_millis(300);
 const DURATION_BEFORE_CHECKING_INPUT: Duration = Duration::from_secs(1);
 const BATCH_SIZE: usize = 128;
 const BETA: f32 = 0.0;
