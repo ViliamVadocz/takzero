@@ -8,6 +8,7 @@ target/
 *.db
 *.exe
 *.ot
+*.book
 
 _data/
 _models/
