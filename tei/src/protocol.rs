@@ -249,11 +249,13 @@ impl fmt::Display for Output {
                     time.as_millis(),
                     1000 * nodes / time.as_millis() as usize,
                 )?;
-                if let Some(ply) = score.ply() {
-                    write!(f, " score mate {ply}")?;
-                } else {
-                    write!(f, " score cp {centipawns}")?;
+                match score {
+                    Eval::Win(ply) => write!(f, " score mate {}", ply.div_ceil(2))?,
+                    Eval::Loss(ply) => write!(f, " score mate -{}", ply.div_ceil(2))?,
+                    // Eval::Draw(ply) => write!(f, "score mate {}", ply.div_ceil(2))?,
+                    _ => {}
                 }
+                write!(f, " score cp {centipawns}")?;
                 write!(f, " pv")?;
                 for mv in principal_variation {
                     write!(f, " {mv}")?;
