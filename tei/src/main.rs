@@ -4,7 +4,7 @@ use std::{
         mpsc::TryRecvError,
         Arc,
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use fast_tak::takparse::Color;
@@ -21,8 +21,8 @@ use thiserror::Error;
 mod protocol;
 
 const MAX_ERRORS_IN_A_ROW: usize = 5;
-const BATCHES_PER_INFO: usize = 20;
-const BATCHES_BEFORE_CHECKING_INPUT: usize = 50;
+const DURATION_BETWEEN_INFO_PRINTS: Duration = Duration::from_millis(200);
+const DURATION_BEFORE_CHECKING_INPUT: Duration = Duration::from_secs(1);
 const BATCH_SIZE: usize = 128;
 const BETA: f32 = 0.0;
 
@@ -148,9 +148,12 @@ fn main() {
     let mut my_inc = None;
     let mut visits_at_start = 0;
     let mut start = Instant::now();
+    let mut last_info = Instant::now();
+    let mut sent_info = false;
 
     // Process user input
     'main_loop: while !should_stop.load(Ordering::Relaxed) {
+        let last_checked_input = Instant::now();
         match rx.try_recv() {
             Ok(Input::IsReady) => println!("{}", Output::ReadyOk),
             Ok(Input::NewGame { size }) => {
@@ -217,12 +220,14 @@ fn main() {
                 move_time = Some(my_time / 10 + 3 * my_inc / 4);
             }
             visits_at_start = node.visit_count;
+            sent_info = false;
+            last_info = Instant::now();
             start = Instant::now();
             go_status = GoStatus::Going;
         }
 
         if matches!(go_status, GoStatus::Going) {
-            for batch in 1.. {
+            loop {
                 node.simulate_batch(&net, &env, BETA, BATCH_SIZE);
                 let visits = (node.visit_count - visits_at_start) as _;
                 let elapsed = start.elapsed();
@@ -230,32 +235,36 @@ fn main() {
                 let done = nodes.is_some_and(|amount| visits >= amount)
                     || move_time.is_some_and(|duration| elapsed >= duration);
 
-                if batch % BATCHES_PER_INFO == 0 {
+                if last_info.elapsed() >= DURATION_BETWEEN_INFO_PRINTS {
                     println!("{}", Output::Info {
                         time: elapsed,
                         nodes: visits,
                         score: node.evaluation,
                         principal_variation: node.principal_variation().collect(),
                     });
+                    sent_info = true;
+                    last_info = Instant::now();
                 }
                 if done {
                     go_status = GoStatus::Stopping;
                     break;
                 }
                 // Go check for `stop`.
-                if batch >= BATCHES_BEFORE_CHECKING_INPUT {
+                if last_checked_input.elapsed() >= DURATION_BEFORE_CHECKING_INPUT {
                     continue 'main_loop;
                 }
             }
         }
 
         if matches!(go_status, GoStatus::Stopping) {
-            println!("{}", Output::Info {
-                time: start.elapsed(),
-                nodes: (node.visit_count - visits_at_start) as _,
-                score: node.evaluation,
-                principal_variation: node.principal_variation().collect(),
-            });
+            if !sent_info {
+                println!("{}", Output::Info {
+                    time: start.elapsed(),
+                    nodes: (node.visit_count - visits_at_start) as _,
+                    score: node.evaluation,
+                    principal_variation: node.principal_variation().collect(),
+                });
+            }
             println!("{}", Output::BestMove(node.select_best_action()));
             nodes = None;
             move_time = None;
