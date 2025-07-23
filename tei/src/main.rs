@@ -154,7 +154,11 @@ fn main() {
     // Process user input
     'main_loop: while !should_stop.load(Ordering::Relaxed) {
         let last_checked_input = Instant::now();
-        match rx.try_recv() {
+        match if matches!(go_status, GoStatus::Stopped) {
+            rx.recv().map_err(|_| TryRecvError::Disconnected)
+        } else {
+            rx.try_recv()
+        } {
             Ok(Input::IsReady) => println!("{}", Output::ReadyOk),
             Ok(Input::NewGame { size }) => {
                 if size != N {
