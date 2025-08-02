@@ -250,6 +250,15 @@ impl fmt::Display for Output {
                     1000 * nodes / time.as_millis() as usize,
                 )?;
                 match score {
+                    Eval::Win(_) => write!(f, " wdl 1000 0 0")?,
+                    Eval::Loss(_) => write!(f, " wdl 0 0 1000")?,
+                    Eval::Draw(_) => write!(f, " wdl 0 1000 0")?,
+                    Eval::Value(_) => {
+                        let score_per_mille = 500 + (f32::from(*score) * 500.0).round() as i32;
+                        write!(f, " wdl {} 0 {}", score_per_mille, 1000 - score_per_mille)?
+                    }
+                }
+                match score {
                     Eval::Win(ply) => write!(f, " score mate {}", ply.div_ceil(2))?,
                     Eval::Loss(ply) => write!(f, " score mate -{}", ply.div_ceil(2))?,
                     // Eval::Draw(ply) => write!(f, "score mate {}", ply.div_ceil(2))?,
