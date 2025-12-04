@@ -12,6 +12,7 @@ fast-tak.workspace = true
 takzero = { workspace = true, features = ["virtual"] }
 tch.workspace = true
 thiserror.workspace = true
+rand.workspace = true
 
 [lints]
 workspace = true

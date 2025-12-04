@@ -12,7 +12,7 @@ rand.workspace = true
 rayon.workspace = true
 takzero.workspace = true
 tch.workspace = true
-sqlite = "0.36.0"
+sqlite = "0.37.0"
 
 [lints]
 workspace = true
