@@ -54,7 +54,7 @@ for installation instructions.
 
 It's very likely that a newer version of LibTorch has been released
 since I have updated the repository last. My recommendation is to
-download the newest and update the `tch-rs` version in `Cargo.toml`
+download the newest and update the `tch` version in `Cargo.toml`
 to match.
 
 ### Environment Variables
@@ -79,7 +79,7 @@ I managed to build this repository on my Raspberry Pi. Here are the steps I foll
 3. `source .venv/bin/activate` to activate the virtual environment
 4. [install `rustup`](https://rust-lang.org/tools/install/) and get the default toolchain for your system
 5. `git clone` this repository
-6. update `tch-rs` in `Cargo.toml` to the latest version
+6. update `tch` in `Cargo.toml` to the latest version
 7. [install the mold linker](https://github.com/rui314/mold) so that I can link on ARM
 8. add a `.cargo/config.toml` with
 ```toml
