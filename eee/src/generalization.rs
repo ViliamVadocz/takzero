@@ -21,7 +21,7 @@ mod utils;
 fn main() {
     let mut rng = rand::rngs::StdRng::seed_from_u64(432);
 
-    let mut net = Net::new(DEVICE, Some(rng.gen()));
+    let mut net = Net::new(DEVICE, Some(rng.random()));
 
     let mut positions = Vec::new();
     let mut seen_positions = HashSet::new();

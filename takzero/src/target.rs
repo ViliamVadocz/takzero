@@ -39,7 +39,7 @@ where
     Reserves<N>: Default,
 {
     fn augment(&self, rng: &mut impl Rng) -> Self {
-        let index = rng.gen_range(0..8);
+        let index = rng.random_range(0..8);
         Self {
             env: self.env.symmetries().into_iter().nth(index).unwrap(),
             value: self.value,

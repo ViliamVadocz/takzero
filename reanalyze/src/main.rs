@@ -61,7 +61,7 @@ fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    let seed: u64 = rand::thread_rng().gen();
+    let seed: u64 = rand::rng().random();
     log::info!("seed = {seed}");
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
@@ -148,12 +148,12 @@ fn main() {
         #[cfg(feature = "exploration")]
         batch.extend(
             exploration_buffer
-                .choose_multiple(&mut rng, EXPLORATION_POSITIONS_IN_BATCH)
+                .sample(&mut rng, EXPLORATION_POSITIONS_IN_BATCH)
                 .cloned(),
         );
         batch.extend(
             position_buffer
-                .choose_multiple(&mut rng, BATCH_SIZE - batch.len())
+                .sample(&mut rng, BATCH_SIZE - batch.len())
                 .cloned(),
         );
         batched_mcts
@@ -309,7 +309,7 @@ fn get_replays(directory: &Path, _model_steps: u32, rng: &mut impl Rng) -> Vec<R
             )
         })
         .flatten()
-        .choose_multiple(rng, BATCH_SIZE)
+        .sample(rng, BATCH_SIZE)
 }
 
 #[derive(Debug, Error)]

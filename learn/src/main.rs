@@ -100,7 +100,7 @@ fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    let seed: u64 = rand::thread_rng().gen();
+    let seed: u64 = rand::rng().random();
     log::info!("seed = {seed}");
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
@@ -114,7 +114,7 @@ fn main() {
         } else {
             // Initialize a network.
             log::info!("Initializing a network model");
-            let net = Net::new(DEVICE, Some(rng.gen()));
+            let net = Net::new(DEVICE, Some(rng.random()));
             net.save(args.directory.join("model_0000000.ot")).unwrap();
             (net, 0)
         };

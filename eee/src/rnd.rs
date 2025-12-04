@@ -102,7 +102,7 @@ fn main() {
     let seed: u64 = 432;
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
-    tch::manual_seed(rng.gen());
+    tch::manual_seed(rng.random());
     let vs = nn::VarStore::new(DEVICE);
     let root = vs.root();
     let target = rnd(&(&root / "target"), true);
@@ -137,7 +137,7 @@ fn main() {
         .iter()
         .filter(|s| s.ply == 8)
         .cloned()
-        .choose_multiple(&mut rng, BATCH_SIZE);
+        .sample(&mut rng, BATCH_SIZE);
     let early_tensor = Tensor::concat(
         &early_game
             .iter()
@@ -150,7 +150,7 @@ fn main() {
         .iter()
         .filter(|s| s.ply == 60)
         .cloned()
-        .choose_multiple(&mut rng, BATCH_SIZE);
+        .sample(&mut rng, BATCH_SIZE);
     let late_tensor = Tensor::concat(
         &late_game
             .iter()

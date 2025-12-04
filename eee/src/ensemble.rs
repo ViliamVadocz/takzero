@@ -3,8 +3,7 @@ use std::{collections::HashSet, fmt::Write, fs::OpenOptions, io::Write as _};
 use fast_tak::takparse::{Move, Tps};
 use ordered_float::NotNan;
 use rand::{
-    distributions::{Distribution, WeightedIndex},
-    seq::SliceRandom,
+    seq::{IndexedRandom, SliceRandom},
     Rng,
     SeedableRng,
 };
@@ -39,7 +38,7 @@ const FORCED_USES: usize = 4;
 #[allow(clippy::too_many_lines)]
 fn main() {
     let mut rng = rand::rngs::StdRng::seed_from_u64(1_234_567);
-    let net = Net::new(DEVICE, Some(rng.gen()));
+    let net = Net::new(DEVICE, Some(rng.random()));
 
     let mut targets = get_targets::<N, HALF_KOMI>("targets.txt").unwrap();
     let mut self_play: Vec<_> = targets
@@ -272,12 +271,13 @@ fn get_ensemble_targets(
         .iter()
         .map(|(env, policy)| {
             // Select an action proportional to the improved policy.
-            let weighted_index = WeightedIndex::new(policy.iter().map(|(_, p)| p.into_inner()))
+            let action = policy
+                .choose_weighted(rng, |(_, p)| p.into_inner())
                 .expect(
                     "there should be at least one action and the improved policy should not be \
                      negative",
-                );
-            let action = policy[weighted_index.sample(rng)].0;
+                )
+                .0;
             // Take a step in the environment.
             let mut clone = env.clone();
             let Ok(()) = clone.play(action) else {

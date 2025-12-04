@@ -130,7 +130,7 @@ fn sample_positions_into_set(
 ) -> HashSet<Env> {
     get_positions(path)
         .expect("Path to replays should be valid")
-        .choose_multiple(rng, amount)
+        .sample(rng, amount)
         .into_iter()
         .collect()
 }
@@ -177,7 +177,7 @@ fn main() {
     save_positions_to_file(
         "positions_both.opening_book",
         positions_both
-            .choose_multiple(&mut rng, SECONDARY_SAMPLE)
+            .sample(&mut rng, SECONDARY_SAMPLE)
             .into_iter()
             .cloned(),
     )
@@ -185,7 +185,7 @@ fn main() {
     save_positions_to_file(
         "positions_only_undirected.opening_book",
         positions_unique_a
-            .choose_multiple(&mut rng, SECONDARY_SAMPLE)
+            .sample(&mut rng, SECONDARY_SAMPLE)
             .into_iter()
             .cloned(),
     )
@@ -193,7 +193,7 @@ fn main() {
     save_positions_to_file(
         "positions_only_naive.opening_book",
         positions_unique_b
-            .choose_multiple(&mut rng, SECONDARY_SAMPLE)
+            .sample(&mut rng, SECONDARY_SAMPLE)
             .into_iter()
             .cloned(),
     )

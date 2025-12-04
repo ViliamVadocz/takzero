@@ -47,7 +47,7 @@ pub fn reference_batches(
         .iter()
         .filter(|s| s.ply == 8)
         .cloned()
-        .choose_multiple(rng, batch_size);
+        .sample(rng, batch_size);
     let early_tensor = Tensor::concat(
         &early_game
             .iter()
@@ -60,7 +60,7 @@ pub fn reference_batches(
         .iter()
         .filter(|s| s.ply == 60)
         .cloned()
-        .choose_multiple(rng, batch_size);
+        .sample(rng, batch_size);
     let late_tensor = Tensor::concat(
         &late_game
             .iter()

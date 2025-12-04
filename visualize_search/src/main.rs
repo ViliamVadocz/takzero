@@ -68,13 +68,13 @@ fn draw_tree(
             .set("cy", y)
             .set("r", CIRCLE_RADIUS)
             .set("fill", COLOR)
-            .set("opacity", opacity(node.visit_count()))
+            .set("opacity", opacity(node.visit_count))
             .set("tps", Tps::from(env.clone()).to_string()),
     );
 
     let angle_step = (max_angle - min_angle) / node.children.len() as f32;
     for (i, (action, child)) in node.children.iter().enumerate() {
-        if child.visit_count() < 1 {
+        if child.visit_count < 1 {
             continue;
         }
         let angle = min_angle + angle_step * i as f32;
@@ -88,7 +88,7 @@ fn draw_tree(
                 .set("x2", x2)
                 .set("y2", y2)
                 .set("stroke", COLOR)
-                .set("opacity", opacity(child.visit_count()))
+                .set("opacity", opacity(child.visit_count))
                 .set("action", action.to_string()),
         );
         let mut clone = env.clone();

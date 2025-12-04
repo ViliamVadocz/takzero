@@ -9,7 +9,7 @@ use std::{
 
 use clap::Parser;
 use fast_tak::takparse::Tps;
-use rand::{prelude::*, rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
+use rand::{prelude::*, rngs::StdRng, Rng, SeedableRng};
 use takzero::{
     network::{
         net4_simhash::{Env, Net},
@@ -135,7 +135,7 @@ fn main() {
 #[allow(unused)]
 fn real_main() {
     let args = Args::parse();
-    let seed: u64 = thread_rng().gen();
+    let seed: u64 = rand::rng().random();
     log::info!("seed: {seed}");
     let mut rng = StdRng::seed_from_u64(seed);
 
@@ -173,7 +173,7 @@ fn real_main() {
             continue;
         }
 
-        let mut match_up = paths.choose_multiple(&mut rng, 2);
+        let mut match_up = paths.sample(&mut rng, 2);
         let path_a = match_up.next().unwrap();
         let path_b = match_up.next().unwrap();
 
@@ -190,7 +190,7 @@ fn real_main() {
 
         let games: [Env; BATCH_SIZE] = if let Some(openings) = &opening_book {
             openings
-                .choose_multiple(&mut rng, BATCH_SIZE)
+                .sample(&mut rng, BATCH_SIZE)
                 .cloned()
                 .collect::<Vec<_>>()
                 .try_into()
@@ -199,7 +199,7 @@ fn real_main() {
             let mut actions = Vec::new();
 
             array::from_fn(|_| {
-                let steps = rng.gen_range(2..=3);
+                let steps = rng.random_range(2..=3);
                 Env::new_opening_with_random_steps(&mut rng, &mut actions, steps)
             })
         };
@@ -279,7 +279,7 @@ where
 
             // Collect terminals and replays.
             let (terminals, replays): (Vec<_>, Vec<_>) = current
-                .restart_terminal_envs(&mut thread_rng())
+                .restart_terminal_envs(&mut rand::rng())
                 .zip(&mut done)
                 .filter_map(|(x, done)| if *done { None } else { Some((x?, done)) })
                 .map(|(t, done)| {

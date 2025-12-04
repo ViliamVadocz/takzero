@@ -1,6 +1,5 @@
 use ordered_float::NotNan;
-use rand::Rng;
-use rand_distr::{Distribution, WeightedIndex};
+use rand::{seq::IndexedRandom, Rng};
 
 use super::{env::Environment, eval::Eval};
 
@@ -165,15 +164,17 @@ impl<E: Environment> Node<E> {
             self.select_best_action()
         } else if proportional_sample {
             // Select an action randomly, proportional to visits.
-            let weighted_index = WeightedIndex::new(self.children.iter().map(|(_, child)| {
-                if child.visit_count < THRESHOLD_VISITS {
-                    0
-                } else {
-                    child.visit_count
-                }
-            }))
-            .expect("there should be at least one child and visits cannot be negative");
-            self.children[weighted_index.sample(rng)].0.clone()
+            self.children
+                .choose_weighted(rng, |(_, child)| {
+                    if child.visit_count >= THRESHOLD_VISITS {
+                        child.visit_count
+                    } else {
+                        0
+                    }
+                })
+                .expect("there should be at least one child with enough visits")
+                .0
+                .clone()
         } else {
             // Select the action with the most visits.
             self.children

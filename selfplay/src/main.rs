@@ -64,11 +64,11 @@ fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    let seed: u64 = rand::thread_rng().gen();
+    let seed: u64 = rand::rng().random();
     log::info!("seed = {seed}");
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
-    let mut net = Net::new(DEVICE, Some(rng.gen()));
+    let mut net = Net::new(DEVICE, Some(rng.random()));
 
     // Initialize buffers.
     let mut policy_targets: [_; BATCH_SIZE] = std::array::from_fn(|_| Vec::new());

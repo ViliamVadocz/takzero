@@ -1,6 +1,6 @@
 use ordered_float::NotNan;
 use rand::Rng;
-use rand_distr::{Dirichlet, Distribution};
+use rand_distr::{multi::Dirichlet, Distribution};
 
 use super::Node;
 use crate::search::env::Environment;
