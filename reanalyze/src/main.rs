@@ -113,7 +113,7 @@ fn main() {
             &args.directory.join("replays.txt"),
         ) {
             log::error!("Cannot fill position buffer: {err}");
-        };
+        }
 
         // Update exploration buffer.
         #[cfg(feature = "exploration")]

@@ -52,6 +52,7 @@ nursery = { level = "warn", priority = -1 }
 iter_with_drain = "allow"
 # this one is just annoying
 module_name_repetitions = "allow"
+struct_field_names = "allow"
 # comment these out once in a while to check
 cast_precision_loss = "allow"
 cast_possible_truncation = "allow"

@@ -255,7 +255,7 @@ impl fmt::Display for Output {
                     Eval::Draw(_) => write!(f, " wdl 0 1000 0")?,
                     Eval::Value(_) => {
                         let score_per_mille = 500 + (f32::from(*score) * 500.0).round() as i32;
-                        write!(f, " wdl {} 0 {}", score_per_mille, 1000 - score_per_mille)?
+                        write!(f, " wdl {} 0 {}", score_per_mille, 1000 - score_per_mille)?;
                     }
                 }
                 match score {

@@ -104,7 +104,7 @@ fn main() {
     let net = match Net::load_partial(model_path, device) {
         Ok(net) => net,
         Err(err) => {
-            log::error!("failed to load model: {}", err);
+            log::error!("failed to load model: {err}");
             return;
         }
     };

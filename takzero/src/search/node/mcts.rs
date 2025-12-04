@@ -49,7 +49,7 @@ impl<E: Environment> Node<E> {
     fn update_mean_value(&mut self, value: f32) {
         if let Eval::Value(mean_value) = &mut self.evaluation {
             *mean_value += (-*mean_value + value) / (self.visit_count as f32);
-        };
+        }
     }
 
     #[inline]

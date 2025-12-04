@@ -362,7 +362,7 @@ mod tests {
         const BATCH_SIZE: usize = 128;
         const SEED: u64 = 456;
         let mut rng = StdRng::seed_from_u64(SEED);
-        let net = Net::new(Device::cuda_if_available(), Some(rng.gen()));
+        let net = Net::new(Device::cuda_if_available(), Some(rng.random()));
         let mut games: [Env; BATCH_SIZE] =
             array::from_fn(|_| Game::new_opening_with_random_steps(&mut rng, &mut vec![], 10));
         let mut actions_batch: [_; BATCH_SIZE] = array::from_fn(|_| Vec::new());
@@ -379,7 +379,7 @@ mod tests {
         const BATCH_SIZE: usize = 128;
         const SEED: u64 = 456;
         let mut rng = StdRng::seed_from_u64(SEED);
-        let mut net = Net::new(Device::cuda_if_available(), Some(rng.gen()));
+        let mut net = Net::new(Device::cuda_if_available(), Some(rng.random()));
 
         let xs = Tensor::cat(
             &(0..BATCH_SIZE)
@@ -410,7 +410,7 @@ mod tests {
         const BATCH_SIZE: usize = 128;
         const SEED: u64 = 456;
         let mut rng = StdRng::seed_from_u64(SEED);
-        let mut net = Net::new(Device::cuda_if_available(), Some(rng.gen()));
+        let mut net = Net::new(Device::cuda_if_available(), Some(rng.random()));
 
         let xs = Tensor::cat(
             &(0..BATCH_SIZE)

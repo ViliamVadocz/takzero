@@ -326,10 +326,10 @@ mod tests {
                 },
                 policy: actions
                     .iter()
-                    .map(|a| (*a, NotNan::new(rng.gen()).unwrap()))
+                    .map(|a| (*a, NotNan::new(rng.random()).unwrap()))
                     .collect(),
-                value: rng.gen(),
-                ube: rng.gen(),
+                value: rng.random(),
+                ube: rng.random(),
             };
             let string = target.to_string();
             println!("{string}");
