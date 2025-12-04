@@ -1,6 +1,13 @@
 # takzero
 
-An implementation of AlphaZero for the board game Tak. See also https://github.com/ViliamVadocz/tak
+An implementation of AlphaZero for the board game Tak.
+TakZero is arguably one of the strongest engines in Tak along with [Topaz](https://github.com/Jakur/topaz-tak).
+For the network weights reach out to me directly.
+
+This is my second time implementing AlphaZero for Tak. My first was [WilemBot](https://github.com/ViliamVadocz/tak).
+
+This repository is a bit of a mess because I wrote it during my Bachelor's thesis, so there is a lot of experimental and unused code.
+If you wish to use the engine, you only have to build the `tei` binary (i.e. only run `cargo build --release -p tei`).
 
 # Structure
 
@@ -39,35 +46,58 @@ The repository contains several libraries and binaries:
 
 # Building
 
+## LibTorch
+
 You will need the C++ Pytorch library (LibTorch).
 See [tch-rs](https://github.com/LaurentMazare/tch-rs#getting-started)
 for installation instructions.
 
-## LibTorch version
+It's very likely that a newer version of LibTorch has been released
+since I have updated the repository last. My recommendation is to
+download the newest and update the `tch-rs` version in `Cargo.toml`
+to match.
 
-It's possible you may not be able to find these versions anymore.
-In that case try downloading the newest and update the `tch-rs`
-version in `Cargo.toml`.
+### Environment Variables
 
-You may also need to set `LIBTORCH_BYPASS_VERSION_CHECK` to `1`.
+Make sure to set the following environment variables (This assumes Linux):
+```bash
+export LIBTORCH=/absolute/path/to/your/libtorch
+export LIBTORCH_INCLUDE=$LIBTORCH
+export LD_LIBRARY_PATH=$LIBTORCH/lib:$LD_LIBRARY_PATH
+export LD_PRELOAD=$LIBTORCH/lib/libtorch_cpu.so:$LIBTORCH/lib/libtorch.so
+```
 
-If you find some version works, please let me know so I can add it here.
+You may also need to set `LIBTORCH_BYPASS_VERSION_CHECK` to `1` if the latest
+`tch-rs` version is a little behind your version of LibTorch.
 
-### Windows
+## Raspberry Pi
 
-Worked:
-- Stable (2.5.1), CUDA 12.4, Release
+I managed to build this repository on my Raspberry Pi. Here are the steps I followed:
 
-Did **not** work:
-- TODO
-
-### Linux
-
-Worked:
-- TODO
-
-Did **not** work:
-- TODO
+1. [install `uv`](https://docs.astral.sh/uv/getting-started/installation/) and run `uv init` to setup an environment
+2. `uv add torch numpy setuptools` to add the required dependencies
+3. `source .venv/bin/activate` to activate the virtual environment
+4. [install `rustup`](https://rust-lang.org/tools/install/) and get the default toolchain for your system
+5. `git clone` this repository
+6. update `tch-rs` in `Cargo.toml` to the latest version
+7. [install the mold linker](https://github.com/rui314/mold) so that I can link on ARM
+8. add a `.cargo/config.toml` with
+```toml
+[target.aarch64-unknown-linux-gnu]
+linker = "/usr/bin/clang"
+rustflags = ["-C", "link-arg=--ld-path=/usr/bin/mold", "-C", "target-cpu=native"]
+```
+9. export a bunch of environment variables (put this in your .bashrc or similar)
+```bash
+export LIBTORCH_USE_PYTORCH=1
+export LIBTORCH_BYPASS_VERSION_CHECK=1
+export LIBTORCH=~/.venv/lib/python3.10/site-packages/torch   # Replace with your own path to torch that was installed by uv
+export LIBTORCH_INCLUDE=$LIBTORCH
+export LD_LIBRARY_PATH=$LIBTORCH/lib:$LD_LIBRARY_PATH
+export LD_PRELOAD=$LIBTORCH/lib/libtorch_cpu.so:$LIBTORCH/lib/libtorch.so
+```
+10. `cargo build --release -p tei`
+11. wait like 15 minutes for it to build
 
 # Reproducing the Plots
 
