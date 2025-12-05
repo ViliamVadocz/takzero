@@ -129,7 +129,7 @@ impl PuzzleResult {
     }
 }
 
-fn tinue(connection: &Connection, depth: i64) -> Statement {
+fn tinue(connection: &Connection, depth: i64) -> Statement<'_> {
     let query = r#"SELECT * FROM puzzles
     JOIN games ON puzzles.game_id = games.id
     WHERE games.size = 6
@@ -147,7 +147,7 @@ fn tinue(connection: &Connection, depth: i64) -> Statement {
     statement
 }
 
-fn avoidance(connection: &Connection, depth: i64) -> Statement {
+fn avoidance(connection: &Connection, depth: i64) -> Statement<'_> {
     let query = r#"SELECT * FROM puzzles
     JOIN games ON puzzles.game_id = games.id
     WHERE games.size = 6
