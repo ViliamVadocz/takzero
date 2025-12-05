@@ -130,6 +130,22 @@ impl<E: Environment> Node<E> {
     /// Panics if there are no children.
     #[must_use]
     pub fn select_best_action(&self) -> E::Action {
+        // Pick based on policy when the children have not been visited yet.
+        if self
+            .children
+            .iter()
+            .map(|(_, child)| child.visit_count)
+            .sum::<u32>()
+            == 0
+        {
+            return self
+                .children
+                .iter()
+                .max_by_key(|(_, child)| child.probability)
+                .expect("there should be at least one child")
+                .0
+                .clone();
+        }
         let best_eval = self
             .children
             .iter()
