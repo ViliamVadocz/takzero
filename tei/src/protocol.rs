@@ -26,6 +26,7 @@ pub enum Input {
     Quit,
 }
 
+#[derive(Eq, PartialEq)]
 pub enum Position {
     StartPos,
     Tps(Tps),

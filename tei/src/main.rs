@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use fast_tak::takparse::Color;
+use fast_tak::takparse::{Color, Move};
 use protocol::{GoOption, Id, Input, Output, ParseInputError, Position, ValueType};
 use takzero::{
     network::{
@@ -151,6 +151,9 @@ fn main() {
     let mut last_info = Instant::now();
     let mut sent_info = false;
 
+    let mut last_position: Position = Position::StartPos;
+    let mut last_moves: Vec<Move> = vec![];
+
     // Process user input
     'main_loop: while !should_stop.load(Ordering::Relaxed) {
         let last_checked_input = Instant::now();
@@ -169,17 +172,32 @@ fn main() {
                 env = Env::default();
             }
             Ok(Input::Position { position, moves }) => {
-                node = Node::default();
-                env = match position {
-                    Position::StartPos => Env::default(),
-                    Position::Tps(tps) => tps.into(),
-                };
-                for my_move in moves {
-                    if let Err(err) = env.play(my_move) {
-                        log::error!("could not play move {my_move}: {err}");
-                        break;
+                if position == last_position && moves.starts_with(&last_moves) {
+                    // Tree re-use!
+                    let new_moves = &moves[last_moves.len()..];
+                    for my_move in new_moves {
+                        node.descend(my_move);
+                        if let Err(err) = env.play(*my_move) {
+                            log::error!("could not play move {my_move}: {err}");
+                            break;
+                        }
+                    }
+                } else {
+                    // Restart
+                    node = Node::default();
+                    env = match &position {
+                        Position::StartPos => Env::default(),
+                        Position::Tps(tps) => tps.clone().into(),
+                    };
+                    for &my_move in &moves {
+                        if let Err(err) = env.play(my_move) {
+                            log::error!("could not play move {my_move}: {err}");
+                            break;
+                        }
                     }
                 }
+                last_position = position;
+                last_moves = moves;
             }
             Ok(Input::Stop) => {
                 go_status = GoStatus::Stopping;
