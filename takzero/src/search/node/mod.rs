@@ -130,14 +130,25 @@ impl<E: Environment> Node<E> {
     /// Panics if there are no children.
     #[must_use]
     pub fn select_best_action(&self) -> E::Action {
-        // Pick based on policy when the children have not been visited yet.
-        if self
+        // If the node is solved, pick the optimal action.
+        if self.evaluation.is_known() {
+            return self
+                .children
+                .iter()
+                .min_by_key(|(_, child)| child.evaluation)
+                .expect("There should be at least one child")
+                .0
+                .clone();
+        }
+
+        let most_visited = self
             .children
             .iter()
-            .map(|(_, child)| child.visit_count)
-            .sum::<u32>()
-            == 0
-        {
+            .max_by_key(|(_, child)| child.visit_count)
+            .expect("There should be at least one child");
+
+        // Pick based on policy when the children have not been visited yet.
+        if most_visited.1.visit_count == 0 {
             return self
                 .children
                 .iter()
@@ -146,21 +157,9 @@ impl<E: Environment> Node<E> {
                 .0
                 .clone();
         }
-        let best_eval = self
-            .children
-            .iter()
-            .map(|(_, child)| child.evaluation)
-            .min()
-            .expect("there should be at least one child");
-        self.children
-            .iter()
-            // If the node is solved, filter for optimal actions.
-            .filter(|(_, child)| !self.evaluation.is_known() || child.evaluation == best_eval)
-            // Select the action with the most visits.
-            .max_by_key(|(_, child)| child.visit_count)
-            .expect("there should be at least one child")
-            .0
-            .clone()
+
+        // Otherwise just return the most visited action.
+        most_visited.0.clone()
     }
 
     /// Return an action to use in selfplay.
@@ -170,35 +169,30 @@ impl<E: Environment> Node<E> {
     /// Panics if there are no children.
     pub fn select_selfplay_action(
         &self,
-        proportional_sample: bool,
+        proportional_sample_with_threshold: Option<u32>,
         rng: &mut impl Rng,
     ) -> E::Action {
-        const THRESHOLD_VISITS: u32 = 32;
-
         if self.evaluation.is_known() {
-            // The node is solved, pick the best action.
-            self.select_best_action()
-        } else if proportional_sample {
-            // Select an action randomly, proportional to visits.
-            self.children
-                .choose_weighted(rng, |(_, child)| {
-                    if child.visit_count >= THRESHOLD_VISITS {
-                        child.visit_count
-                    } else {
-                        0
-                    }
-                })
-                .expect("there should be at least one child with enough visits")
-                .0
-                .clone()
-        } else {
-            // Select the action with the most visits.
-            self.children
-                .iter()
-                .max_by_key(|(_, child)| child.visit_count)
-                .expect("there should be at least one child")
-                .0
-                .clone()
+            return self.select_best_action();
+        }
+        let Some(threshold) = proportional_sample_with_threshold else {
+            return self.select_best_action();
+        };
+
+        // Select an action randomly proportional to visits above the threshold.
+        match self.children.choose_weighted(rng, |(_, child)| {
+            if child.visit_count >= threshold {
+                child.visit_count
+            } else {
+                0
+            }
+        }) {
+            Ok((a, _)) => a.clone(),
+            // No actions have been visited.
+            Err(rand::seq::WeightError::InsufficientNonZero) => self.select_best_action(),
+            Err(err) => {
+                panic!("There should be at least one child, and visits small enough: {err}")
+            }
         }
     }
 

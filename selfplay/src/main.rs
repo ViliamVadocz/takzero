@@ -147,7 +147,7 @@ fn main() {
             .zip(batched_mcts.nodes_and_envs())
             .for_each(|(selected_action, (node, env))| {
                 if env.steps() < WEIGHTED_RANDOM_PLIES {
-                    *selected_action = node.select_selfplay_action(true, &mut rng);
+                    *selected_action = node.select_selfplay_action(Some(32), &mut rng);
                 }
             });
 

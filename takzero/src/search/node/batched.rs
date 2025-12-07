@@ -171,7 +171,10 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
             .iter()
             .zip(&self.envs)
             .map(|(node, env)| {
-                node.select_selfplay_action(env.steps() < weighted_random_steps, rng)
+                node.select_selfplay_action(
+                    (env.steps() < weighted_random_steps).then_some(32),
+                    rng,
+                )
             })
             .collect::<Vec<_>>()
             .try_into()
