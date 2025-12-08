@@ -170,6 +170,7 @@ impl<E: Environment> Node<E> {
     pub fn select_selfplay_action(
         &self,
         proportional_sample_with_threshold: Option<u32>,
+        allowed_eval_drop: NotNan<f32>,
         rng: &mut impl Rng,
     ) -> E::Action {
         if self.evaluation.is_known() {
@@ -179,16 +180,25 @@ impl<E: Environment> Node<E> {
             return self.select_best_action();
         };
 
-        // Select an action randomly proportional to visits above the threshold.
+        let best_eval = self
+            .children
+            .iter()
+            .map(|(_, child)| child.evaluation)
+            .min()
+            .expect("There should be at least one child");
+
+        // Try all filters first (visit)
         match self.children.choose_weighted(rng, |(_, child)| {
-            if child.visit_count >= threshold {
-                child.visit_count
-            } else {
-                0
+            if child.visit_count < threshold
+                || child.evaluation.is_win()
+                || child.evaluation > best_eval.map(|x| x + allowed_eval_drop)
+            {
+                return 0;
             }
+            child.visit_count
         }) {
             Ok((a, _)) => a.clone(),
-            // No actions have been visited.
+            // No actions have enough visits.
             Err(rand::seq::WeightError::InsufficientNonZero) => self.select_best_action(),
             Err(err) => {
                 panic!("There should be at least one child, and visits small enough: {err}")

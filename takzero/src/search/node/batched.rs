@@ -173,6 +173,7 @@ impl<const BATCH_SIZE: usize, E: Environment> BatchedMCTS<BATCH_SIZE, E> {
             .map(|(node, env)| {
                 node.select_selfplay_action(
                     (env.steps() < weighted_random_steps).then_some(32),
+                    NotNan::new(0.5).unwrap(),
                     rng,
                 )
             })
