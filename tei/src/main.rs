@@ -17,14 +17,18 @@ use takzero::{
     search::node::Node,
 };
 use thiserror::Error;
+use rand::prelude::*;
+use fast_tak::Symmetry;
+use ordered_float::NotNan;
 
 mod protocol;
 
 const MAX_ERRORS_IN_A_ROW: usize = 5;
 const DURATION_BETWEEN_INFO_PRINTS: Duration = Duration::from_millis(300);
 const DURATION_BEFORE_CHECKING_INPUT: Duration = Duration::from_secs(1);
-const BATCH_SIZE: usize = 128;
+const BATCH_SIZE: usize = 8;
 const BETA: f32 = 0.0;
+const SAMPLED_PLIES: u16 = 30;
 
 #[allow(clippy::too_many_lines)] // FIXME
 #[allow(clippy::cognitive_complexity)] // FIXME
@@ -32,6 +36,7 @@ fn main() {
     env_logger::init();
     let mut line = String::new();
     let stdin = std::io::stdin();
+    let mut rng = rand::rng();
 
     // Wait for first `tei` message.
     let Ok(Input::Tei) = get_input(&stdin, &mut line) else {
@@ -206,6 +211,43 @@ fn main() {
                 go_options.clear();
                 go_options.extend(options);
                 go_status = GoStatus::Starting;
+
+                // HACK: Opening pamphlet
+                if env.ply == 0 {
+                    println!("{}", Output::BestMove("a6".parse().unwrap()));
+                    go_status = GoStatus::Stopped;
+                } else if env.ply == 1 {
+                    const OPENINGS: &[([&str; 2], u32)] = &[
+                        (["a6", "f1"], 5), // opposite
+                        (["a6", "a1"], 4), // adjacent
+                        (["a6", "a5"], 1), // hug
+                        //
+                        (["b6", "a6"], 1), // reverse hug
+                    ];
+                    let mut viable = vec![];
+                    for &([first, second], weight) in OPENINGS {
+                        let mut dummy = Env::default();
+                        dummy
+                            .play(first.parse().expect("Book moves should be valid moves"))
+                            .expect("Book moves should be safe to play");
+
+                        if let Some((i, _)) = dummy
+                            .symmetries()
+                            .into_iter()
+                            .enumerate()
+                            .find(|(_, symm)| &env == symm)
+                        {
+                            let book_move: Move = second.parse().expect("Book moves should be valid moves");
+                            let symmetries = Symmetry::<N>::symmetries(&book_move);
+                            viable.push((symmetries[i], weight));
+                        }
+                    }
+                    if !viable.is_empty() {
+                        let chosen = viable.choose_weighted(&mut rng, |x| x.1).unwrap();
+                        println!("{}", Output::BestMove(chosen.0));
+                        go_status = GoStatus::Stopped;
+                    }
+                }
             }
             Ok(Input::Option { .. }) => log::warn!("it's too late to specify options"),
             Ok(Input::Tei) => log::warn!("tei does not make sense here"),
@@ -239,7 +281,7 @@ fn main() {
             }
             // Very basic time management.
             if let (None, Some(my_time), Some(my_inc)) = (move_time, my_time, my_inc) {
-                move_time = Some(my_time / 10 + 3 * my_inc / 4);
+                move_time = Some((my_time / 30 + my_inc).min(Duration::from_secs(3)));
             }
             visits_at_start = node.visit_count;
             sent_info = false;
@@ -250,7 +292,8 @@ fn main() {
 
         if matches!(go_status, GoStatus::Going) {
             loop {
-                node.simulate_batch(&net, &env, BETA, BATCH_SIZE);
+                // node.simulate_batch(&net, &env, BETA, BATCH_SIZE);
+                node.simulate_simple(&net, env.clone(), BETA);
                 let visits = (node.visit_count - visits_at_start) as _;
                 let elapsed = start.elapsed();
 
@@ -287,7 +330,7 @@ fn main() {
                     principal_variation: node.principal_variation().collect(),
                 });
             }
-            println!("{}", Output::BestMove(node.select_best_action()));
+            println!("{}", Output::BestMove(node.select_selfplay_action((env.ply < SAMPLED_PLIES).then_some(0), NotNan::new(0.25).unwrap(), &mut rng)));
             nodes = None;
             move_time = None;
             my_time = None;

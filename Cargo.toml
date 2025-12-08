@@ -16,7 +16,7 @@ members = [
 resolver = "2"
 
 [profile.release]
-lto = true
+lto = "thin"
 codegen-units = 1
 
 [profile.release-with-debug]
