@@ -318,7 +318,13 @@ enum GetInputError {
 }
 
 fn get_input(stdin: &std::io::Stdin, line: &mut String) -> Result<Input, GetInputError> {
-    line.clear();
-    stdin.read_line(line)?;
-    Ok(line.trim().parse()?)
+    loop {
+        line.clear();
+        stdin.read_line(line)?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        return Ok(trimmed.parse()?);
+    }
 }
