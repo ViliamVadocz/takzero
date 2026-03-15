@@ -1,4 +1,5 @@
 use std::{
+    num::NonZeroUsize,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::TryRecvError,
@@ -60,11 +61,20 @@ fn main() {
         max: None,
         variables: &["4"]
     });
+    println!("{}", Output::Option {
+        name: "MultiPV",
+        value_type: ValueType::Spin,
+        default: Some("5"),
+        min: Some("1"),
+        max: Some("2048"),
+        variables: &[]
+    });
 
     println!("{}", Output::Ok);
 
     // Configure engine options.
     let mut model_path = None;
+    let mut num_multi_pv = 5;
     loop {
         match get_input(&stdin, &mut line) {
             Ok(Input::IsReady) => break,
@@ -82,6 +92,13 @@ fn main() {
                         );
                         return;
                     }
+                }
+                "MultiPV" => {
+                    let Ok(x) = value.parse::<usize>() else {
+                        log::error!("could not parse multi pv");
+                        return;
+                    };
+                    num_multi_pv = x;
                 }
                 _ => log::warn!("unknown option: {name}"),
             },
@@ -154,8 +171,34 @@ fn main() {
     let mut last_position: Position = Position::StartPos;
     let mut last_moves: Vec<Move> = vec![];
 
-    // Process user input
+    let print_info = |start: Instant, visits_at_start: u32, node: &mut Node<_>| {
+        let elapsed = start.elapsed();
+        node.sort_actions_best_to_worst();
+        println!("{}", Output::Info {
+            time: elapsed,
+            nodes_since_start: (node.visit_count - visits_at_start) as _,
+            nodes: node.visit_count as _,
+            score: node.evaluation,
+            principal_variation: node.principal_variation().collect(),
+            multi_pv: None,
+        });
+        for (multi_pv, (action, child)) in node.children.iter().rev().take(num_multi_pv).enumerate()
+        {
+            println!("{}", Output::Info {
+                time: elapsed,
+                nodes_since_start: 0, // TODO?
+                nodes: child.visit_count as _,
+                score: child.evaluation.negate(),
+                principal_variation: std::iter::once(*action)
+                    .chain(child.principal_variation())
+                    .collect(),
+                multi_pv: Some(NonZeroUsize::new(1 + multi_pv).unwrap()),
+            });
+        }
+    };
+
     'main_loop: while !should_stop.load(Ordering::Relaxed) {
+        // Process user input
         let last_checked_input = Instant::now();
         match if matches!(go_status, GoStatus::Stopped) {
             rx.recv().map_err(|_| TryRecvError::Disconnected)
@@ -251,19 +294,14 @@ fn main() {
         if matches!(go_status, GoStatus::Going) {
             loop {
                 node.simulate_batch(&net, &env, BETA, BATCH_SIZE);
-                let visits = (node.visit_count - visits_at_start) as _;
+                let visits = (node.visit_count - visits_at_start) as usize;
                 let elapsed = start.elapsed();
 
                 let done = nodes.is_some_and(|amount| visits >= amount)
                     || move_time.is_some_and(|duration| elapsed >= duration);
 
                 if last_info.elapsed() >= DURATION_BETWEEN_INFO_PRINTS {
-                    println!("{}", Output::Info {
-                        time: elapsed,
-                        nodes: visits,
-                        score: node.evaluation,
-                        principal_variation: node.principal_variation().collect(),
-                    });
+                    print_info(start, visits_at_start, &mut node);
                     sent_info = true;
                     last_info = Instant::now();
                 }
@@ -280,12 +318,7 @@ fn main() {
 
         if matches!(go_status, GoStatus::Stopping) {
             if !sent_info {
-                println!("{}", Output::Info {
-                    time: start.elapsed(),
-                    nodes: (node.visit_count - visits_at_start) as _,
-                    score: node.evaluation,
-                    principal_variation: node.principal_variation().collect(),
-                });
+                print_info(start, visits_at_start, &mut node);
             }
             println!("{}", Output::BestMove(node.select_best_action()));
             nodes = None;

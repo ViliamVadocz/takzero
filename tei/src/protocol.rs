@@ -1,7 +1,12 @@
 // This is not a complete implementation.
 // https://ucichessengine.wordpress.com/2011/03/16/description-of-uci-protocol/
 
-use std::{fmt, num::ParseIntError, str::FromStr, time::Duration};
+use std::{
+    fmt,
+    num::{NonZeroUsize, ParseIntError},
+    str::FromStr,
+    time::Duration,
+};
 
 use fast_tak::takparse::{Move, ParseMoveError, ParseTpsError, Tps};
 use takzero::search::eval::Eval;
@@ -174,9 +179,11 @@ pub enum Output {
     BestMove(Move),
     Info {
         time: Duration,
+        nodes_since_start: usize,
         nodes: usize,
         score: Eval,
         principal_variation: Vec<Move>,
+        multi_pv: Option<NonZeroUsize>,
     },
 }
 
@@ -239,17 +246,18 @@ impl fmt::Display for Output {
             Self::BestMove(the_move) => write!(f, "bestmove {the_move}"),
             Self::Info {
                 time,
+                nodes_since_start,
                 nodes,
                 score,
                 principal_variation,
+                multi_pv,
             } => {
                 let centipawns = (f32::from(*score) * 100.0).round() as i32;
-                write!(
-                    f,
-                    "info time {} nodes {nodes} nps {}",
-                    time.as_millis(),
-                    1000 * nodes / time.as_millis() as usize,
-                )?;
+                write!(f, "info time {} nodes {nodes}", time.as_millis())?;
+                if multi_pv.is_none() {
+                    let nps = 1000 * nodes_since_start / time.as_millis() as usize;
+                    write!(f, " nps {nps}")?;
+                }
                 match score {
                     Eval::Win(_) => write!(f, " wdl 1000 0 0")?,
                     Eval::Loss(_) => write!(f, " wdl 0 0 1000")?,
@@ -266,6 +274,9 @@ impl fmt::Display for Output {
                     _ => {}
                 }
                 write!(f, " score cp {centipawns}")?;
+                if let Some(n) = multi_pv {
+                    write!(f, " multipv {n}")?;
+                }
                 write!(f, " pv")?;
                 for mv in principal_variation {
                     write!(f, " {mv}")?;
