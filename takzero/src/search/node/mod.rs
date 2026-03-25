@@ -207,9 +207,9 @@ impl<E: Environment> Node<E> {
     }
 
     pub fn sort_actions_best_to_worst(&mut self) {
-        self.children.sort_unstable_by(|(_, a), (_, b)| {
+        self.children.sort_by(|(_, a), (_, b)| {
             if a.evaluation.is_known() || b.evaluation.is_known() {
-                a.evaluation.cmp(&b.evaluation)
+                a.evaluation.negate().cmp(&b.evaluation.negate())
             } else {
                 a.visit_count.cmp(&b.visit_count)
             }
